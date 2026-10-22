@@ -1,0 +1,6 @@
+[tools]
+helm = "3.19.0"
+k3d = "5.9.0"
+kubectl = "1.36.5"
+opentofu = "1.11.7"
+python = "3.12.13"

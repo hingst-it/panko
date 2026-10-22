@@ -1,0 +1,5 @@
+.local/
+.terraform/
+*.tfstate*
+__pycache__/
+.venv/
