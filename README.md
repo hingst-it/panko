@@ -40,3 +40,14 @@ Die Phasen werden einzeln implementiert, im lokalen Cluster geprüft und committ
 
 Phase 0 geprüft: `make cluster-up` zeigt zwei Ready-Nodes (k3s v1.35.5+k3s1).
 Docker läuft hier über Colima; Docker selbst ist bereits installiert.
+
+Postgres läuft als einzelnes StatefulSet mit PVC und offiziellem `postgres:17.11-alpine`
+([offizielle Image-Tags](https://github.com/docker-library/official-images/blob/master/library/postgres)).
+Für dieses Labor ist ein StatefulSet einfacher als ein Chart oder zusätzlicher Operator.
+Das Admin-Secret wird zufällig und nur beim ersten Bootstrap erzeugt. Anwendungsdienste
+bekommen keinen Zugriff darauf; die Runner erhalten später gezielt `get` auf dieses Secret.
+Der kurzlebige Bootstrap-Debug-Pod prüft als Administrator die TCP-/Passwortanmeldung.
+Cluster-Administratoren und Kubelets bleiben naturgemäß privilegiert.
+
+Phase 1 geprüft: Metacontroller v4.17.6 läuft; Debug-Pod meldet eine erfolgreiche
+Passwortverbindung zu PostgreSQL 17.11 über den Cluster-Service.
