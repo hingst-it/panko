@@ -73,3 +73,23 @@ Outputs enthalten ausschließlich Referenzen und den Datenbanknamen.
 Phase 3 geprüft: `tofu init -backend=false`, `tofu validate` und `tofu fmt -check`
 sind erfolgreich. Kubernetes-Authentifizierung kommt aus technischen `KUBE_*`-
 Umgebungsvariablen; dadurch ist validate auch außerhalb eines Pods ausführbar.
+
+## Runner und Berechtigungen
+
+Der Runner verwendet das [offizielle Minimal-Binary-Image](https://opentofu.org/docs/intro/install/docker/)
+und einen beim Build erzeugten Provider-Mirror ohne Netzwerk-Fallback. `make build`
+baut für die lokale Docker-Architektur (ARM64 oder AMD64) und importiert nach k3d.
+Jobs laufen im Namespace ihrer CR; ihre ServiceAccounts dürfen dort Database-CRs
+lesen und Secrets verwalten. Zusätzlich dürfen sie State-Secrets und Lock-Leases
+in `infra-runners` verwalten sowie ausschließlich `postgres-admin` in `infra-backends`
+lesen. Der Kubernetes-Provider braucht außerdem lesenden Cluster-Zugriff auf die
+CRD-Schemas. Der Hook bekommt keinen API-Token.
+
+Nach erfolgreichem Destroy entfernt der Runner das leere Backend-State-Secret und
+seine Lease. Er meldet erst danach Job-Erfolg. Die beiden Eingaben bleiben reine
+CR-Identität; Admin-Credentials sind technische Provider-Authentifizierung.
+
+Phase 4 geprüft: realer Job mit `apply`, Connection-Secret samt ownerReference und
+JSON-Outputs; anschließender `destroy`-Job erfolgreich, State-Secret entfernt.
+Die CRD deklariert `metadata: {type: object}` ohne eigene Beschreibung, damit der
+Provider die impliziten Kubernetes-Metadaten einschließlich UID erkennt.
