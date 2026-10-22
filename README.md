@@ -93,3 +93,24 @@ Phase 4 geprüft: realer Job mit `apply`, Connection-Secret samt ownerReference 
 JSON-Outputs; anschließender `destroy`-Job erfolgreich, State-Secret entfernt.
 Die CRD deklariert `metadata: {type: object}` ohne eigene Beschreibung, damit der
 Provider die impliziten Kubernetes-Metadaten einschließlich UID erkennt.
+
+## Reconciliation
+
+Der Hook hasht kanonisches JSON aus `spec` und Generation. Job-Namen enthalten den
+CR-Namen (bei langen Namen gekürzt) und acht Hashzeichen. Eine laufende ältere
+Generation wird beendet, bevor eine neue startet. Erfolgreiche aktuelle Jobs bleiben
+bis zur TTL von einer Stunde erhalten; der Status verhindert nach Ablauf erneute
+Applies derselben Generation. Alte abgeschlossene Jobs entfernt Metacontroller.
+Fehlgeschlagene Applies werden mit `Failed` gemeldet; eine Spec-Änderung startet
+einen neuen Versuch. Jobs haben ein Zeitlimit von fünf Minuten und keine Pod-Retries.
+
+Beim Löschen wartet der Hook auf laufende Jobs und startet anschließend Destroy.
+Die CR bleibt `Deleting` und behält ihren Finalizer bis zum erfolgreichen Destroy
+inklusive State-Löschung. Fehlgeschlagene Destroy-Jobs bleiben zur Diagnose stehen;
+nach deren gezieltem Löschen durch einen Administrator erfolgt ein neuer Versuch.
+Kein periodischer Drift-Apply ist aktiviert.
+
+Phase 5 geprüft: drei Hook-Tests (Generationen serialisieren, TTL, Finalisierung)
+und ein realer CR-Lauf bis `Ready`, danach Finalizer-Destroy bis zur verschwundenen
+CR und leerem State-Namespace. Runner-Jobs laufen ohne Root und mit schreibgeschütztem
+Root-Dateisystem; nur `/work` und `/tmp` sind beschreibbar.

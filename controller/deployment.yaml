@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: database-hook
+  namespace: infra-runners
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: database-hook}
+  template:
+    metadata:
+      labels: {app: database-hook}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: hook
+          image: panko-hook:dev
+          imagePullPolicy: Never
+          ports: [{containerPort: 8080}]
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8080}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 20m, memory: 32Mi}
+            limits: {memory: 128Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: database-hook
+  namespace: infra-runners
+spec:
+  selector: {app: database-hook}
+  ports: [{port: 8080, targetPort: 8080}]
