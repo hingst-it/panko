@@ -51,3 +51,11 @@ Cluster-Administratoren und Kubelets bleiben naturgemäß privilegiert.
 
 Phase 1 geprüft: Metacontroller v4.17.6 läuft; Debug-Pod meldet eine erfolgreiche
 Passwortverbindung zu PostgreSQL 17.11 über den Cluster-Service.
+
+Phase 2 geprüft: CRD etabliert; Beispiel akzeptiert; `connectionLimit: 0` und eine
+Owner-Änderung werden vom API-Server abgelehnt. Alle fachlichen und Statusfelder
+haben Beschreibungen. Kubernetes definiert `metadata` implizit und verbietet dort
+eine eigene CRD-Beschreibung; das Gateway blendet diese Kubernetes-Hülle aus.
+`owner` ist eine unveränderliche fachliche Teamkennung, der Namespace bestimmt die
+Zugriffsgrenze. Datenbank- und Rollennamen erhalten zusätzlich einen Hash der CR-UID,
+um Kollisionen zwischen Namespaces und nach Neuanlage zu vermeiden.

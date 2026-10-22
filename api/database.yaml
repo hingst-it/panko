@@ -1,0 +1,123 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: databases.platform.example.com
+  labels:
+    platform.example.com/expose: "true"
+spec:
+  group: platform.example.com
+  scope: Namespaced
+  names:
+    plural: databases
+    singular: database
+    kind: Database
+    shortNames: [db]
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - {name: Phase, type: string, jsonPath: .status.phase}
+        - {name: Age, type: date, jsonPath: .metadata.creationTimestamp}
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: A PostgreSQL database with an isolated login role and connection secret.
+          required: [spec]
+          properties:
+            apiVersion:
+              type: string
+              description: Kubernetes API group and version.
+            kind:
+              type: string
+              description: Kubernetes resource kind.
+            spec:
+              type: object
+              description: Desired database configuration, read directly by OpenTofu.
+              required: [owner]
+              x-kubernetes-validations:
+                - rule: self.owner == oldSelf.owner
+                  message: owner is immutable
+              properties:
+                owner:
+                  type: string
+                  minLength: 1
+                  maxLength: 63
+                  pattern: '^[a-z][a-z0-9]*(-[a-z0-9]+)*$'
+                  description: Owning team. Used in the login role name; immutable after creation.
+                extensions:
+                  type: array
+                  default: []
+                  maxItems: 3
+                  x-kubernetes-list-type: set
+                  description: PostgreSQL extensions installed into the database.
+                  items:
+                    type: string
+                    enum: [pgcrypto, uuid-ossp, citext]
+                    description: An extension available in the local PostgreSQL image.
+                connectionLimit:
+                  type: integer
+                  default: 20
+                  minimum: 1
+                  maximum: 100
+                  description: Maximum concurrent connections for both the database and its login role.
+            status:
+              type: object
+              description: Last observed reconciliation result.
+              properties:
+                phase:
+                  type: string
+                  enum: [Pending, Applying, Ready, Failed, Deleting]
+                  description: Current lifecycle phase.
+                observedGeneration:
+                  type: integer
+                  format: int64
+                  minimum: 0
+                  description: Generation of the configuration currently reported by this status.
+                lastAppliedHash:
+                  type: string
+                  description: SHA-256 of spec and generation last successfully applied.
+                message:
+                  type: string
+                  description: Human-readable reconciliation result or failure.
+                connectionSecretRef:
+                  type: object
+                  description: Connection credentials in the resource namespace.
+                  required: [name]
+                  properties:
+                    name:
+                      type: string
+                      description: Name of the Kubernetes connection secret.
+                conditions:
+                  type: array
+                  description: Kubernetes-style lifecycle conditions.
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [type]
+                  items:
+                    type: object
+                    description: An observed condition with its last transition time.
+                    required: [type, status, reason, message, lastTransitionTime, observedGeneration]
+                    properties:
+                      type:
+                        type: string
+                        description: Condition type, for example Ready.
+                      status:
+                        type: string
+                        enum: ["True", "False", Unknown]
+                        description: Whether the condition is satisfied.
+                      reason:
+                        type: string
+                        description: Machine-readable reason for this condition.
+                      message:
+                        type: string
+                        description: Human-readable detail.
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                        description: Time at which the condition last changed.
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                        description: Generation evaluated for this condition.

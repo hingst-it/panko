@@ -1,0 +1,9 @@
+apiVersion: platform.example.com/v1
+kind: Database
+metadata:
+  name: orders
+  namespace: team-a
+spec:
+  owner: team-a
+  extensions: [pgcrypto]
+  connectionLimit: 20
