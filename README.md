@@ -114,3 +114,21 @@ Phase 5 geprüft: drei Hook-Tests (Generationen serialisieren, TTL, Finalisierun
 und ein realer CR-Lauf bis `Ready`, danach Finalizer-Destroy bis zur verschwundenen
 CR und leerem State-Namespace. Runner-Jobs laufen ohne Root und mit schreibgeschütztem
 Root-Dateisystem; nur `/work` und `/tmp` sind beschreibbar.
+
+## Tests und Aufräumen
+
+`make test` prüft echte Ressourcen statt Mocks:
+
+1. CR wird Ready, Secret mit ownerReference existiert, psql meldet sich mit den
+   Anwendungscredentials an und findet pgcrypto.
+2. Eine neue Generation erzeugt einen neuen erfolgreichen Job; Datenbank- und
+   Rollenlimit werden in PostgreSQL auf den neuen Wert geprüft.
+3. Schema- und CEL-Verstöße werden abgelehnt.
+4. Während Destroy bleibt die CR mit Finalizer in Deleting. Nach ihrem Verschwinden
+   sind Datenbank, Rolle, Connection-Secret und State-Secret nachweislich weg.
+5. Zwei CRs in unterschiedlichen Team-Namespaces werden parallel unabhängig Ready.
+
+Phase 6: alle fünf Szenarien erfolgreich ausgeführt. E2E-Namen enthalten eine
+Laufkennung. Bei Fehlern werden normale Löschungen angefordert; Job-Logs bleiben
+zur Diagnose bis zur TTL erhalten. `make clean` löscht alle Database-Instanzen in
+team-a und team-b über den regulären Finalizer. `make cluster-down` entfernt das Labor.
