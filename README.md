@@ -59,3 +59,17 @@ eine eigene CRD-Beschreibung; das Gateway blendet diese Kubernetes-Hülle aus.
 `owner` ist eine unveränderliche fachliche Teamkennung, der Namespace bestimmt die
 Zugriffsgrenze. Datenbank- und Rollennamen erhalten zusätzlich einen Hash der CR-UID,
 um Kollisionen zwischen Namespaces und nach Neuanlage zu vermeiden.
+
+## Terraform-Modul
+
+`terraform/database/` hat genau zwei Eingaben: `namespace` und `name`. Es liest die
+CR über `data "kubernetes_resource"`; `spec` steuert Rolle, Datenbank, Extensions
+und Limits. Ein zusätzlicher `hashicorp/random`-Provider erzeugt ein dauerhaftes
+Login-Passwort im State. Die Provider-Versionen wurden im OpenTofu-Registry geprüft
+und sind mit Lockfile festgelegt. Das Connection-Secret gehört per ownerReference
+zur CR. Der Runner stellt nur technische Admin-Credentials per `PGPASSWORD` bereit.
+Outputs enthalten ausschließlich Referenzen und den Datenbanknamen.
+
+Phase 3 geprüft: `tofu init -backend=false`, `tofu validate` und `tofu fmt -check`
+sind erfolgreich. Kubernetes-Authentifizierung kommt aus technischen `KUBE_*`-
+Umgebungsvariablen; dadurch ist validate auch außerhalb eines Pods ausführbar.
