@@ -1,0 +1,5 @@
+Tool: built-in image_gen (background-extraction, transparent_background=true)
+Input: logo.png at the repository root.
+Output: panko-mark-extracted.png (reference only; canonical variants are generated from tools/build_brand.py).
+
+Use case: background-extraction. Edit target: supplied Panko logo. Produce a clean transparent-background logo mark for an open source project's asset kit. Remove only the off-white background surrounding the orange hexagonal wrapper. Keep the exact six orange segments, their white separation channels and white radial notches, the white central isometric cube and its gray outline, proportions, geometry and orange shading. The cube faces must remain opaque white. Center the mark with a modest even transparent margin. No text, no new design elements, no shadows outside the mark. Actual alpha transparency outside the silhouette.

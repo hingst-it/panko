@@ -1,240 +1,151 @@
-# Panko: OpenTofu als Controller
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/panko-horizontal-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/brand/panko-horizontal-light.svg">
+    <img src="docs/brand/panko-horizontal-light.svg" alt="Panko" width="480">
+  </picture>
+</p>
 
-Lokales Infrastruktur-Labor: Kubernetes ist API und Trigger, OpenTofu provisioniert Postgres.
+<h1 align="center">A thin wrapper for Terraform.</h1>
+
+<p align="center">
+  Turn infrastructure code into a self-service API.<br>
+  Built with OpenTofu, Kubernetes, and a love for open source.
+</p>
+
+<p align="center">
+  <a href="#why-panko">Why Panko</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="docs/local-lab.de.md">Technical guide (Deutsch)</a> ·
+  <a href="docs/brand/README.md">Logo kit</a>
+</p>
+
+## Why Panko?
+
+We love open source. We love writing Terraform: small modules, readable changes, and infrastructure expressed as code that we can review, share, and improve together.
+
+As more teams need infrastructure, the work grows around that code. Who can request a database? Which inputs are valid? Where does state live? What happens when a request changes or a resource is deleted? We want to address those questions at a larger scale while keeping the tools understandable and the platform light.
+
+That is where **Panko** comes in: a thin wrapper between the people requesting infrastructure and the code that provisions it. Platform engineers write the modules and define the resource contract. Teams request resources through an API. Panko connects those requests to short-lived OpenTofu jobs, using Kubernetes for validation, lifecycle, and status.
+
+The ambition is simple: keep the joy of Terraform coding as infrastructure becomes a shared service. Build on open-source tools, keep the moving parts small, and make the path from a request to a resource easy to follow.
+
+**Current status:** Panko is a working local prototype. It provisions PostgreSQL databases with OpenTofu in a k3d cluster and exposes a team-scoped REST API. Supporting larger deployments is the design goal; production readiness and large-scale performance have not been established. The runner currently uses OpenTofu; Terraform CLI execution is not tested or configured.
+
+## How it works
 
 ```mermaid
 flowchart LR
-  Dev[Entwickler / curl] --> Gateway[REST + generiertes OpenAPI]
-  Gateway --> CR[Database CR + CRD-Schema]
-  CR --> Meta[Metacontroller]
-  Meta --> Hook[Python Hook]
-  Hook --> Job[OpenTofu Job]
-  Job -->|liest spec selbst| CR
-  Job --> PG[Postgres]
-  Job --> Secret[Connection Secret + State Secret]
+  Team[Team / API client] --> Gateway[REST API + OpenAPI]
+  Gateway --> CR[Kubernetes custom resource]
+  CR --> Controller[Metacontroller + Python hook]
+  Controller --> Job[Short-lived OpenTofu job]
+  Job -->|reads resource spec| CR
+  Job --> Infrastructure[PostgreSQL database + role]
+  Job --> Secrets[Connection secret + state]
+  Controller -->|reports lifecycle| CR
 ```
 
-Setup (Docker muss laufen; Werkzeuge über mise):
+- **One resource contract.** CRDs define fields, defaults, and validation. The gateway derives OpenAPI from exposed CRDs, including resources added at runtime.
+- **A small provisioning boundary.** The example module takes only a resource's namespace and name, then reads its spec directly. The gateway does not maintain a second mapping of business fields to Terraform variables.
+- **Jobs for execution.** The controller starts OpenTofu jobs for changed generations, serializes changes per resource, and reports their outcome.
+- **An explicit lifecycle.** A finalizer keeps a resource in `Deleting` until its destroy job and state cleanup succeed. Credentials are delivered through a connection Secret.
+- **Team-scoped access.** Local bearer tokens map requests to team namespaces, backed by explicit Kubernetes RBAC.
+
+“Thin” describes Panko's own layer. It still relies on Kubernetes, Metacontroller, and OpenTofu. This approach is aimed at teams that want to use those building blocks to expose infrastructure code as a service.
+
+## Quick start
+
+You need a running Docker engine and [mise](https://mise.jdx.dev/). Tool versions are pinned in [mise.toml](mise.toml). Run these commands from the repository root:
 
 ```sh
-mise trust && mise install && make cluster-up
-make bootstrap && make build && make deploy
+mise trust
+mise install
+make cluster-up
+make bootstrap
+make build
+make deploy
 make test
 ```
 
-Alle Befehle verwenden `.local/kubeconfig`; bestehende Kubernetes-Kontexte bleiben unberührt.
-`make cluster-down` entfernt ausschließlich den k3d-Cluster `infra-lab` einschließlich seiner Daten.
+This creates the `infra-lab` k3d cluster, bootstraps PostgreSQL and Metacontroller, builds the runner and gateway images, deploys Panko, and runs the database lifecycle tests. Commands use `.local/kubeconfig` and leave your existing Kubernetes contexts unchanged. Initial setup and image builds require internet access.
 
-## Entscheidungen und geprüfte Quellen
+### Request a database
 
-- k3d mit einem Server und einem Agent; Versionen in `mise.toml`.
-- [k3d Installationsdokumentation](https://k3d.io/stable/).
-- [Metacontroller Installation](https://metacontroller.github.io/metacontroller/guide/install.html)
-  und [OCI Helm-Chart](https://metacontroller.github.io/metacontroller/guide/helm-install.html).
-- [OpenTofu Kubernetes-Backend](https://opentofu.org/docs/language/settings/backends/kubernetes/):
-  ein Secret pro Instanz; Leases sperren parallele State-Zugriffe.
-
-## Prüfstand
-
-Die Phasen werden einzeln implementiert, im lokalen Cluster geprüft und committed.
-
-Phase 0 geprüft: `make cluster-up` zeigt zwei Ready-Nodes (k3s v1.35.5+k3s1).
-Docker läuft hier über Colima; Docker selbst ist bereits installiert.
-
-Postgres läuft als einzelnes StatefulSet mit PVC und offiziellem `postgres:17.11-alpine`
-([offizielle Image-Tags](https://github.com/docker-library/official-images/blob/master/library/postgres)).
-Für dieses Labor ist ein StatefulSet einfacher als ein Chart oder zusätzlicher Operator.
-Das Admin-Secret wird zufällig und nur beim ersten Bootstrap erzeugt. Anwendungsdienste
-bekommen keinen Zugriff darauf; die Runner erhalten später gezielt `get` auf dieses Secret.
-Der kurzlebige Bootstrap-Debug-Pod prüft als Administrator die TCP-/Passwortanmeldung.
-Cluster-Administratoren und Kubelets bleiben naturgemäß privilegiert.
-
-Phase 1 geprüft: Metacontroller v4.17.6 läuft; Debug-Pod meldet eine erfolgreiche
-Passwortverbindung zu PostgreSQL 17.11 über den Cluster-Service.
-
-Phase 2 geprüft: CRD etabliert; Beispiel akzeptiert; `connectionLimit: 0` und eine
-Owner-Änderung werden vom API-Server abgelehnt. Alle fachlichen und Statusfelder
-haben Beschreibungen. Kubernetes definiert `metadata` implizit und verbietet dort
-eine eigene CRD-Beschreibung; das Gateway blendet diese Kubernetes-Hülle aus.
-`owner` ist eine unveränderliche fachliche Teamkennung, der Namespace bestimmt die
-Zugriffsgrenze. Datenbank- und Rollennamen erhalten zusätzlich einen Hash der CR-UID,
-um Kollisionen zwischen Namespaces und nach Neuanlage zu vermeiden.
-
-## Terraform-Modul
-
-`terraform/database/` hat genau zwei Eingaben: `namespace` und `name`. Es liest die
-CR über `data "kubernetes_resource"`; `spec` steuert Rolle, Datenbank, Extensions
-und Limits. Ein zusätzlicher `hashicorp/random`-Provider erzeugt ein dauerhaftes
-Login-Passwort im State. Die Provider-Versionen wurden im OpenTofu-Registry geprüft
-und sind mit Lockfile festgelegt. Das Connection-Secret gehört per ownerReference
-zur CR. Der Runner stellt nur technische Admin-Credentials per `PGPASSWORD` bereit.
-Outputs enthalten ausschließlich Referenzen und den Datenbanknamen.
-
-Phase 3 geprüft: `tofu init -backend=false`, `tofu validate` und `tofu fmt -check`
-sind erfolgreich. Kubernetes-Authentifizierung kommt aus technischen `KUBE_*`-
-Umgebungsvariablen; dadurch ist validate auch außerhalb eines Pods ausführbar.
-
-## Runner und Berechtigungen
-
-Der Runner verwendet das [offizielle Minimal-Binary-Image](https://opentofu.org/docs/intro/install/docker/)
-und einen beim Build erzeugten Provider-Mirror ohne Netzwerk-Fallback. `make build`
-baut für die lokale Docker-Architektur (ARM64 oder AMD64) und importiert nach k3d.
-Jobs laufen im Namespace ihrer CR; ihre ServiceAccounts dürfen dort Database-CRs
-lesen und Secrets verwalten. Zusätzlich dürfen sie State-Secrets und Lock-Leases
-in `infra-runners` verwalten sowie ausschließlich `postgres-admin` in `infra-backends`
-lesen. Der Kubernetes-Provider braucht außerdem lesenden Cluster-Zugriff auf die
-CRD-Schemas. Der Hook bekommt keinen API-Token.
-
-Nach erfolgreichem Destroy entfernt der Runner das leere Backend-State-Secret und
-seine Lease. Er meldet erst danach Job-Erfolg. Die beiden Eingaben bleiben reine
-CR-Identität; Admin-Credentials sind technische Provider-Authentifizierung.
-
-Phase 4 geprüft: realer Job mit `apply`, Connection-Secret samt ownerReference und
-JSON-Outputs; anschließender `destroy`-Job erfolgreich, State-Secret entfernt.
-Die CRD deklariert `metadata: {type: object}` ohne eigene Beschreibung, damit der
-Provider die impliziten Kubernetes-Metadaten einschließlich UID erkennt.
-
-## Reconciliation
-
-Der Hook hasht kanonisches JSON aus `spec` und Generation. Job-Namen enthalten den
-CR-Namen (bei langen Namen gekürzt) und acht Hashzeichen. Eine laufende ältere
-Generation wird beendet, bevor eine neue startet. Erfolgreiche aktuelle Jobs bleiben
-bis zur TTL von einer Stunde erhalten; der Status verhindert nach Ablauf erneute
-Applies derselben Generation. Alte abgeschlossene Jobs entfernt Metacontroller.
-Fehlgeschlagene Applies werden mit `Failed` gemeldet; eine Spec-Änderung startet
-einen neuen Versuch. Jobs haben ein Zeitlimit von fünf Minuten und keine Pod-Retries.
-
-Beim Löschen wartet der Hook auf laufende Jobs und startet anschließend Destroy.
-Die CR bleibt `Deleting` und behält ihren Finalizer bis zum erfolgreichen Destroy
-inklusive State-Löschung. Fehlgeschlagene Destroy-Jobs bleiben zur Diagnose stehen;
-nach deren gezieltem Löschen durch einen Administrator erfolgt ein neuer Versuch.
-Kein periodischer Drift-Apply ist aktiviert.
-
-Phase 5 geprüft: drei Hook-Tests (Generationen serialisieren, TTL, Finalisierung)
-und ein realer CR-Lauf bis `Ready`, danach Finalizer-Destroy bis zur verschwundenen
-CR und leerem State-Namespace. Runner-Jobs laufen ohne Root und mit schreibgeschütztem
-Root-Dateisystem; nur `/work` und `/tmp` sind beschreibbar.
-
-## Tests und Aufräumen
-
-`make test` prüft echte Ressourcen statt Mocks:
-
-1. CR wird Ready, Secret mit ownerReference existiert, psql meldet sich mit den
-   Anwendungscredentials an und findet pgcrypto.
-2. Eine neue Generation erzeugt einen neuen erfolgreichen Job; Datenbank- und
-   Rollenlimit werden in PostgreSQL auf den neuen Wert geprüft.
-3. Schema- und CEL-Verstöße werden abgelehnt.
-4. Während Destroy bleibt die CR mit Finalizer in Deleting. Nach ihrem Verschwinden
-   sind Datenbank, Rolle, Connection-Secret und State-Secret nachweislich weg.
-5. Zwei CRs in unterschiedlichen Team-Namespaces werden parallel unabhängig Ready.
-
-Phase 6: alle fünf Szenarien erfolgreich ausgeführt. E2E-Namen enthalten eine
-Laufkennung. Bei Fehlern werden normale Löschungen angefordert; Job-Logs bleiben
-zur Diagnose bis zur TTL erhalten. `make clean` löscht alle Database-Instanzen in
-team-a und team-b über den regulären Finalizer. `make cluster-down` entfernt das Labor.
-
-## Entwickler-API
-
-Der Gateway nutzt FastAPI für HTTP und Swagger UI. Das OpenAPI-Dokument erzeugt
-`gateway/schema.py` direkt aus den aktuellen, mit
-`platform.example.com/expose: "true"` markierten CRDs. `spec`, `status`, Defaults,
-Enums und Beschreibungen stammen aus deren `openAPIV3Schema`; es gibt keine
-fachlichen Pydantic-Modelle oder Terraform-Variablen-Mappings. Das Dokument wird
-bei jeder Abfrage neu erzeugt. Neue namespaced CRDs mit `spec` erscheinen ohne
-Neubau oder Neustart. Alle served-Versionen erhalten eigene Routen. Die API
-verwendet die Version und den Pluralnamen aus der CRD; kollidierende Routen
-verschiedener Gruppen werden als Konfigurationsfehler gemeldet.
-
-Der kleine Request-Umschlag (`name` + `spec`), HTTP-Fehler und die Team-Route sind
-Transportdefinitionen. Das fachliche Schema wird weder kopiert noch von Hand
-gepflegt. Kubernetes-`nullable` wird nach JSON Schema 2020-12 übersetzt. PATCH nutzt
-JSON Merge Patch; optionale Felder lassen sich mit null entfernen bzw. auf ihre
-Defaults zurücksetzen. Validierungen einschließlich CEL wertet ausschließlich der
-API-Server aus. Fehler kommen mit HTTP 422 sowie `errors[].field` und
-`errors[].message` zurück. Unbekannte Felder werden strikt abgelehnt.
-
-Als Administrator einmal in einem eigenen Terminal starten:
+Start the local gateway in a separate terminal:
 
 ```sh
 make gateway-forward
 ```
 
-Der lokale Port ist standardmäßig 8081 (`make gateway-forward GATEWAY_PORT=9090`
-ändert ihn). Port 8080 ist auf diesem Rechner bereits durch einen SSH-Tunnel belegt.
-Danach funktioniert die Entwicklerseite ausschließlich per HTTP; sie braucht
-weder Kubernetes-Zugang noch Kubernetes-Metadaten. Lokale Tokens liegen in der
-ignorierten Datei `.local/team-tokens.json` (Dateimodus 0600) sowie im gemounteten
-Secret `infra-runners/gateway-auth`. Beispiel im zweiten Terminal:
+Then load the local `team-a` token and create a database:
 
 ```sh
 TOKEN="$(mise exec -- python -c 'import json; print(json.load(open(".local/team-tokens.json"))["team-a"])')"
-curl -sS -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"name":"orders","spec":{"owner":"team-a","extensions":["pgcrypto"],"connectionLimit":20}}' \
-  http://127.0.0.1:8081/v1/teams/team-a/databases
-curl -sS -H "Authorization: Bearer $TOKEN" \
-  http://127.0.0.1:8081/v1/teams/team-a/databases/orders
-curl -sS -X DELETE -H "Authorization: Bearer $TOKEN" \
-  http://127.0.0.1:8081/v1/teams/team-a/databases/orders
+
+curl -sS http://127.0.0.1:8081/v1/teams/team-a/databases \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"orders","spec":{"owner":"team-a","extensions":["pgcrypto"],"connectionLimit":20}}'
 ```
 
-- Dokument: <http://127.0.0.1:8081/openapi.json>
-- Swagger UI: <http://127.0.0.1:8081/docs> (Authorize: Team-Token eingeben)
-- `make test-gateway`: curl-Lebenszyklus, Team-Isolation, Fehlermeldungen, dynamische
-  Dummy-CRD, OpenAPI-Generator-Validierung und tatsächliche Python-Client-Generierung.
-  Ergebnisse stehen unter `.local/openapi.json` und `.local/generated-client/`.
+Check the resource until its status reports `Ready`:
 
-### Gateway-RBAC und neue CRDs
+```sh
+curl -sS http://127.0.0.1:8081/v1/teams/team-a/databases/orders \
+  -H "Authorization: Bearer $TOKEN"
+```
 
-Der Gateway darf CRD-Schemas lesen, ausschließlich die explizit exponierten
-Ressourcentypen in `team-a` und `team-b` verwalten und weder Secrets noch Jobs oder
-Status-Subresources verändern. Team-Tokens werden vor jedem Ressourcenzugriff
-geprüft und gelten genau für einen Namespace. Gateway und Runner verwenden
-unterschiedliche ServiceAccounts.
+The runner creates an `orders-connection` Secret in `team-a` with the connection details. Credentials stay out of the HTTP resource response.
 
-Die automatische OpenAPI-Discovery braucht keine Schreibrechte. Nach Hinzufügen
-oder Entfernen einer exponierten CRD synchronisiert der Administrator mit
-`make gateway-rbac` die daraus generierten Role-Regeln. Dadurch erhält der Gateway
-keine Rechte zur eigenen RBAC-Erweiterung und keine Ressourcen-Wildcards. Auch ohne
-diese Synchronisierung erscheint die neue CRD bereits im OpenAPI-Dokument; für
-CRUD werden die expliziten Rechte benötigt. `make deploy` führt den Abgleich ebenfalls
-aus. `test/dummy-crd.yaml` demonstriert dies und wird beim Gateway-Test wieder entfernt.
+Delete the database through the same API:
 
-### Später OIDC
+```sh
+curl -sS -X DELETE http://127.0.0.1:8081/v1/teams/team-a/databases/orders \
+  -H "Authorization: Bearer $TOKEN"
+```
 
-Die Token-Prüfung in `authorize` wird durch JWT-Prüfung gegen die JWKS des
-OIDC-Providers ersetzt (Issuer, Audience, Signatur und Ablauf validieren).
-Ein serverseitig kontrollierter Gruppen-/Team-Claim bestimmt den erlaubten
-Namespace; der URL-Parameter allein erteilt keine Berechtigung. TLS und ein
-Authentifizierungs-Proxy können vor dem Gateway terminieren. Für zusätzliche
-Kubernetes-seitige Isolation eignen sich teambezogene ServiceAccounts oder eng
-begrenzte Impersonation-Rechte; aktuell schützt der gemeinsame Gateway-SA beide
-Team-Namespaces, die Teamgrenze setzt der Gateway durch.
+Deletion is asynchronous: the finalizer waits for OpenTofu to destroy the database and role and clean up state before the custom resource disappears.
 
-## Bekannte Grenzen
+Explore the API at [Swagger UI](http://127.0.0.1:8081/docs) or retrieve the [OpenAPI document](http://127.0.0.1:8081/openapi.json). Use your team token to authorize requests. Set `GATEWAY_PORT` to change the local port, for example `make gateway-forward GATEWAY_PORT=9090`.
 
-- Lokales Labor mit einem Postgres und PVC: keine Hochverfügbarkeit, Backups,
-  TLS zu Postgres oder produktionsreife Mandantenisolation im Datenbankserver.
-- Kubernetes-State-Secrets enthalten Login-Passwörter; Secret-Größe maximal 1 MiB.
-  Die Runner gelten als vertrauenswürdig und verwalten States beider Teams.
-  Die Metacontroller-Installation verwendet die breiten Standardrechte des Charts.
-- Nur die beiden konfigurierten Team-Namespaces sind provisioniert. Weitere Teams
-  benötigen explizite Namespace-/RBAC-Konfiguration und ein Token. Exponierte APIs
-  sind namespaced und verwenden `spec`; keine clusterweiten Team-Routen.
-- Applies erfolgen bei Spec-/Generationsänderungen. Ein verlorenes Secret oder
-  externe Drift löst derzeit keinen periodischen Apply aus. Kein automatischer
-  Retry fehlgeschlagener Applies derselben Generation.
-- Die CR wird beim Apply live gelesen. Ändert sie sich während des Jobs, folgt
-  anschließend ein weiterer Job für die neue Generation; es gibt keinen Snapshot.
-- Gleichzeitige Änderungen werden als Merge Patches verarbeitet; kein ETag-Vertrag.
-  Listen sind für das kleine Labor ungepaginiert. Swagger lädt UI-Dateien vom CDN.
-- Images verwenden lokale `:dev`-Tags; `make build && make deploy` importiert und
-  startet die Dienste neu. Bestehende Jobs werden nicht verändert. Provider sind
-  im Image enthalten; der erstmalige Image-Build und lokale Tests brauchen Internet.
+### Validate and clean up
 
-Phase 7 geprüft: curl-CRUD bis Ready und zurück bis zur vollständigen Löschung,
-Login mit den provisionierten Credentials, Schema-/CEL-Fehler mit Feldpfaden,
-Team-Isolation und verbotene Gateway-Rechte. Eine zur Laufzeit hinzugefügte
-Widget-CRD erschien ohne Codeänderung im Dokument und ließ sich über dieselben
-generischen Routen verwalten. OpenAPI Generator v7.26.0 meldet
-`No validation issues detected` und erzeugt daraus einen syntaktisch geprüften
-Python-Client. Die abschließende vollständige `make test`-Suite ist erfolgreich.
+| Command | Purpose |
+| --- | --- |
+| `make test` | Exercise provisioning, updates, schema validation, deletion, and parallel resources across two team namespaces. |
+| `make test-gateway` | Check HTTP lifecycle, team isolation, dynamic CRD discovery, OpenAPI validation, and generated Python client code. |
+| `make gateway-rbac` | Rebuild explicit gateway permissions after changing exposed resource types. |
+| `make clean` | Delete all Database resources in `team-a` and `team-b` through their regular finalizers. |
+| `make cluster-down` | Remove the entire `infra-lab` cluster, including its data. |
+
+## Inside the repository
+
+| Path | Responsibility |
+| --- | --- |
+| [api/](api/) | Database CRD, validation, and an example resource. |
+| [terraform/database/](terraform/database/) | OpenTofu module for the PostgreSQL role, database, extensions, and connection Secret. |
+| [controller/](controller/) | Reconciliation hook and Metacontroller configuration. |
+| [runner/](runner/) | Job image, bundled provider mirror, and apply/destroy execution. |
+| [gateway/](gateway/) | REST API, CRD-derived OpenAPI, team authorization, and RBAC generation. |
+| [cluster/](cluster/) | Local cluster setup, PostgreSQL, and deployment scripts. |
+| [test/](test/) | Controller checks and cluster-backed lifecycle/API tests. |
+| [docs/local-lab.de.md](docs/local-lab.de.md) | Original German technical guide and implementation/verification notes. |
+| [docs/brand/](docs/brand/) | Logos, wordmarks, monochrome variants, icons, and social artwork. |
+
+## Scope and limitations
+
+The local example demonstrates the full request-to-resource lifecycle. It currently uses one PostgreSQL instance with a PVC, two configured team namespaces, local development images, and static team tokens. High availability, backups, PostgreSQL TLS, OIDC authentication, and production-grade tenant isolation are outside the implemented scope.
+
+Applies run on spec/generation changes. There is no periodic drift reconciliation or automatic retry of a failed apply for the same generation. Failed destroys retain the finalizer for diagnosis and require an administrator to remove the failed job before retrying.
+
+OpenTofu state lives in Kubernetes Secrets and includes credentials. The runner is trusted across both teams, and the gateway enforces the team boundary using a shared service account. See the [technical guide](docs/local-lab.de.md#bekannte-grenzen) for state limits, RBAC details, concurrency behavior, and other operational constraints.
+
+## Build with us
+
+Panko grows out of an appreciation for open source and the people who make infrastructure tools better together. Ideas, bug reports, documentation improvements, and focused patches are welcome. Help us make the wrapper useful while keeping its responsibilities clear and its implementation small.
+
+For a change, explain the infrastructure workflow it improves and how you checked it. The lifecycle and gateway tests above are useful starting points when changing runtime behavior.
+
+The repository does not yet include a license file; an explicit open-source license still needs to be selected and added by the maintainers.
