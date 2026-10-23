@@ -6,6 +6,8 @@ export KUBECONFIG="${KUBECONFIG:-$PWD/.local/kubeconfig}"
 kubectl create namespace infra-gateway --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f api/database.yaml
 .local/bin/admin runner-rbac | kubectl apply -f -
+# Runner Jobs fetch the module with this read-only deploy key.
+.local/bin/admin --ssh-key-file "${MODULE_SSH_KEY_FILE:-.local/module-deploy-key}" module-secret | kubectl apply -f -
 kubectl apply -f controller/deployment.yaml
 kubectl -n infra-runners rollout restart deploy/database-hook
 kubectl -n infra-runners rollout status deploy/database-hook --timeout=120s

@@ -81,6 +81,12 @@ spec:
                 lastAppliedHash:
                   type: string
                   description: SHA-256 of spec and generation last successfully applied.
+                lastAppliedRevision:
+                  type: string
+                  description: Module commit last successfully applied; teardown uses this revision.
+                observedRevision:
+                  type: string
+                  description: Module commit the current phase refers to.
                 message:
                   type: string
                   description: Human-readable reconciliation result or failure.

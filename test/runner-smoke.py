@@ -27,6 +27,14 @@ def main():
         digest = hashlib.sha256(json.dumps({'spec': snapshot['spec'], 'generation': snapshot['metadata']['generation']},
                                           sort_keys=True, separators=(',', ':')).encode()).hexdigest()
         fixture = json.loads(Path('testdata/reconcile.json').read_text())[0]['expected']['children'][0]
+        # The fixture holds test values; run the engine and module the deployed hook is configured with.
+        hook_env = {item['name']: item.get('value', '') for item in
+                    get('deployment', 'database-hook', 'infra-runners')['spec']['template']['spec']['containers'][0].get('env', [])}
+        text = json.dumps(fixture)
+        for test_value, key in (('engine:test', 'ENGINE_IMAGE'), ('git-sync:test', 'GIT_SYNC_IMAGE'),
+                                ('git@example.com:panko/module.git', 'MODULE_REPO'), ('1' * 40, 'MODULE_REVISION')):
+            text = text.replace(test_value, hook_env[key])
+        fixture = json.loads(text)
         for action in ('apply', 'destroy'):
             job_name = name + '-' + action
             child = copy.deepcopy(fixture)
@@ -34,8 +42,9 @@ def main():
             container = child['spec']['template']['spec']['containers'][0]
             container['image'] = os.environ.get('RUNNER_IMAGE', 'panko-runner:dev')
             container['args'] = [action, 'team-a', name]
-            container['env'] = [{'name': key, 'value': value} for key, value in {
-                'PANKO_RESOURCE': json.dumps(snapshot), 'PANKO_HASH': digest, 'PANKO_JOB': job_name}.items()]
+            values = {'PANKO_RESOURCE': json.dumps(snapshot), 'PANKO_HASH': digest, 'PANKO_JOB': job_name}
+            container['env'] = [item for item in container['env'] if item['name'] not in values] + [
+                {'name': key, 'value': value} for key, value in values.items()]
             kube('create', '-f', '-', obj=child)
             job_names.append(job_name)
             def completed():

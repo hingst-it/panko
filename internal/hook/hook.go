@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -57,12 +59,44 @@ func Children(r Request) []Object {
 	}
 	return result
 }
-func CreateJob(parent Object, action, hash string, generation, attempt int64, retry string) (Object, error) {
+
+// JobConfig selects the engine image and the pinned module revision each Job assembles at start.
+type JobConfig struct {
+	RunnerImage, EngineImage, EngineBinary, GitSyncImage, ModuleRepo, ModuleRevision, ModuleSecret string
+}
+
+var revisionPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+func LoadJobConfig() JobConfig {
+	value := func(key, fallback string) string {
+		if v := os.Getenv(key); v != "" {
+			return v
+		}
+		return fallback
+	}
+	return JobConfig{RunnerImage: value("RUNNER_IMAGE", "panko-runner:dev"), EngineImage: os.Getenv("ENGINE_IMAGE"), EngineBinary: value("ENGINE_BINARY", "/usr/local/bin/tofu"),
+		GitSyncImage: os.Getenv("GIT_SYNC_IMAGE"), ModuleRepo: os.Getenv("MODULE_REPO"), ModuleRevision: os.Getenv("MODULE_REVISION"), ModuleSecret: value("MODULE_SECRET", "panko-module-git")}
+}
+func (c JobConfig) Validate() error {
+	if c.EngineImage == "" || c.GitSyncImage == "" || c.ModuleRepo == "" {
+		return fmt.Errorf("ENGINE_IMAGE, GIT_SYNC_IMAGE and MODULE_REPO are required")
+	}
+	// A moving branch or tag would change the module without a new apply.
+	if !revisionPattern.MatchString(c.ModuleRevision) {
+		return fmt.Errorf("MODULE_REVISION must be a full commit SHA")
+	}
+	if !strings.HasPrefix(c.EngineBinary, "/") {
+		return fmt.Errorf("ENGINE_BINARY must be an absolute path")
+	}
+	return nil
+}
+func CreateJob(parent Object, action, hash, revision string, generation, attempt int64, retry string) (Object, error) {
 	meta, err := Metadata(parent)
 	if err != nil {
 		return nil, err
 	}
-	d := sha256.Sum256([]byte(fmt.Sprintf("%s:%s:%s:%d:%s", meta.UID, hash, action, attempt, retry)))
+	config := LoadJobConfig()
+	d := sha256.Sum256([]byte(fmt.Sprintf("%s:%s:%s:%d:%s:%s", meta.UID, hash, action, attempt, retry, revision)))
 	prefix := meta.Name
 	if len(prefix) > 20 {
 		prefix = prefix[:20]
@@ -70,20 +104,29 @@ func CreateJob(parent Object, action, hash string, generation, attempt int64, re
 	prefix = strings.TrimRight(prefix, "-.")
 	name := "db-" + prefix + "-" + hex.EncodeToString(d[:])[:24] + "-" + action
 	snapshot := Object{"metadata": Object{"name": meta.Name, "namespace": meta.Namespace, "uid": meta.UID, "generation": meta.Generation}, "spec": parent["spec"]}
-	image := os.Getenv("RUNNER_IMAGE")
-	if image == "" {
-		image = "panko-runner:dev"
-	}
+	engine := "/engine/" + path.Base(config.EngineBinary)
+	restricted := Object{"allowPrivilegeEscalation": false, "readOnlyRootFilesystem": true, "capabilities": Object{"drop": []any{"ALL"}}}
+	// git-sync needs its image's own passwd entry for SSH; the pod fsGroup grants it the key.
+	gitUser := Object{"allowPrivilegeEscalation": false, "readOnlyRootFilesystem": true, "capabilities": Object{"drop": []any{"ALL"}}, "runAsUser": 65533, "runAsGroup": 65533}
+	small := Object{"requests": Object{"cpu": "50m", "memory": "32Mi"}, "limits": Object{"memory": "128Mi"}}
 	return Object{"apiVersion": "batch/v1", "kind": "Job", "metadata": Object{"name": name, "namespace": meta.Namespace,
-		"labels": Object{Prefix + "uid": meta.UID}, "annotations": Object{Prefix + "hash": hash, Prefix + "action": action, Prefix + "generation": strconv.FormatInt(generation, 10), Prefix + "attempt": strconv.FormatInt(attempt, 10), Prefix + "retry-token": retry}},
+		"labels": Object{Prefix + "uid": meta.UID}, "annotations": Object{Prefix + "hash": hash, Prefix + "action": action, Prefix + "generation": strconv.FormatInt(generation, 10), Prefix + "attempt": strconv.FormatInt(attempt, 10), Prefix + "retry-token": retry, Prefix + "module-revision": revision}},
 		"spec": Object{"backoffLimit": 0, "activeDeadlineSeconds": 300, "ttlSecondsAfterFinished": 3600, "template": Object{"spec": Object{
 			"serviceAccountName": "tofu-runner", "restartPolicy": "Never", "securityContext": Object{"runAsNonRoot": true, "runAsUser": 1000, "fsGroup": 1000},
-			"containers": []any{Object{"name": "tofu", "image": image, "imagePullPolicy": "Never", "args": []any{action, meta.Namespace, meta.Name},
-				"env":             []any{Object{"name": "PANKO_RESOURCE", "value": string(jsonx.Encode(snapshot))}, Object{"name": "PANKO_HASH", "value": hash}, Object{"name": "PANKO_JOB", "value": name}},
-				"securityContext": Object{"allowPrivilegeEscalation": false, "readOnlyRootFilesystem": true, "capabilities": Object{"drop": []any{"ALL"}}},
+			"initContainers": []any{
+				Object{"name": "engine", "image": config.EngineImage, "imagePullPolicy": "IfNotPresent", "command": []any{"cp", config.EngineBinary, engine},
+					"securityContext": restricted, "resources": small, "volumeMounts": []any{Object{"name": "engine", "mountPath": "/engine"}}},
+				Object{"name": "module", "image": config.GitSyncImage, "imagePullPolicy": "IfNotPresent",
+					"args":            []any{"--repo=" + config.ModuleRepo, "--ref=" + revision, "--root=/module", "--link=current", "--one-time", "--depth=1", "--submodules=off"},
+					"securityContext": gitUser, "resources": small,
+					"volumeMounts": []any{Object{"name": "module", "mountPath": "/module"}, Object{"name": "git-secret", "mountPath": "/etc/git-secret", "readOnly": true}, Object{"name": "git-tmp", "mountPath": "/tmp"}}}},
+			"containers": []any{Object{"name": "tofu", "image": config.RunnerImage, "imagePullPolicy": "Never", "args": []any{action, meta.Namespace, meta.Name},
+				"env":             []any{Object{"name": "PANKO_RESOURCE", "value": string(jsonx.Encode(snapshot))}, Object{"name": "PANKO_HASH", "value": hash}, Object{"name": "PANKO_JOB", "value": name}, Object{"name": "PANKO_ENGINE", "value": engine}, Object{"name": "PANKO_MODULE", "value": "/module/current"}},
+				"securityContext": restricted,
 				"resources":       Object{"requests": Object{"cpu": "100m", "memory": "128Mi"}, "limits": Object{"memory": "512Mi"}},
-				"volumeMounts":    []any{Object{"name": "work", "mountPath": "/work"}, Object{"name": "tmp", "mountPath": "/tmp"}}}},
-			"volumes": []any{Object{"name": "work", "emptyDir": Object{}}, Object{"name": "tmp", "emptyDir": Object{}}}}}}}, nil
+				"volumeMounts":    []any{Object{"name": "work", "mountPath": "/work"}, Object{"name": "tmp", "mountPath": "/tmp"}, Object{"name": "engine", "mountPath": "/engine", "readOnly": true}, Object{"name": "module", "mountPath": "/module", "readOnly": true}}}},
+			"volumes": []any{Object{"name": "work", "emptyDir": Object{}}, Object{"name": "tmp", "emptyDir": Object{}}, Object{"name": "engine", "emptyDir": Object{}}, Object{"name": "module", "emptyDir": Object{}}, Object{"name": "git-tmp", "emptyDir": Object{}},
+				Object{"name": "git-secret", "secret": Object{"secretName": config.ModuleSecret, "defaultMode": 0440}}}}}}}, nil
 }
 func Retain(child Object) Object {
 	meta := Object{}
@@ -146,6 +189,18 @@ func attempt(child Object) int64 {
 func DestroyState(child Object, outcome string) Object {
 	return Object{"attempt": attempt(child), "retryToken": jsonx.Str(Ann(child)[Prefix+"retry-token"]), "jobName": jsonx.Obj(child["metadata"])["name"], "result": outcome}
 }
+func revisionOf(child Object) string { return jsonx.Str(Ann(child)[Prefix+"module-revision"]) }
+
+// withRevision records the module revision a reported phase refers to.
+func withRevision(r Response, observed, applied string) Response {
+	if observed != "" {
+		r.Status["observedRevision"] = observed
+	}
+	if applied != "" {
+		r.Status["lastAppliedRevision"] = applied
+	}
+	return r
+}
 func finalize(parent Object, children []Object, generation int64, hash string) (Response, error) {
 	no, yes := false, true
 	running := []Object{}
@@ -192,7 +247,12 @@ func finalize(parent Object, children []Object, generation int64, hash string) (
 		a = jsonx.Int(state["attempt"])
 		token = jsonx.Str(state["retryToken"])
 	}
-	child, err := CreateJob(parent, "destroy", hash, generation, a, token)
+	// Destroy with the module that created the state; resources applied before revisions were tracked use the configured one.
+	revision := jsonx.Str(jsonx.Obj(parent["status"])["lastAppliedRevision"])
+	if revision == "" {
+		revision = LoadJobConfig().ModuleRevision
+	}
+	child, err := CreateJob(parent, "destroy", hash, revision, generation, a, token)
 	if err != nil {
 		return Response{}, err
 	}
@@ -223,26 +283,28 @@ func Reconcile(r Request) (Response, error) {
 		if err != nil {
 			return Response{}, fmt.Errorf("invalid Job generation")
 		}
-		return result(p, "Applying", generation, "OpenTofu apply is running", retainAll(running), "", nil, nil), nil
+		return withRevision(result(p, "Applying", generation, "OpenTofu apply is running", retainAll(running), "", nil, nil), revisionOf(running[0]), ""), nil
 	}
+	revision := LoadJobConfig().ModuleRevision
 	for _, c := range children {
-		if Ann(c)[Prefix+"hash"] == hash && Ann(c)[Prefix+"action"] == "apply" {
+		if Ann(c)[Prefix+"hash"] == hash && Ann(c)[Prefix+"action"] == "apply" && revisionOf(c) == revision {
 			if Terminal(c) == "Complete" {
-				return result(p, "Ready", meta.Generation, "Database is ready", []Object{Retain(c)}, hash, nil, nil), nil
+				return withRevision(result(p, "Ready", meta.Generation, "Database is ready", []Object{Retain(c)}, hash, nil, nil), revision, revision), nil
 			}
-			return result(p, "Failed", meta.Generation, "Apply failed; inspect job logs and update spec to retry", []Object{Retain(c)}, "", nil, nil), nil
+			return withRevision(result(p, "Failed", meta.Generation, "Apply failed; inspect job logs and update spec to retry", []Object{Retain(c)}, "", nil, nil), revision, ""), nil
 		}
 	}
 	old := jsonx.Obj(p["status"])
-	if old["lastAppliedHash"] == hash {
-		return result(p, "Ready", meta.Generation, "Database is ready", nil, hash, nil, nil), nil
+	// Resources applied before revisions were tracked are applied once with the configured module.
+	if old["lastAppliedHash"] == hash && old["lastAppliedRevision"] == revision {
+		return withRevision(result(p, "Ready", meta.Generation, "Database is ready", nil, hash, nil, nil), revision, revision), nil
 	}
-	if old["phase"] == "Failed" && jsonx.Int(old["observedGeneration"]) == meta.Generation {
-		return result(p, "Failed", meta.Generation, jsonx.Str(old["message"]), nil, "", nil, nil), nil
+	if old["phase"] == "Failed" && jsonx.Int(old["observedGeneration"]) == meta.Generation && old["observedRevision"] == revision {
+		return withRevision(result(p, "Failed", meta.Generation, jsonx.Str(old["message"]), nil, "", nil, nil), revision, ""), nil
 	}
-	child, err := CreateJob(p, "apply", hash, meta.Generation, 1, "")
+	child, err := CreateJob(p, "apply", hash, revision, meta.Generation, 1, "")
 	if err != nil {
 		return Response{}, err
 	}
-	return result(p, "Pending", meta.Generation, "Apply scheduled", []Object{child}, "", nil, nil), nil
+	return withRevision(result(p, "Pending", meta.Generation, "Apply scheduled", []Object{child}, "", nil, nil), revision, ""), nil
 }

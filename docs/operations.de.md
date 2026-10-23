@@ -10,23 +10,50 @@ projektlokale Python-Umgebung vorbereiten:
 mise exec -- python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements-dev.txt
 make test-unit lint-go lint
-make validate
 ```
 
-`make validate` prüft Format und Gültigkeit des OpenTofu-Moduls. Der erste
-Provider-Abruf benötigt Netzwerkzugriff. `make test` ergänzt die effektiven
+Das OpenTofu-Modul liegt im Repository `hingst-it/panko-database` und wird dort
+formatiert und validiert. `make test` ergänzt die effektiven
 RBAC-Prüfungen, PostgreSQL-Lebenszyklen, Gateway-/OpenAPI-Tests sowie externe
 Runner- und Migrationstests im lokalen Cluster. Voraussetzung sind `make cluster-up bootstrap build deploy` und die
 installierten Testabhängigkeiten. `PYTHON=/pfad/zum/python` überschreibt den
 Standard `.venv/bin/python` für Python-Linting. Unit-Tests laufen mit Go und Race Detector.
 
 `.github/workflows/ci.yaml` führt bei Push und Pull Request zuerst Unit-Tests,
-Linting und Modulvalidierung aus. Ein separater Job erstellt danach einen
-k3d-Cluster und führt `make test` aus. Fehlerdiagnosen enthalten Ressourcenstatus,
+und Linting aus. Ein separater Job erstellt danach einen k3d-Cluster und führt
+`make test` aus. Er liest den Deploy-Key des Modul-Repositorys aus dem
+Actions-Secret `PANKO_MODULE_DEPLOY_KEY`. Fehlerdiagnosen enthalten Ressourcenstatus,
 Events und Dienstlogs; Secrets und States werden nicht als CI-Artefakte exportiert.
 Der Testcluster wird auch bei Fehlern entfernt.
 
 Go-Aufbau, gesicherte Python-Images und geprüfter Rückwechsel: [Go-Portierung](go-porting.de.md).
+
+## Engine und Modul
+
+Runner-Jobs setzen sich beim Start aus drei Teilen zusammen. Der Init-Container
+`engine` kopiert das OpenTofu-Binary aus `ENGINE_IMAGE` in ein gemeinsames Volume.
+Der Init-Container `module` holt das Modul per git-sync aus `MODULE_REPO` zum Commit
+`MODULE_REVISION`. Danach führt der Runner das kopierte Binary gegen dieses Modul aus.
+Beide Images sind per Digest festgelegt, das Modul per vollständigem Commit-SHA; der
+Hook startet nicht, wenn die Revision ein Branch oder Tag ist.
+
+Provider lädt OpenTofu beim Start aus der Registry. `-lockfile=readonly` prüft sie
+gegen das Lockfile des Moduls, das deshalb Prüfsummen aller Runner-Plattformen
+enthalten muss. Jobs benötigen damit Netzwerkzugriff auf GitHub und die
+Provider-Registry.
+
+Ein Modul-Update bedeutet: neuen Commit-SHA als `MODULE_REVISION` in
+`controller/deployment.yaml` eintragen und `make deploy` ausführen. Jede Database
+wird danach einmal mit der neuen Revision angewendet. Der Status hält mit
+`lastAppliedRevision` fest, welche Revision zuletzt erfolgreich angewendet wurde;
+Destroy verwendet genau diese Revision. Ressourcen ohne erfasste Revision werden
+beim ersten Deployment dieses Aufbaus einmal angewendet.
+
+Der Deploy-Key ist nur lesend für das Modul-Repository freigegeben. `make deploy`
+verteilt ihn mit `admin module-secret` als Secret `panko-module-git` in jeden
+Team-Namespace, zusammen mit den Host-Schlüsseln aus `cluster/module-known-hosts`.
+Diese stammen aus GitHubs API (`gh api meta`) und müssen bei einem Schlüsselwechsel
+von GitHub aktualisiert werden.
 
 Ein separates Lab lässt sich mit `make CLUSTER_NAME=infra-lab-go KUBECONFIG="$PWD/.local/go-fresh-kubeconfig" cluster-up bootstrap build deploy` erstellen. Für alle weiteren
 Make-Aufrufe dieselben Werte verwenden. `make cluster-down` entfernt ausschließlich

@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cluster_name="${CLUSTER_NAME:-infra-lab}"
-docker build -t panko-runner:dev -f runner/Dockerfile.runtime .
-mise exec -- k3d image import panko-runner:dev -c "$cluster_name"
-docker build -t panko-hook:dev --build-arg COMPONENT=hook -f Dockerfile.runtime .
-mise exec -- k3d image import panko-hook:dev -c "$cluster_name"
-docker build -t panko-gateway:dev --build-arg COMPONENT=gateway -f Dockerfile.runtime .
-mise exec -- k3d image import panko-gateway:dev -c "$cluster_name"
+# The runner image carries no engine or module; Jobs assemble both at start.
+for component in runner hook gateway; do
+  docker build -t "panko-$component:dev" --build-arg COMPONENT="$component" -f Dockerfile.runtime .
+  mise exec -- k3d image import "panko-$component:dev" -c "$cluster_name"
+done

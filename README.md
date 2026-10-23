@@ -47,8 +47,8 @@ flowchart LR
 ```
 
 - **One resource contract.** CRDs define fields, defaults, and validation. The gateway derives OpenAPI from exposed CRDs, including resources added at runtime.
-- **A small provisioning boundary.** The example module receives the resource identity and an immutable spec snapshot captured by the controller. The gateway does not maintain a second mapping of business fields to Terraform variables.
-- **Jobs for execution.** The controller starts OpenTofu jobs for changed generations, serializes changes per resource, and reports their outcome.
+- **A small provisioning boundary.** The [example module](https://github.com/hingst-it/panko-database) lives in its own repository and receives the resource identity and an immutable spec snapshot captured by the controller. The gateway does not maintain a second mapping of business fields to Terraform variables.
+- **Jobs for execution.** The controller starts OpenTofu jobs for changed generations or module revisions, serializes changes per resource, and reports their outcome. Each job copies the engine from the official OpenTofu image and fetches the module at a pinned commit with git-sync.
 - **An explicit lifecycle.** A finalizer keeps a resource in `Deleting` until its destroy job and state cleanup succeed. Credentials are delivered through a connection Secret.
 - **Team-scoped access.** Local bearer tokens map requests to team namespaces, backed by explicit Kubernetes RBAC.
 
@@ -56,7 +56,7 @@ flowchart LR
 
 ## Quick start
 
-You need a running Docker engine and [mise](https://mise.jdx.dev/). Tool versions are pinned in [mise.toml](mise.toml). Run these commands from the repository root:
+You need a running Docker engine and [mise](https://mise.jdx.dev/). Tool versions are pinned in [mise.toml](mise.toml). Runner jobs fetch the module from the private repository `hingst-it/panko-database`; place its read-only deploy key at `.local/module-deploy-key` (mode 0600) or point `MODULE_SSH_KEY_FILE` to it. Run these commands from the repository root:
 
 ```sh
 mise trust
@@ -117,7 +117,6 @@ Explore the API at [Swagger UI](http://127.0.0.1:8081/docs) or retrieve the [Ope
 | --- | --- |
 | `make test-unit lint-go` | Run Go unit/contract tests with the race detector, formatting checks and go vet. |
 | `make lint` | Lint the Python E2E tests and tools after installing `requirements-dev.txt`. |
-| `make validate` | Check OpenTofu formatting and validate the module. |
 | `make test` | Exercise provisioning, updates, schema validation, deletion, and parallel resources across two team namespaces. |
 | `make test-gateway` | Check HTTP lifecycle, team isolation, dynamic CRD discovery, OpenAPI validation, and generated Python client code. |
 | `make gateway-rbac` | Rebuild explicit gateway permissions after changing exposed resource types. |
@@ -129,10 +128,9 @@ Explore the API at [Swagger UI](http://127.0.0.1:8081/docs) or retrieve the [Ope
 | Path | Responsibility |
 | --- | --- |
 | [api/](api/) | Database CRD, validation, and an example resource. |
-| [terraform/database/](terraform/database/) | OpenTofu module for the PostgreSQL role, database, extensions, and connection Secret. |
 | [cmd/](cmd/) / [internal/](internal/) | Go gateway, reconciliation hook, runner, administrator commands and shared packages. |
-| [controller/](controller/) | Metacontroller configuration and hook deployment. |
-| [runner/](runner/) | Go runner image, bundled provider mirror and image build script. |
+| [controller/](controller/) | Metacontroller configuration and hook deployment, including the pinned engine image and module revision. |
+| [runner/](runner/) | Image build script for runner, hook and gateway. |
 | [gateway/](gateway/) | Gateway deployment; implementation and CRD-derived OpenAPI live under `internal/gateway`. |
 | [cluster/](cluster/) | Local cluster setup, PostgreSQL, and deployment scripts. |
 | [test/](test/) | Controller checks and cluster-backed lifecycle/API tests. |

@@ -3,6 +3,7 @@ package admin
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"os"
 	"path/filepath"
@@ -210,5 +211,22 @@ func TestMigrationStopsPodsChecksJobsAndBacksUpFreshState(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+func TestModuleSecretsPerTeam(t *testing.T) {
+	items := jsonx.Array(ModuleSecrets("panko-module-git", []byte("private-key"), []byte("github.com ssh-ed25519 AAAA"))["items"])
+	if len(items) != len(Teams) {
+		t.Fatalf("got %d secrets for %d teams", len(items), len(Teams))
+	}
+	for i, item := range items {
+		secret := jsonx.Obj(item)
+		meta := jsonx.Obj(secret["metadata"])
+		if meta["namespace"] != Teams[i] || meta["name"] != "panko-module-git" {
+			t.Fatal(meta)
+		}
+		data := jsonx.Obj(secret["data"])
+		if data["ssh"] != base64.StdEncoding.EncodeToString([]byte("private-key")) || data["known_hosts"] == "" {
+			t.Fatal("module credentials not encoded for git-sync")
+		}
 	}
 }

@@ -34,14 +34,15 @@
             "observedGeneration": 1,
             "lastTransitionTime": "TIME"
           }
-        ]
+        ],
+        "observedRevision": "1111111111111111111111111111111111111111"
       },
       "children": [
         {
           "apiVersion": "batch/v1",
           "kind": "Job",
           "metadata": {
-            "name": "db-orders-2529007422842ece61c7062c-apply",
+            "name": "db-orders-5f876e7b48a99f5829dfaebd-apply",
             "namespace": "team-a",
             "labels": {
               "platform.example.com/uid": "abc"
@@ -51,7 +52,8 @@
               "platform.example.com/action": "apply",
               "platform.example.com/generation": "1",
               "platform.example.com/attempt": "1",
-              "platform.example.com/retry-token": ""
+              "platform.example.com/retry-token": "",
+              "platform.example.com/module-revision": "1111111111111111111111111111111111111111"
             }
           },
           "spec": {
@@ -88,7 +90,15 @@
                       },
                       {
                         "name": "PANKO_JOB",
-                        "value": "db-orders-2529007422842ece61c7062c-apply"
+                        "value": "db-orders-5f876e7b48a99f5829dfaebd-apply"
+                      },
+                      {
+                        "name": "PANKO_ENGINE",
+                        "value": "/engine/tofu"
+                      },
+                      {
+                        "name": "PANKO_MODULE",
+                        "value": "/module/current"
                       }
                     ],
                     "securityContext": {
@@ -117,6 +127,16 @@
                       {
                         "name": "tmp",
                         "mountPath": "/tmp"
+                      },
+                      {
+                        "name": "engine",
+                        "mountPath": "/engine",
+                        "readOnly": true
+                      },
+                      {
+                        "name": "module",
+                        "mountPath": "/module",
+                        "readOnly": true
                       }
                     ]
                   }
@@ -129,6 +149,110 @@
                   {
                     "name": "tmp",
                     "emptyDir": {}
+                  },
+                  {
+                    "name": "engine",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "module",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "git-tmp",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "git-secret",
+                    "secret": {
+                      "secretName": "panko-module-git",
+                      "defaultMode": 288
+                    }
+                  }
+                ],
+                "initContainers": [
+                  {
+                    "name": "engine",
+                    "image": "engine:test",
+                    "imagePullPolicy": "IfNotPresent",
+                    "command": [
+                      "cp",
+                      "/usr/local/bin/tofu",
+                      "/engine/tofu"
+                    ],
+                    "securityContext": {
+                      "allowPrivilegeEscalation": false,
+                      "readOnlyRootFilesystem": true,
+                      "capabilities": {
+                        "drop": [
+                          "ALL"
+                        ]
+                      }
+                    },
+                    "resources": {
+                      "requests": {
+                        "cpu": "50m",
+                        "memory": "32Mi"
+                      },
+                      "limits": {
+                        "memory": "128Mi"
+                      }
+                    },
+                    "volumeMounts": [
+                      {
+                        "name": "engine",
+                        "mountPath": "/engine"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "module",
+                    "image": "git-sync:test",
+                    "imagePullPolicy": "IfNotPresent",
+                    "args": [
+                      "--repo=git@example.com:panko/module.git",
+                      "--ref=1111111111111111111111111111111111111111",
+                      "--root=/module",
+                      "--link=current",
+                      "--one-time",
+                      "--depth=1",
+                      "--submodules=off"
+                    ],
+                    "securityContext": {
+                      "allowPrivilegeEscalation": false,
+                      "readOnlyRootFilesystem": true,
+                      "capabilities": {
+                        "drop": [
+                          "ALL"
+                        ]
+                      },
+                      "runAsUser": 65533,
+                      "runAsGroup": 65533
+                    },
+                    "resources": {
+                      "requests": {
+                        "cpu": "50m",
+                        "memory": "32Mi"
+                      },
+                      "limits": {
+                        "memory": "128Mi"
+                      }
+                    },
+                    "volumeMounts": [
+                      {
+                        "name": "module",
+                        "mountPath": "/module"
+                      },
+                      {
+                        "name": "git-secret",
+                        "mountPath": "/etc/git-secret",
+                        "readOnly": true
+                      },
+                      {
+                        "name": "git-tmp",
+                        "mountPath": "/tmp"
+                      }
+                    ]
                   }
                 ]
               }
@@ -171,7 +295,8 @@
                 "platform.example.com/action": "apply",
                 "platform.example.com/generation": "1",
                 "platform.example.com/attempt": "1",
-                "platform.example.com/retry-token": ""
+                "platform.example.com/retry-token": "",
+                "platform.example.com/module-revision": "1111111111111111111111111111111111111111"
               }
             },
             "spec": {
@@ -273,7 +398,8 @@
             "observedGeneration": 1,
             "lastTransitionTime": "TIME"
           }
-        ]
+        ],
+        "observedRevision": "1111111111111111111111111111111111111111"
       },
       "children": [
         {
@@ -290,7 +416,8 @@
               "platform.example.com/action": "apply",
               "platform.example.com/generation": "1",
               "platform.example.com/attempt": "1",
-              "platform.example.com/retry-token": ""
+              "platform.example.com/retry-token": "",
+              "platform.example.com/module-revision": "1111111111111111111111111111111111111111"
             }
           },
           "spec": {
@@ -621,7 +748,8 @@
                 "platform.example.com/action": "apply",
                 "platform.example.com/generation": "1",
                 "platform.example.com/attempt": "1",
-                "platform.example.com/retry-token": ""
+                "platform.example.com/retry-token": "",
+                "platform.example.com/module-revision": "1111111111111111111111111111111111111111"
               }
             },
             "spec": {
@@ -723,7 +851,8 @@
             "observedGeneration": 1,
             "lastTransitionTime": "TIME"
           }
-        ]
+        ],
+        "observedRevision": "1111111111111111111111111111111111111111"
       },
       "children": [
         {
@@ -740,7 +869,8 @@
               "platform.example.com/action": "apply",
               "platform.example.com/generation": "1",
               "platform.example.com/attempt": "1",
-              "platform.example.com/retry-token": ""
+              "platform.example.com/retry-token": "",
+              "platform.example.com/module-revision": "1111111111111111111111111111111111111111"
             }
           },
           "spec": {
@@ -860,7 +990,8 @@
                 "platform.example.com/action": "apply",
                 "platform.example.com/generation": "1",
                 "platform.example.com/attempt": "1",
-                "platform.example.com/retry-token": ""
+                "platform.example.com/retry-token": "",
+                "platform.example.com/module-revision": "1111111111111111111111111111111111111111"
               }
             },
             "spec": {
@@ -979,7 +1110,8 @@
               "platform.example.com/action": "apply",
               "platform.example.com/generation": "1",
               "platform.example.com/attempt": "1",
-              "platform.example.com/retry-token": ""
+              "platform.example.com/retry-token": "",
+              "platform.example.com/module-revision": "1111111111111111111111111111111111111111"
             }
           },
           "spec": {
@@ -1100,7 +1232,8 @@
                 "platform.example.com/action": "apply",
                 "platform.example.com/generation": "1",
                 "platform.example.com/attempt": "1",
-                "platform.example.com/retry-token": ""
+                "platform.example.com/retry-token": "",
+                "platform.example.com/module-revision": "1111111111111111111111111111111111111111"
               }
             },
             "spec": {
@@ -1214,7 +1347,9 @@
             "observedGeneration": 1,
             "lastTransitionTime": "TIME"
           }
-        ]
+        ],
+        "observedRevision": "1111111111111111111111111111111111111111",
+        "lastAppliedRevision": "1111111111111111111111111111111111111111"
       },
       "children": [
         {
@@ -1231,7 +1366,8 @@
               "platform.example.com/action": "apply",
               "platform.example.com/generation": "1",
               "platform.example.com/attempt": "1",
-              "platform.example.com/retry-token": ""
+              "platform.example.com/retry-token": "",
+              "platform.example.com/module-revision": "1111111111111111111111111111111111111111"
             }
           },
           "spec": {
@@ -1351,7 +1487,8 @@
               "observedGeneration": 1,
               "lastTransitionTime": "TIME"
             }
-          ]
+          ],
+          "lastAppliedRevision": "1111111111111111111111111111111111111111"
         }
       },
       "children": {
@@ -1377,7 +1514,9 @@
             "observedGeneration": 1,
             "lastTransitionTime": "TIME"
           }
-        ]
+        ],
+        "lastAppliedRevision": "1111111111111111111111111111111111111111",
+        "observedRevision": "1111111111111111111111111111111111111111"
       },
       "children": [],
       "resyncAfterSeconds": 5
@@ -1415,7 +1554,8 @@
                 "platform.example.com/action": "apply",
                 "platform.example.com/generation": "1",
                 "platform.example.com/attempt": "1",
-                "platform.example.com/retry-token": ""
+                "platform.example.com/retry-token": "",
+                "platform.example.com/module-revision": "1111111111111111111111111111111111111111"
               }
             },
             "spec": {
@@ -1525,14 +1665,15 @@
             "observedGeneration": 2,
             "lastTransitionTime": "TIME"
           }
-        ]
+        ],
+        "observedRevision": "1111111111111111111111111111111111111111"
       },
       "children": [
         {
           "apiVersion": "batch/v1",
           "kind": "Job",
           "metadata": {
-            "name": "db-orders-75d5226ba61af5f560f0d198-apply",
+            "name": "db-orders-36efb91123d690cca733d5f8-apply",
             "namespace": "team-a",
             "labels": {
               "platform.example.com/uid": "abc"
@@ -1542,7 +1683,8 @@
               "platform.example.com/action": "apply",
               "platform.example.com/generation": "2",
               "platform.example.com/attempt": "1",
-              "platform.example.com/retry-token": ""
+              "platform.example.com/retry-token": "",
+              "platform.example.com/module-revision": "1111111111111111111111111111111111111111"
             }
           },
           "spec": {
@@ -1579,7 +1721,15 @@
                       },
                       {
                         "name": "PANKO_JOB",
-                        "value": "db-orders-75d5226ba61af5f560f0d198-apply"
+                        "value": "db-orders-36efb91123d690cca733d5f8-apply"
+                      },
+                      {
+                        "name": "PANKO_ENGINE",
+                        "value": "/engine/tofu"
+                      },
+                      {
+                        "name": "PANKO_MODULE",
+                        "value": "/module/current"
                       }
                     ],
                     "securityContext": {
@@ -1608,6 +1758,16 @@
                       {
                         "name": "tmp",
                         "mountPath": "/tmp"
+                      },
+                      {
+                        "name": "engine",
+                        "mountPath": "/engine",
+                        "readOnly": true
+                      },
+                      {
+                        "name": "module",
+                        "mountPath": "/module",
+                        "readOnly": true
                       }
                     ]
                   }
@@ -1620,6 +1780,110 @@
                   {
                     "name": "tmp",
                     "emptyDir": {}
+                  },
+                  {
+                    "name": "engine",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "module",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "git-tmp",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "git-secret",
+                    "secret": {
+                      "secretName": "panko-module-git",
+                      "defaultMode": 288
+                    }
+                  }
+                ],
+                "initContainers": [
+                  {
+                    "name": "engine",
+                    "image": "engine:test",
+                    "imagePullPolicy": "IfNotPresent",
+                    "command": [
+                      "cp",
+                      "/usr/local/bin/tofu",
+                      "/engine/tofu"
+                    ],
+                    "securityContext": {
+                      "allowPrivilegeEscalation": false,
+                      "readOnlyRootFilesystem": true,
+                      "capabilities": {
+                        "drop": [
+                          "ALL"
+                        ]
+                      }
+                    },
+                    "resources": {
+                      "requests": {
+                        "cpu": "50m",
+                        "memory": "32Mi"
+                      },
+                      "limits": {
+                        "memory": "128Mi"
+                      }
+                    },
+                    "volumeMounts": [
+                      {
+                        "name": "engine",
+                        "mountPath": "/engine"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "module",
+                    "image": "git-sync:test",
+                    "imagePullPolicy": "IfNotPresent",
+                    "args": [
+                      "--repo=git@example.com:panko/module.git",
+                      "--ref=1111111111111111111111111111111111111111",
+                      "--root=/module",
+                      "--link=current",
+                      "--one-time",
+                      "--depth=1",
+                      "--submodules=off"
+                    ],
+                    "securityContext": {
+                      "allowPrivilegeEscalation": false,
+                      "readOnlyRootFilesystem": true,
+                      "capabilities": {
+                        "drop": [
+                          "ALL"
+                        ]
+                      },
+                      "runAsUser": 65533,
+                      "runAsGroup": 65533
+                    },
+                    "resources": {
+                      "requests": {
+                        "cpu": "50m",
+                        "memory": "32Mi"
+                      },
+                      "limits": {
+                        "memory": "128Mi"
+                      }
+                    },
+                    "volumeMounts": [
+                      {
+                        "name": "module",
+                        "mountPath": "/module"
+                      },
+                      {
+                        "name": "git-secret",
+                        "mountPath": "/etc/git-secret",
+                        "readOnly": true
+                      },
+                      {
+                        "name": "git-tmp",
+                        "mountPath": "/tmp"
+                      }
+                    ]
                   }
                 ]
               }
@@ -1662,7 +1926,8 @@
                 "platform.example.com/action": "apply",
                 "platform.example.com/generation": "1",
                 "platform.example.com/attempt": "1",
-                "platform.example.com/retry-token": ""
+                "platform.example.com/retry-token": "",
+                "platform.example.com/module-revision": "1111111111111111111111111111111111111111"
               }
             },
             "spec": {
@@ -1772,7 +2037,8 @@
             "observedGeneration": 1,
             "lastTransitionTime": "TIME"
           }
-        ]
+        ],
+        "observedRevision": "1111111111111111111111111111111111111111"
       },
       "children": [
         {
@@ -1789,7 +2055,8 @@
               "platform.example.com/action": "apply",
               "platform.example.com/generation": "1",
               "platform.example.com/attempt": "1",
-              "platform.example.com/retry-token": ""
+              "platform.example.com/retry-token": "",
+              "platform.example.com/module-revision": "1111111111111111111111111111111111111111"
             }
           },
           "spec": {
@@ -1905,7 +2172,8 @@
               "observedGeneration": 1,
               "lastTransitionTime": "TIME"
             }
-          ]
+          ],
+          "observedRevision": "1111111111111111111111111111111111111111"
         }
       },
       "children": {
@@ -1927,7 +2195,8 @@
             "observedGeneration": 1,
             "lastTransitionTime": "TIME"
           }
-        ]
+        ],
+        "observedRevision": "1111111111111111111111111111111111111111"
       },
       "children": [],
       "resyncAfterSeconds": 5
@@ -1961,7 +2230,8 @@
               "observedGeneration": 1,
               "lastTransitionTime": "TIME"
             }
-          ]
+          ],
+          "observedRevision": "1111111111111111111111111111111111111111"
         }
       },
       "children": {
@@ -1987,16 +2257,17 @@
         "destroy": {
           "attempt": 1,
           "retryToken": "",
-          "jobName": "db-orders-734f853046fe4a36acea3eb0-destroy",
+          "jobName": "db-orders-fcf7edb1c9396cf8832b12fb-destroy",
           "result": "Pending"
-        }
+        },
+        "observedRevision": "1111111111111111111111111111111111111111"
       },
       "children": [
         {
           "apiVersion": "batch/v1",
           "kind": "Job",
           "metadata": {
-            "name": "db-orders-734f853046fe4a36acea3eb0-destroy",
+            "name": "db-orders-fcf7edb1c9396cf8832b12fb-destroy",
             "namespace": "team-a",
             "labels": {
               "platform.example.com/uid": "abc"
@@ -2006,7 +2277,8 @@
               "platform.example.com/action": "destroy",
               "platform.example.com/generation": "1",
               "platform.example.com/attempt": "1",
-              "platform.example.com/retry-token": ""
+              "platform.example.com/retry-token": "",
+              "platform.example.com/module-revision": "1111111111111111111111111111111111111111"
             }
           },
           "spec": {
@@ -2043,7 +2315,15 @@
                       },
                       {
                         "name": "PANKO_JOB",
-                        "value": "db-orders-734f853046fe4a36acea3eb0-destroy"
+                        "value": "db-orders-fcf7edb1c9396cf8832b12fb-destroy"
+                      },
+                      {
+                        "name": "PANKO_ENGINE",
+                        "value": "/engine/tofu"
+                      },
+                      {
+                        "name": "PANKO_MODULE",
+                        "value": "/module/current"
                       }
                     ],
                     "securityContext": {
@@ -2072,6 +2352,16 @@
                       {
                         "name": "tmp",
                         "mountPath": "/tmp"
+                      },
+                      {
+                        "name": "engine",
+                        "mountPath": "/engine",
+                        "readOnly": true
+                      },
+                      {
+                        "name": "module",
+                        "mountPath": "/module",
+                        "readOnly": true
                       }
                     ]
                   }
@@ -2084,6 +2374,110 @@
                   {
                     "name": "tmp",
                     "emptyDir": {}
+                  },
+                  {
+                    "name": "engine",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "module",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "git-tmp",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "git-secret",
+                    "secret": {
+                      "secretName": "panko-module-git",
+                      "defaultMode": 288
+                    }
+                  }
+                ],
+                "initContainers": [
+                  {
+                    "name": "engine",
+                    "image": "engine:test",
+                    "imagePullPolicy": "IfNotPresent",
+                    "command": [
+                      "cp",
+                      "/usr/local/bin/tofu",
+                      "/engine/tofu"
+                    ],
+                    "securityContext": {
+                      "allowPrivilegeEscalation": false,
+                      "readOnlyRootFilesystem": true,
+                      "capabilities": {
+                        "drop": [
+                          "ALL"
+                        ]
+                      }
+                    },
+                    "resources": {
+                      "requests": {
+                        "cpu": "50m",
+                        "memory": "32Mi"
+                      },
+                      "limits": {
+                        "memory": "128Mi"
+                      }
+                    },
+                    "volumeMounts": [
+                      {
+                        "name": "engine",
+                        "mountPath": "/engine"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "module",
+                    "image": "git-sync:test",
+                    "imagePullPolicy": "IfNotPresent",
+                    "args": [
+                      "--repo=git@example.com:panko/module.git",
+                      "--ref=1111111111111111111111111111111111111111",
+                      "--root=/module",
+                      "--link=current",
+                      "--one-time",
+                      "--depth=1",
+                      "--submodules=off"
+                    ],
+                    "securityContext": {
+                      "allowPrivilegeEscalation": false,
+                      "readOnlyRootFilesystem": true,
+                      "capabilities": {
+                        "drop": [
+                          "ALL"
+                        ]
+                      },
+                      "runAsUser": 65533,
+                      "runAsGroup": 65533
+                    },
+                    "resources": {
+                      "requests": {
+                        "cpu": "50m",
+                        "memory": "32Mi"
+                      },
+                      "limits": {
+                        "memory": "128Mi"
+                      }
+                    },
+                    "volumeMounts": [
+                      {
+                        "name": "module",
+                        "mountPath": "/module"
+                      },
+                      {
+                        "name": "git-secret",
+                        "mountPath": "/etc/git-secret",
+                        "readOnly": true
+                      },
+                      {
+                        "name": "git-tmp",
+                        "mountPath": "/tmp"
+                      }
+                    ]
                   }
                 ]
               }
@@ -2123,7 +2517,8 @@
               "observedGeneration": 1,
               "lastTransitionTime": "TIME"
             }
-          ]
+          ],
+          "observedRevision": "1111111111111111111111111111111111111111"
         }
       },
       "children": {
@@ -2142,7 +2537,8 @@
                 "platform.example.com/action": "destroy",
                 "platform.example.com/generation": "1",
                 "platform.example.com/attempt": "1",
-                "platform.example.com/retry-token": ""
+                "platform.example.com/retry-token": "",
+                "platform.example.com/module-revision": "1111111111111111111111111111111111111111"
               }
             },
             "spec": {
@@ -2250,7 +2646,8 @@
           "retryToken": "",
           "jobName": "db-orders-734f853046fe4a36acea3eb0-destroy",
           "result": "Running"
-        }
+        },
+        "observedRevision": "1111111111111111111111111111111111111111"
       },
       "children": [
         {
@@ -2267,7 +2664,8 @@
               "platform.example.com/action": "destroy",
               "platform.example.com/generation": "1",
               "platform.example.com/attempt": "1",
-              "platform.example.com/retry-token": ""
+              "platform.example.com/retry-token": "",
+              "platform.example.com/module-revision": "1111111111111111111111111111111111111111"
             }
           },
           "spec": {
@@ -2384,7 +2782,8 @@
               "observedGeneration": 1,
               "lastTransitionTime": "TIME"
             }
-          ]
+          ],
+          "observedRevision": "1111111111111111111111111111111111111111"
         }
       },
       "children": {
@@ -2403,7 +2802,8 @@
                 "platform.example.com/action": "destroy",
                 "platform.example.com/generation": "1",
                 "platform.example.com/attempt": "1",
-                "platform.example.com/retry-token": ""
+                "platform.example.com/retry-token": "",
+                "platform.example.com/module-revision": "1111111111111111111111111111111111111111"
               }
             },
             "spec": {
@@ -2519,7 +2919,8 @@
           "retryToken": "",
           "jobName": "db-orders-734f853046fe4a36acea3eb0-destroy",
           "result": "Failed"
-        }
+        },
+        "observedRevision": "1111111111111111111111111111111111111111"
       },
       "children": [
         {
@@ -2536,7 +2937,8 @@
               "platform.example.com/action": "destroy",
               "platform.example.com/generation": "1",
               "platform.example.com/attempt": "1",
-              "platform.example.com/retry-token": ""
+              "platform.example.com/retry-token": "",
+              "platform.example.com/module-revision": "1111111111111111111111111111111111111111"
             }
           },
           "spec": {
@@ -2750,7 +3152,8 @@
                 "platform.example.com/action": "destroy",
                 "platform.example.com/generation": "1",
                 "platform.example.com/attempt": "1",
-                "platform.example.com/retry-token": ""
+                "platform.example.com/retry-token": "",
+                "platform.example.com/module-revision": "1111111111111111111111111111111111111111"
               }
             },
             "spec": {
@@ -2864,7 +3267,7 @@
         "destroy": {
           "attempt": 2,
           "retryToken": "retry-1",
-          "jobName": "db-orders-331698018d43e8dfd8482c35-destroy",
+          "jobName": "db-orders-365c59168ab9bca538c77de8-destroy",
           "result": "Pending"
         }
       },
@@ -2873,7 +3276,7 @@
           "apiVersion": "batch/v1",
           "kind": "Job",
           "metadata": {
-            "name": "db-orders-331698018d43e8dfd8482c35-destroy",
+            "name": "db-orders-365c59168ab9bca538c77de8-destroy",
             "namespace": "team-a",
             "labels": {
               "platform.example.com/uid": "abc"
@@ -2883,7 +3286,8 @@
               "platform.example.com/action": "destroy",
               "platform.example.com/generation": "1",
               "platform.example.com/attempt": "2",
-              "platform.example.com/retry-token": "retry-1"
+              "platform.example.com/retry-token": "retry-1",
+              "platform.example.com/module-revision": "1111111111111111111111111111111111111111"
             }
           },
           "spec": {
@@ -2920,7 +3324,15 @@
                       },
                       {
                         "name": "PANKO_JOB",
-                        "value": "db-orders-331698018d43e8dfd8482c35-destroy"
+                        "value": "db-orders-365c59168ab9bca538c77de8-destroy"
+                      },
+                      {
+                        "name": "PANKO_ENGINE",
+                        "value": "/engine/tofu"
+                      },
+                      {
+                        "name": "PANKO_MODULE",
+                        "value": "/module/current"
                       }
                     ],
                     "securityContext": {
@@ -2949,6 +3361,16 @@
                       {
                         "name": "tmp",
                         "mountPath": "/tmp"
+                      },
+                      {
+                        "name": "engine",
+                        "mountPath": "/engine",
+                        "readOnly": true
+                      },
+                      {
+                        "name": "module",
+                        "mountPath": "/module",
+                        "readOnly": true
                       }
                     ]
                   }
@@ -2961,6 +3383,110 @@
                   {
                     "name": "tmp",
                     "emptyDir": {}
+                  },
+                  {
+                    "name": "engine",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "module",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "git-tmp",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "git-secret",
+                    "secret": {
+                      "secretName": "panko-module-git",
+                      "defaultMode": 288
+                    }
+                  }
+                ],
+                "initContainers": [
+                  {
+                    "name": "engine",
+                    "image": "engine:test",
+                    "imagePullPolicy": "IfNotPresent",
+                    "command": [
+                      "cp",
+                      "/usr/local/bin/tofu",
+                      "/engine/tofu"
+                    ],
+                    "securityContext": {
+                      "allowPrivilegeEscalation": false,
+                      "readOnlyRootFilesystem": true,
+                      "capabilities": {
+                        "drop": [
+                          "ALL"
+                        ]
+                      }
+                    },
+                    "resources": {
+                      "requests": {
+                        "cpu": "50m",
+                        "memory": "32Mi"
+                      },
+                      "limits": {
+                        "memory": "128Mi"
+                      }
+                    },
+                    "volumeMounts": [
+                      {
+                        "name": "engine",
+                        "mountPath": "/engine"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "module",
+                    "image": "git-sync:test",
+                    "imagePullPolicy": "IfNotPresent",
+                    "args": [
+                      "--repo=git@example.com:panko/module.git",
+                      "--ref=1111111111111111111111111111111111111111",
+                      "--root=/module",
+                      "--link=current",
+                      "--one-time",
+                      "--depth=1",
+                      "--submodules=off"
+                    ],
+                    "securityContext": {
+                      "allowPrivilegeEscalation": false,
+                      "readOnlyRootFilesystem": true,
+                      "capabilities": {
+                        "drop": [
+                          "ALL"
+                        ]
+                      },
+                      "runAsUser": 65533,
+                      "runAsGroup": 65533
+                    },
+                    "resources": {
+                      "requests": {
+                        "cpu": "50m",
+                        "memory": "32Mi"
+                      },
+                      "limits": {
+                        "memory": "128Mi"
+                      }
+                    },
+                    "volumeMounts": [
+                      {
+                        "name": "module",
+                        "mountPath": "/module"
+                      },
+                      {
+                        "name": "git-secret",
+                        "mountPath": "/etc/git-secret",
+                        "readOnly": true
+                      },
+                      {
+                        "name": "git-tmp",
+                        "mountPath": "/tmp"
+                      }
+                    ]
                   }
                 ]
               }
@@ -3035,7 +3561,7 @@
         "destroy": {
           "attempt": 2,
           "retryToken": "retry-1",
-          "jobName": "db-orders-331698018d43e8dfd8482c35-destroy",
+          "jobName": "db-orders-365c59168ab9bca538c77de8-destroy",
           "result": "Pending"
         }
       },
@@ -3044,7 +3570,7 @@
           "apiVersion": "batch/v1",
           "kind": "Job",
           "metadata": {
-            "name": "db-orders-331698018d43e8dfd8482c35-destroy",
+            "name": "db-orders-365c59168ab9bca538c77de8-destroy",
             "namespace": "team-a",
             "labels": {
               "platform.example.com/uid": "abc"
@@ -3054,7 +3580,8 @@
               "platform.example.com/action": "destroy",
               "platform.example.com/generation": "1",
               "platform.example.com/attempt": "2",
-              "platform.example.com/retry-token": "retry-1"
+              "platform.example.com/retry-token": "retry-1",
+              "platform.example.com/module-revision": "1111111111111111111111111111111111111111"
             }
           },
           "spec": {
@@ -3091,7 +3618,15 @@
                       },
                       {
                         "name": "PANKO_JOB",
-                        "value": "db-orders-331698018d43e8dfd8482c35-destroy"
+                        "value": "db-orders-365c59168ab9bca538c77de8-destroy"
+                      },
+                      {
+                        "name": "PANKO_ENGINE",
+                        "value": "/engine/tofu"
+                      },
+                      {
+                        "name": "PANKO_MODULE",
+                        "value": "/module/current"
                       }
                     ],
                     "securityContext": {
@@ -3120,6 +3655,16 @@
                       {
                         "name": "tmp",
                         "mountPath": "/tmp"
+                      },
+                      {
+                        "name": "engine",
+                        "mountPath": "/engine",
+                        "readOnly": true
+                      },
+                      {
+                        "name": "module",
+                        "mountPath": "/module",
+                        "readOnly": true
                       }
                     ]
                   }
@@ -3132,6 +3677,110 @@
                   {
                     "name": "tmp",
                     "emptyDir": {}
+                  },
+                  {
+                    "name": "engine",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "module",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "git-tmp",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "git-secret",
+                    "secret": {
+                      "secretName": "panko-module-git",
+                      "defaultMode": 288
+                    }
+                  }
+                ],
+                "initContainers": [
+                  {
+                    "name": "engine",
+                    "image": "engine:test",
+                    "imagePullPolicy": "IfNotPresent",
+                    "command": [
+                      "cp",
+                      "/usr/local/bin/tofu",
+                      "/engine/tofu"
+                    ],
+                    "securityContext": {
+                      "allowPrivilegeEscalation": false,
+                      "readOnlyRootFilesystem": true,
+                      "capabilities": {
+                        "drop": [
+                          "ALL"
+                        ]
+                      }
+                    },
+                    "resources": {
+                      "requests": {
+                        "cpu": "50m",
+                        "memory": "32Mi"
+                      },
+                      "limits": {
+                        "memory": "128Mi"
+                      }
+                    },
+                    "volumeMounts": [
+                      {
+                        "name": "engine",
+                        "mountPath": "/engine"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "module",
+                    "image": "git-sync:test",
+                    "imagePullPolicy": "IfNotPresent",
+                    "args": [
+                      "--repo=git@example.com:panko/module.git",
+                      "--ref=1111111111111111111111111111111111111111",
+                      "--root=/module",
+                      "--link=current",
+                      "--one-time",
+                      "--depth=1",
+                      "--submodules=off"
+                    ],
+                    "securityContext": {
+                      "allowPrivilegeEscalation": false,
+                      "readOnlyRootFilesystem": true,
+                      "capabilities": {
+                        "drop": [
+                          "ALL"
+                        ]
+                      },
+                      "runAsUser": 65533,
+                      "runAsGroup": 65533
+                    },
+                    "resources": {
+                      "requests": {
+                        "cpu": "50m",
+                        "memory": "32Mi"
+                      },
+                      "limits": {
+                        "memory": "128Mi"
+                      }
+                    },
+                    "volumeMounts": [
+                      {
+                        "name": "module",
+                        "mountPath": "/module"
+                      },
+                      {
+                        "name": "git-secret",
+                        "mountPath": "/etc/git-secret",
+                        "readOnly": true
+                      },
+                      {
+                        "name": "git-tmp",
+                        "mountPath": "/tmp"
+                      }
+                    ]
                   }
                 ]
               }
@@ -3199,7 +3848,8 @@
                 "platform.example.com/action": "destroy",
                 "platform.example.com/generation": "1",
                 "platform.example.com/attempt": "2",
-                "platform.example.com/retry-token": "retry-1"
+                "platform.example.com/retry-token": "retry-1",
+                "platform.example.com/module-revision": "1111111111111111111111111111111111111111"
               }
             },
             "spec": {

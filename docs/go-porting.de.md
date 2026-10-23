@@ -39,10 +39,10 @@ steht in `go.mod`. Bei Abhängigkeitsänderungen `go.mod` und `go.sum` gemeinsam
 die Tests starten. Go-Caches liegen für lokale Make-Aufrufe unter `.local/`.
 
 Die Dockerfiles bauen für Linux AMD64 oder ARM64 über `TARGETOS`/`TARGETARCH`.
-Der Runner enthält zusätzlich OpenTofu, CA-Zertifikate und einen Provider-Mirror.
-Beim Build werden die verifizierten Prüfsummen der Zielplattform ins mitgelieferte
-Lockfile aufgenommen. Zur Laufzeit bleibt `tofu init -lockfile=readonly` aktiv.
-Es gibt keinen Registry-Fallback für den Mirror und keine Python-Runtime im Image.
+Zum Zeitpunkt der Portierung enthielt der Runner OpenTofu, das Modul und einen
+Provider-Mirror ohne Registry-Fallback. Inzwischen setzen Jobs Engine und Modul beim
+Start zusammen; siehe [Engine und Modul](operations.de.md#engine-und-modul).
+Keines der Images enthält eine Python-Runtime.
 
 ## Getestete Übergänge
 

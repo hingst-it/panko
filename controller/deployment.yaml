@@ -16,6 +16,13 @@ spec:
         - name: hook
           image: panko-hook:dev
           imagePullPolicy: Never
+          # Each runner Job copies the engine from ENGINE_IMAGE and fetches the module at MODULE_REVISION.
+          env:
+            - {name: ENGINE_IMAGE, value: "ghcr.io/opentofu/opentofu:1.11.7@sha256:6166f12d09520dbbb431a13951973c5b1046c01f801fa8c7b73e89511a0fff34"}
+            - {name: ENGINE_BINARY, value: /usr/local/bin/tofu}
+            - {name: GIT_SYNC_IMAGE, value: "registry.k8s.io/git-sync/git-sync:v4.5.1@sha256:1df295fdab03031f932f2b7dae82fa19bd77334e2510c311bbdfc7e09ef49ece"}
+            - {name: MODULE_REPO, value: "git@github.com:hingst-it/panko-database.git"}
+            - {name: MODULE_REVISION, value: a002bdcd497130e38d2cc2e526ebcb2187791232}
           ports: [{containerPort: 8080}]
           readinessProbe:
             httpGet: {path: /healthz, port: 8080}

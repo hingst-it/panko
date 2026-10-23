@@ -19,7 +19,7 @@ deploy: build-go
 	mise exec -- bash cluster/deploy.sh
 test:
 	mise exec -- bash test/e2e.sh
-.PHONY: test-unit lint validate migrate-state
+.PHONY: test-unit lint migrate-state
 .PHONY: test-go lint-go build-go
 test-go:
 	mise exec -- go test -race ./...
@@ -32,10 +32,6 @@ build-go:
 test-unit: test-go
 lint:
 	$(PYTHON) -m ruff check test tools
-validate:
-	mise exec -- tofu -chdir=terraform/database fmt -check
-	mise exec -- tofu -chdir=terraform/database init -backend=false -lockfile=readonly -input=false
-	mise exec -- tofu -chdir=terraform/database validate
 migrate-state: build-go
 	.local/bin/admin --kubeconfig "$(KUBECONFIG)" migrate-state
 clean:

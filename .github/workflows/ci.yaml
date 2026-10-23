@@ -19,8 +19,8 @@ jobs:
         run: |
           python3 -m venv .venv
           .venv/bin/python -m pip install -r requirements-dev.txt
-      - name: Unit tests, lint and module validation
-        run: make test-unit lint lint-go validate
+      - name: Unit tests and lint
+        run: make test-unit lint lint-go
 
   e2e:
     needs: unit
@@ -34,7 +34,11 @@ jobs:
           python3 -m venv .venv
           .venv/bin/python -m pip install -r requirements-dev.txt
       - name: Build local lab and run lifecycle, RBAC and gateway tests
+        env:
+          MODULE_DEPLOY_KEY: ${{ secrets.PANKO_MODULE_DEPLOY_KEY }}
         run: |
+          mkdir -p .local
+          (umask 077 && printf '%s\n' "$MODULE_DEPLOY_KEY" > .local/module-deploy-key)
           make cluster-up bootstrap build deploy
           make test
       - name: Collect diagnostics

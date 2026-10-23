@@ -79,7 +79,7 @@ func (r *Runner) execute(ctx context.Context, action string, snapshot resource.S
 	if err != nil {
 		return fmt.Errorf("cannot load Kubernetes credentials")
 	}
-	env := environment(os.Environ(), map[string]string{"PGPASSWORD": string(password), "KUBE_HOST": "https://kubernetes.default.svc", "KUBE_TOKEN": token, "KUBE_CLUSTER_CA_CERT_DATA": string(ca), "TF_VAR_namespace": m.Namespace, "TF_VAR_name": m.Name})
+	env := environment(os.Environ(), map[string]string{"PGPASSWORD": string(password), "KUBE_HOST": "https://kubernetes.default.svc", "KUBE_TOKEN": token, "KUBE_CLUSTER_CA_CERT_DATA": string(ca), "TF_VAR_namespace": m.Namespace, "TF_VAR_name": m.Name, "TF_IN_AUTOMATION": "1", "TF_INPUT": "0"})
 	if err := copyModule(r.ModuleDir, r.WorkDir); err != nil {
 		return err
 	}
@@ -131,6 +131,11 @@ func environment(base []string, values map[string]string) []string {
 	return result
 }
 func copyModule(source, destination string) error {
+	// git-sync publishes the checkout through a symlink; WalkDir does not follow a symlinked root.
+	source, err := filepath.EvalSymlinks(source)
+	if err != nil {
+		return err
+	}
 	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -138,6 +143,12 @@ func copyModule(source, destination string) error {
 		relative, err := filepath.Rel(source, path)
 		if err != nil {
 			return err
+		}
+		if relative == ".git" {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		target := filepath.Join(destination, relative)
 		if entry.IsDir() {

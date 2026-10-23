@@ -2,6 +2,7 @@
 package admin
 
 import (
+	"encoding/base64"
 	"sort"
 
 	"github.com/hingst-it/panko/internal/gateway"
@@ -100,4 +101,14 @@ func GatewayRBAC(crds []any) (Object, error) {
 		items = append(items, obj("Role", "platform-gateway", team, Object{"rules": rules}), obj("RoleBinding", "platform-gateway", team, Object{"roleRef": roleRef("Role", "platform-gateway"), "subjects": subjects}))
 	}
 	return list(items), nil
+}
+
+// ModuleSecrets distributes the read-only module credentials to every team namespace that runs Jobs.
+func ModuleSecrets(name string, key, knownHosts []byte) Object {
+	items := []any{}
+	for _, team := range Teams {
+		items = append(items, Object{"apiVersion": "v1", "kind": "Secret", "type": "Opaque", "metadata": Object{"name": name, "namespace": team},
+			"data": Object{"ssh": base64.StdEncoding.EncodeToString(key), "known_hosts": base64.StdEncoding.EncodeToString(knownHosts)}})
+	}
+	return list(items)
 }

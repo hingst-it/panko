@@ -9,6 +9,14 @@ import (
 	"github.com/hingst-it/panko/internal/jsonx"
 )
 
+const testRevision = "1111111111111111111111111111111111111111"
+
+func TestMain(m *testing.M) {
+	for key, value := range map[string]string{"ENGINE_IMAGE": "engine:test", "GIT_SYNC_IMAGE": "git-sync:test", "MODULE_REPO": "git@example.com:panko/module.git", "MODULE_REVISION": testRevision} {
+		os.Setenv(key, value)
+	}
+	os.Exit(m.Run())
+}
 func normalize(v any) {
 	switch x := v.(type) {
 	case map[string]any:
@@ -114,5 +122,85 @@ func TestInvalidIdentityAndLargeGeneration(t *testing.T) {
 	}
 	if jsonx.Int(r.Status["observedGeneration"]) != 9007199254740993 {
 		t.Fatal("generation lost precision")
+	}
+}
+func complete(job Object) Object {
+	job = jsonx.Clone(job)
+	job["status"] = Object{"conditions": []any{Object{"type": "Complete", "status": "True"}}}
+	return job
+}
+func TestModuleRevisionChangeAppliesOnce(t *testing.T) {
+	p := parent()
+	pending, _ := Reconcile(Request{Parent: p})
+	job := complete(pending.Children[0])
+	req := Request{Parent: p, Children: map[string]map[string]Object{"Job.batch/v1": {"one": job}}}
+	ready, _ := Reconcile(req)
+	if ready.Status["phase"] != "Ready" || ready.Status["lastAppliedRevision"] != testRevision {
+		t.Fatal(ready.Status)
+	}
+	p["status"] = ready.Status
+	if after, _ := Reconcile(Request{Parent: p}); after.Status["phase"] != "Ready" || len(after.Children) != 0 {
+		t.Fatal("unchanged revision scheduled a job")
+	}
+	t.Setenv("MODULE_REVISION", "2222222222222222222222222222222222222222")
+	next, _ := Reconcile(Request{Parent: p, Children: req.Children})
+	if next.Status["phase"] != "Pending" || revisionOf(next.Children[0]) != "2222222222222222222222222222222222222222" {
+		t.Fatal(next.Status)
+	}
+	if jsonx.Obj(next.Children[0]["metadata"])["name"] == jsonx.Obj(job["metadata"])["name"] {
+		t.Fatal("new revision reused the previous Job name")
+	}
+	if next.Status["lastAppliedRevision"] != testRevision {
+		t.Fatal("applied revision overwritten before the new apply completed")
+	}
+}
+func TestUntrackedRevisionAppliesOnce(t *testing.T) {
+	p := parent()
+	hash, _ := jsonx.Digest(p["spec"], int64(1))
+	p["status"] = Object{"phase": "Ready", "lastAppliedHash": hash, "observedGeneration": int64(1)}
+	r, _ := Reconcile(Request{Parent: p})
+	if r.Status["phase"] != "Pending" || revisionOf(r.Children[0]) != testRevision {
+		t.Fatal(r.Status)
+	}
+}
+func TestFailedRetriesWithNewRevision(t *testing.T) {
+	p := parent()
+	p["status"] = Object{"phase": "Failed", "message": "Apply failed", "observedGeneration": int64(1), "observedRevision": testRevision}
+	if r, _ := Reconcile(Request{Parent: p}); r.Status["phase"] != "Failed" || len(r.Children) != 0 {
+		t.Fatal("failed revision retried without change")
+	}
+	t.Setenv("MODULE_REVISION", "2222222222222222222222222222222222222222")
+	if r, _ := Reconcile(Request{Parent: p}); r.Status["phase"] != "Pending" {
+		t.Fatal("module fix did not retry the failed apply")
+	}
+}
+func TestDestroyUsesAppliedRevision(t *testing.T) {
+	p := parent()
+	p["status"] = Object{"phase": "Ready", "lastAppliedRevision": "3333333333333333333333333333333333333333"}
+	r, _ := Reconcile(Request{Parent: p, Finalizing: true})
+	if revisionOf(r.Children[0]) != "3333333333333333333333333333333333333333" {
+		t.Fatal("destroy did not use the applied module revision")
+	}
+	delete(p, "status")
+	r, _ = Reconcile(Request{Parent: p, Finalizing: true})
+	if revisionOf(r.Children[0]) != testRevision {
+		t.Fatal("untracked destroy did not use the configured revision")
+	}
+}
+func TestJobConfigRequiresPinnedModule(t *testing.T) {
+	c := LoadJobConfig()
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, ref := range []string{"", "main", "v1.0.0", "1111111"} {
+		c.ModuleRevision = ref
+		if c.Validate() == nil {
+			t.Fatalf("accepted module revision %q", ref)
+		}
+	}
+	c = LoadJobConfig()
+	c.EngineImage = ""
+	if c.Validate() == nil {
+		t.Fatal("accepted missing engine image")
 	}
 }

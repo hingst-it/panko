@@ -70,7 +70,7 @@ um Kollisionen zwischen Namespaces und nach Neuanlage zu vermeiden.
 
 ## Terraform-Modul
 
-`terraform/database/` erhält `namespace`, `name` und einen unveränderlichen
+Das Modul im Repository [hingst-it/panko-database](https://github.com/hingst-it/panko-database) erhält `namespace`, `name` und einen unveränderlichen
 Ressourcen-Snapshot `resource`. Dessen Spec steuert Rolle, Datenbank, Extensions und
 Limits ohne zusätzliches fachliches Mapping im Runner. Der Random-Provider erzeugt
 ein dauerhaftes Login-Passwort im State. Provider sind mit Lockfile festgelegt.
@@ -83,8 +83,10 @@ Umgebungsvariablen; dadurch ist validate auch außerhalb eines Pods ausführbar.
 
 ## Runner und Berechtigungen
 
-Der Runner verwendet das [offizielle Minimal-Binary-Image](https://opentofu.org/docs/intro/install/docker/)
-und einen beim Build erzeugten Provider-Mirror ohne Netzwerk-Fallback. `make build`
+Das Runner-Image enthält weder OpenTofu noch das Modul. Jeder Job kopiert das
+Binary aus dem [offiziellen OpenTofu-Image](https://opentofu.org/docs/intro/install/docker/)
+und holt das Modul per git-sync zu einem festen Commit; Details unter
+[Engine und Modul](operations.de.md#engine-und-modul). `make build`
 baut für die lokale Docker-Architektur (ARM64 oder AMD64) und importiert nach k3d.
 Jobs laufen im Namespace ihrer CR; ihre ServiceAccounts dürfen dort Database-CRs
 lesen und Secrets verwalten. Zusätzlich dürfen sie State-Secrets und Lock-Leases

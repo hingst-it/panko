@@ -134,3 +134,30 @@ func TestDestroyCleanup404AndErrors(t *testing.T) {
 		})
 	}
 }
+func TestCopyModuleFollowsSyncLinkAndSkipsGit(t *testing.T) {
+	root := t.TempDir()
+	checkout := filepath.Join(root, ".worktrees", "1111")
+	if err := os.MkdirAll(filepath.Join(checkout, "modules"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{"main.tf": "terraform {}", ".git": "gitdir: ../../.git/worktrees/1111", "modules/inner.tf": "locals {}"} {
+		if err := os.WriteFile(filepath.Join(checkout, name), []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(".worktrees/1111", filepath.Join(root, "current")); err != nil {
+		t.Fatal(err)
+	}
+	work := filepath.Join(t.TempDir(), "module")
+	if err := copyModule(filepath.Join(root, "current"), work); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"main.tf", "modules/inner.tf"} {
+		if _, err := os.Stat(filepath.Join(work, name)); err != nil {
+			t.Fatalf("module file %s not copied: %v", name, err)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(work, ".git")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("git metadata copied into the work directory")
+	}
+}

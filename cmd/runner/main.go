@@ -44,6 +44,9 @@ func run() error {
 		case <-ctx.Done():
 		}
 	}()
-	r := &runner.Runner{API: api, Credentials: api.Credentials, ModuleDir: "/opt/module", WorkDir: "/work/module", Output: os.Stdout, ErrorOutput: os.Stderr, Log: os.Stdout}
+	r := &runner.Runner{API: api, Credentials: api.Credentials, ModuleDir: os.Getenv("PANKO_MODULE"), WorkDir: "/work/module", Tofu: os.Getenv("PANKO_ENGINE"), Output: os.Stdout, ErrorOutput: os.Stderr, Log: os.Stdout}
+	if r.ModuleDir == "" || r.Tofu == "" {
+		return fmt.Errorf("PANKO_MODULE and PANKO_ENGINE are required")
+	}
 	return r.Run(ctx, os.Args[1], snapshot, os.Getenv("PANKO_JOB"))
 }

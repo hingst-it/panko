@@ -23,15 +23,32 @@ func run() error {
 	config := flags.String("kubeconfig", os.Getenv("KUBECONFIG"), "Explicit administrator kubeconfig")
 	backup := flags.String("backup-dir", ".local", "Private state backup directory")
 	tokens := flags.String("tokens-file", ".local/team-tokens.json", "Local team token file")
+	sshKey := flags.String("ssh-key-file", ".local/module-deploy-key", "Read-only deploy key of the module repository")
+	knownHosts := flags.String("known-hosts-file", "cluster/module-known-hosts", "SSH host keys of the module repository server")
 	if err := flags.Parse(os.Args[1:]); err != nil {
 		return err
 	}
 	if flags.NArg() != 1 {
-		return fmt.Errorf("usage: panko-admin [--kubeconfig PATH] runner-rbac|gateway-rbac|preflight|migrate-state|ensure-postgres-auth|ensure-gateway-auth")
+		return fmt.Errorf("usage: panko-admin [--kubeconfig PATH] runner-rbac|module-secret|gateway-rbac|preflight|migrate-state|ensure-postgres-auth|ensure-gateway-auth")
 	}
 	command := flags.Arg(0)
 	if command == "runner-rbac" {
 		fmt.Println(string(jsonx.Encode(admin.RunnerRBAC())))
+		return nil
+	}
+	if command == "module-secret" {
+		key, err := os.ReadFile(*sshKey)
+		if err != nil {
+			return fmt.Errorf("cannot read module deploy key: %w", err)
+		}
+		hosts, err := os.ReadFile(*knownHosts)
+		if err != nil {
+			return fmt.Errorf("cannot read module known_hosts: %w", err)
+		}
+		if len(key) == 0 || len(hosts) == 0 {
+			return fmt.Errorf("module deploy key and known_hosts must not be empty")
+		}
+		fmt.Println(string(jsonx.Encode(admin.ModuleSecrets("panko-module-git", key, hosts))))
 		return nil
 	}
 	if command != "gateway-rbac" && command != "preflight" && command != "migrate-state" && command != "ensure-postgres-auth" && command != "ensure-gateway-auth" {

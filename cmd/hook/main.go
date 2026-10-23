@@ -29,5 +29,8 @@ func run() error {
 	if seconds < 0 || math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds > float64(math.MaxInt64)/float64(time.Second) {
 		return fmt.Errorf("invalid DELETE_ALERT_SECONDS")
 	}
+	if err := hook.LoadJobConfig().Validate(); err != nil {
+		return err
+	}
 	return serve.Run(hook.Handler(hook.NewTelemetry(os.Stdout, time.Duration(seconds*float64(time.Second)))))
 }
