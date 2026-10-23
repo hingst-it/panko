@@ -5,6 +5,9 @@ provider "registry.opentofu.org/cyrilgdn/postgresql" {
   version     = "1.27.0"
   constraints = "1.27.0"
   hashes = [
+    "h1:HoFL1TIDra7hTTv9P0fUg7JVrQbWQ0YtNKkB8JjKB9M=",
+    "h1:OLbc15TOdKw2afn+M5H8MjQQRbYbEpiWDSj7yHg6iEw=",
+    "h1:WHVLiTX0Ulbf7wyFBux/kZOspi+2Cg1yFq3fwfeqQPQ=",
     "h1:pdlWrvkg2ficJWEU7MtiIUoNwroBDwbH5YgeFXcltCg=",
     "zh:0d6fa6f12393f19b95652932c1a53984096bca2dfe27ce8c50f2f7881bae1b75",
     "zh:1c962ce9e73d96b368354607fd30dc55313c39f03f7ca5f3dea64e143b4f7c06",
@@ -26,7 +29,10 @@ provider "registry.opentofu.org/hashicorp/kubernetes" {
   version     = "3.4.0"
   constraints = "3.4.0"
   hashes = [
+    "h1:2m2YqDSRlJWRxSGQxyKBth977W69nFZ80eKu9cOEnHU=",
     "h1:FzWZ6/fS11+8QuzKCgSzAm1/mzt3qHGwMLOYy67c95Q=",
+    "h1:P7lng6pDDE/J/vZaaBRLIvFDmwyN3ur7otDUvPukkYU=",
+    "h1:t6gJ20iUhRS89LHFYZCHDc74tB38m+QLjySBlbFmG4s=",
     "zh:042e0f4c38165d6a06dde2aa31476e15c8c05ca8858caa9520be00e82effc132",
     "zh:04eb68a8cb045a7db65723f228167f658954a9df74b32fe19014a9ee38525337",
     "zh:126fbf9765f8bf0efd7d46e7d0081979f5f9c15054eb5226ceb0ee8d5f154de5",
@@ -49,6 +55,9 @@ provider "registry.opentofu.org/hashicorp/random" {
   version     = "3.9.1"
   constraints = "3.9.1"
   hashes = [
+    "h1:CEQeHfnUDB3uqAkKoEWfWgbj+kpoQHgcuPbAjPzbh+U=",
+    "h1:HPYO9tf8KUSHqSdz1uOL97MLeaVHPaWPY1JW6tKU19E=",
+    "h1:ZtRBSqoyfQAhngjUjM0NRPtj6NdSJ/JBENFwT8D276s=",
     "h1:v3SAJKN4D3dOM95xKwgKGIWELe5nUBbyXdb5HNz7icw=",
     "zh:09aaf19b0d22726d2378e0e89fbbefc183494d7bd585759d6c4e69ba50951a2f",
     "zh:31575ca9bc0db20337096d178ea73bce3ebca343ed071c67f78cf39f800c9ec6",
