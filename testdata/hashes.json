@@ -1,0 +1,67 @@
+[
+  {
+    "input": {
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "generation": 9007199254740993
+    },
+    "canonical": "{\"generation\":9007199254740993,\"spec\":{\"connectionLimit\":20,\"extensions\":[],\"owner\":\"team-a\"}}",
+    "hash": "d60cc99f36764da21cc6ba64bf4a20102e70f1af84238655a65865c0a8c93ddd"
+  },
+  {
+    "input": {
+      "spec": {
+        "unicode": "Gr\u00fc\u00dfe \ud83d\ude00",
+        "html": "<>&",
+        "control": "\u0000\n\t\u007f",
+        "array": [
+          true,
+          null,
+          -1,
+          1.0,
+          1000000.0,
+          1e+16,
+          1e-05,
+          1e-07,
+          -0.0
+        ],
+        "integer": 9007199254740993
+      },
+      "generation": 9007199254740993
+    },
+    "canonical": "{\"generation\":9007199254740993,\"spec\":{\"array\":[true,null,-1,1.0,1000000.0,1e+16,1e-05,1e-07,-0.0],\"control\":\"\\u0000\\n\\t\\u007f\",\"html\":\"<>&\",\"integer\":9007199254740993,\"unicode\":\"Gr\\u00fc\\u00dfe \\ud83d\\ude00\"}}",
+    "hash": "5b6ce605c16f94568e3b93ca0a97f3af13bec355bb66b29a5e8df09a7c0eabeb"
+  },
+  {
+    "input": {
+      "spec": {
+        "z": {
+          "\u03b2": "\u00e9"
+        },
+        "a": []
+      },
+      "generation": 9007199254740993
+    },
+    "canonical": "{\"generation\":9007199254740993,\"spec\":{\"a\":[],\"z\":{\"\\u03b2\":\"\\u00e9\"}}}",
+    "hash": "e85a5f8545294feb159e994f6d5e782d52769db74ec9da0b438561508c8e2859"
+  },
+  {
+    "input": {
+      "spec": {
+        "float": [
+          1000000000000000.0,
+          12340000000.0,
+          1.2345678901234567,
+          1.7976931348623157e+308,
+          5e-324
+        ]
+      },
+      "generation": 9007199254740993
+    },
+    "canonical": "{\"generation\":9007199254740993,\"spec\":{\"float\":[1000000000000000.0,12340000000.0,1.2345678901234567,1.7976931348623157e+308,5e-324]}}",
+    "hash": "a9a59c5b16db3108990fd752e25dbf909aea975f13164082baa875a0f16d6dde"
+  }
+]

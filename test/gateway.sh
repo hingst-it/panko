@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 export KUBECONFIG="${KUBECONFIG:-$PWD/.local/kubeconfig}"
-kubectl -n infra-runners port-forward --address 127.0.0.1 service/platform-gateway 18080:8080 > .local/gateway-forward.log 2>&1 &
+kubectl -n infra-gateway port-forward --address 127.0.0.1 service/platform-gateway 18080:8080 > .local/gateway-forward.log 2>&1 &
 forward_pid=$!
 trap 'kill "$forward_pid" 2>/dev/null || true' EXIT
 python3 test/gateway_e2e.py

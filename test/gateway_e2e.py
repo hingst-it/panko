@@ -59,7 +59,7 @@ try:
     curl('PATCH', path + '/' + name, {'metadata': {'namespace': 'team-b'}}, expected=422)
     curl('DELETE', path + '/' + name, expected=202)
     wait(lambda: get('db', name) is None, 'gateway database deleted')
-    assert get('secret', 'tfstate-default-team-a-' + name, 'infra-runners') is None
+    assert get('secret', 'tfstate-default-team-a-' + name, 'panko-state-team-a') is None
     assert sql(f"SELECT count(*) FROM pg_database WHERE datname='{creds['database']}';") == '0'
     assert sql(f"SELECT count(*) FROM pg_roles WHERE rolname='{creds['username']}';") == '0'
     print('Gateway curl CRUD, Ready, real login, validation paths, isolation and deletion passed', flush=True)
@@ -73,7 +73,10 @@ assert '/v1/teams/{team}/widgets' not in initial['paths']
 kube('apply', '-f', 'test/dummy-crd.yaml')
 kube('wait', '--for=condition=Established', 'crd/widgets.platform.example.com', '--timeout=60s')
 try:
-    document = curl('GET', '/openapi.json', token=False)
+    def widget_document():
+        document = curl('GET', '/openapi.json', token=False)
+        return document if '/v1/teams/{team}/widgets' in document['paths'] else None
+    document = wait(widget_document, 'new CRD visible after discovery cache expiry', seconds=15)
     assert document['openapi'] == '3.1.0'
     assert '/v1/teams/{team}/widgets' in document['paths']
     widget = document['components']['schemas']['platform_example_com_v1_WidgetCreate']
@@ -88,6 +91,10 @@ try:
     Path('.local/openapi.json').write_text(json.dumps(document, indent=2))
     html = subprocess.check_output(['curl', '-fsS', BASE + '/docs']).decode()
     assert 'swagger-ui' in html
+    metrics = subprocess.check_output(['curl', '-fsS', BASE + '/metrics']).decode()
+    assert 'panko_discovery_cache_requests_total{result="hit"}' in metrics
+    assert 'panko_discovery_cache_requests_total{result="miss"}' in metrics
+    assert not any(token in metrics for token in TOKENS.values())
     print('New CRD appeared automatically with its own field documentation; generic CRUD passed', flush=True)
 finally:
     kube('delete', 'crd', 'widgets.platform.example.com', '--ignore-not-found')

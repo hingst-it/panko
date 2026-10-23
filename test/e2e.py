@@ -96,7 +96,7 @@ def delete_and_check(name, team, creds):
         # The CR is allowed to disappear only after external and backend cleanup.
         assert sql(f"SELECT count(*) FROM pg_database WHERE datname='{creds['database']}';") == '0'
         assert sql(f"SELECT count(*) FROM pg_roles WHERE rolname='{creds['username']}';") == '0'
-        assert get('secret', f'tfstate-default-{team}-{name}', 'infra-runners') is None
+        assert get('secret', f'tfstate-default-{team}-{name}', 'panko-state-' + team) is None
         assert get('secret', name + '-connection', team) is None
         return True
     wait(gone, f'{team}/{name} deleted after cleanup')
@@ -119,6 +119,14 @@ def main():
                          'platform.example.com/uid=' + original['metadata']['uid'], '-o', 'json').stdout)['items']
     assert any(j['metadata']['annotations']['platform.example.com/hash'] == updated['status']['lastAppliedHash']
                and any(c['type'] == 'Complete' and c['status'] == 'True' for c in j['status']['conditions']) for j in jobs)
+    current_job = next(j for j in jobs if j['metadata']['annotations']['platform.example.com/hash'] == updated['status']['lastAppliedHash'])
+    logs = kube('logs', '-n', 'team-a', 'job/' + current_job['metadata']['name']).stdout
+    events = [json.loads(line) for line in logs.splitlines() if line.startswith('{"event":')]
+    succeeded = next(event for event in events if event['event'] == 'execution_succeeded')
+    assert succeeded['uid'] == original['metadata']['uid']
+    assert succeeded['generation'] == changed['metadata']['generation']
+    assert succeeded['job'] == current_job['metadata']['name']
+    assert not ({'spec', 'password', 'token'} & succeeded.keys())
     assert sql(f"SELECT datconnlimit FROM pg_database WHERE datname='{creds['database']}';") == '31'
     assert sql(f"SELECT rolconnlimit FROM pg_roles WHERE rolname='{creds['username']}';") == '31'
     print('2: new generation completed in a new job; PostgreSQL database and role limits changed', flush=True)
@@ -138,6 +146,21 @@ def main():
     print('5: parallel CRs in two team namespaces independently Ready and usable', flush=True)
     for other, team in parallel:
         delete_and_check(other, team, credentials(other, team))
+    prefix = (RUN + '-same-prefix-').ljust(40, 'x')[:40]
+    colliding = [prefix + '-a', prefix + '-b']
+    for other in colliding:
+        create(other)
+    job_names = []
+    for other in colliding:
+        cr = ready(other)
+        jobs = json.loads(kube('get', 'jobs', '-n', 'team-a', '-l',
+                             'platform.example.com/uid=' + cr['metadata']['uid'], '-o', 'json').stdout)['items']
+        assert jobs, other
+        job_names.append(jobs[0]['metadata']['name'])
+    assert len(set(job_names)) == 2, job_names
+    for other in colliding:
+        delete_and_check(other, 'team-a', credentials(other))
+    print('6: resources with identical 40-character prefixes provisioned independently', flush=True)
     print('All Kubernetes/PostgreSQL end-to-end tests passed', flush=True)
 
 

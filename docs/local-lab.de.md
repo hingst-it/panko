@@ -2,6 +2,8 @@
 
 > Technischer Leitfaden und bisheriges Prüfprotokoll. Zur [Projektübersicht](../README.md).
 > Alle Befehle und Codepfade beziehen sich auf das Repository-Hauptverzeichnis.
+> Aktuelle Betriebs-, Migrations- und Testanleitung: [operations.de.md](operations.de.md).
+> Die Runtime ist inzwischen nach Go portiert; Aufbau und Rückwechsel: [go-porting.de.md](go-porting.de.md).
 > Die folgenden Prüfvermerke dokumentieren frühere Implementierungsläufe; sie sind kein aktueller CI-Status.
 
 Lokales Infrastruktur-Labor: Kubernetes ist API und Trigger, OpenTofu provisioniert Postgres.
@@ -11,9 +13,8 @@ flowchart LR
   Dev[Entwickler / curl] --> Gateway[REST + generiertes OpenAPI]
   Gateway --> CR[Database CR + CRD-Schema]
   CR --> Meta[Metacontroller]
-  Meta --> Hook[Python Hook]
-  Hook --> Job[OpenTofu Job]
-  Job -->|liest spec selbst| CR
+  Meta --> Hook[Go Hook]
+  Hook -->|fixiert Spec-Snapshot| Job[OpenTofu Job]
   Job --> PG[Postgres]
   Job --> Secret[Connection Secret + State Secret]
 ```
@@ -21,7 +22,10 @@ flowchart LR
 Setup (Docker muss laufen; Werkzeuge über mise):
 
 ```sh
-mise trust && mise install && make cluster-up
+mise trust && mise install
+mise exec -- python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements-dev.txt
+make cluster-up
 make bootstrap && make build && make deploy
 make test
 ```
@@ -66,13 +70,12 @@ um Kollisionen zwischen Namespaces und nach Neuanlage zu vermeiden.
 
 ## Terraform-Modul
 
-`terraform/database/` hat genau zwei Eingaben: `namespace` und `name`. Es liest die
-CR über `data "kubernetes_resource"`; `spec` steuert Rolle, Datenbank, Extensions
-und Limits. Ein zusätzlicher `hashicorp/random`-Provider erzeugt ein dauerhaftes
-Login-Passwort im State. Die Provider-Versionen wurden im OpenTofu-Registry geprüft
-und sind mit Lockfile festgelegt. Das Connection-Secret gehört per ownerReference
-zur CR. Der Runner stellt nur technische Admin-Credentials per `PGPASSWORD` bereit.
-Outputs enthalten ausschließlich Referenzen und den Datenbanknamen.
+`terraform/database/` erhält `namespace`, `name` und einen unveränderlichen
+Ressourcen-Snapshot `resource`. Dessen Spec steuert Rolle, Datenbank, Extensions und
+Limits ohne zusätzliches fachliches Mapping im Runner. Der Random-Provider erzeugt
+ein dauerhaftes Login-Passwort im State. Provider sind mit Lockfile festgelegt.
+Das Connection-Secret gehört per ownerReference zur CR. Technische Credentials
+kommen aus der Runner-Umgebung; Outputs enthalten Referenzen und Datenbanknamen.
 
 Phase 3 geprüft: `tofu init -backend=false`, `tofu validate` und `tofu fmt -check`
 sind erfolgreich. Kubernetes-Authentifizierung kommt aus technischen `KUBE_*`-
@@ -85,13 +88,13 @@ und einen beim Build erzeugten Provider-Mirror ohne Netzwerk-Fallback. `make bui
 baut für die lokale Docker-Architektur (ARM64 oder AMD64) und importiert nach k3d.
 Jobs laufen im Namespace ihrer CR; ihre ServiceAccounts dürfen dort Database-CRs
 lesen und Secrets verwalten. Zusätzlich dürfen sie State-Secrets und Lock-Leases
-in `infra-runners` verwalten sowie ausschließlich `postgres-admin` in `infra-backends`
-lesen. Der Kubernetes-Provider braucht außerdem lesenden Cluster-Zugriff auf die
+im jeweiligen Namespace `panko-state-team-a` bzw. `panko-state-team-b` verwalten.
+In `infra-backends` dürfen sie ausschließlich `postgres-admin` lesen. Der Kubernetes-Provider braucht außerdem lesenden Cluster-Zugriff auf die
 CRD-Schemas. Der Hook bekommt keinen API-Token.
 
 Nach erfolgreichem Destroy entfernt der Runner das leere Backend-State-Secret und
-seine Lease. Er meldet erst danach Job-Erfolg. Die beiden Eingaben bleiben reine
-CR-Identität; Admin-Credentials sind technische Provider-Authentifizierung.
+seine Lease. Er meldet erst danach Job-Erfolg. Der Ressourcen-Snapshot bleibt
+während eines Jobs unverändert; Admin-Credentials sind technische Provider-Authentifizierung. Gateway-Tokens liegen getrennt in `infra-gateway`.
 
 Phase 4 geprüft: realer Job mit `apply`, Connection-Secret samt ownerReference und
 JSON-Outputs; anschließender `destroy`-Job erfolgreich, State-Secret entfernt.
@@ -101,8 +104,8 @@ Provider die impliziten Kubernetes-Metadaten einschließlich UID erkennt.
 ## Reconciliation
 
 Der Hook hasht kanonisches JSON aus `spec` und Generation. Job-Namen enthalten den
-CR-Namen (bei langen Namen gekürzt) und acht Hashzeichen. Eine laufende ältere
-Generation wird beendet, bevor eine neue startet. Erfolgreiche aktuelle Jobs bleiben
+gekürzten CR-Namen und einen Hash aus UID, Konfigurationshash, Aktion und Versuch.
+Eine laufende ältere Generation wird beendet, bevor eine neue startet. Erfolgreiche aktuelle Jobs bleiben
 bis zur TTL von einer Stunde erhalten; der Status verhindert nach Ablauf erneute
 Applies derselben Generation. Alte abgeschlossene Jobs entfernt Metacontroller.
 Fehlgeschlagene Applies werden mit `Failed` gemeldet; eine Spec-Änderung startet
@@ -111,7 +114,8 @@ einen neuen Versuch. Jobs haben ein Zeitlimit von fünf Minuten und keine Pod-Re
 Beim Löschen wartet der Hook auf laufende Jobs und startet anschließend Destroy.
 Die CR bleibt `Deleting` und behält ihren Finalizer bis zum erfolgreichen Destroy
 inklusive State-Löschung. Fehlgeschlagene Destroy-Jobs bleiben zur Diagnose stehen;
-nach deren gezieltem Löschen durch einen Administrator erfolgt ein neuer Versuch.
+ein neuer Wert der Annotation `platform.example.com/retry-destroy` fordert explizit
+einen weiteren Versuch an. Das Ergebnis bleibt nach Ablauf der Job-TTL im Status erhalten.
 Kein periodischer Drift-Apply ist aktiviert.
 
 Phase 5 geprüft: drei Hook-Tests (Generationen serialisieren, TTL, Finalisierung)
@@ -139,13 +143,13 @@ team-a und team-b über den regulären Finalizer. `make cluster-down` entfernt d
 
 ## Entwickler-API
 
-Der Gateway nutzt FastAPI für HTTP und Swagger UI. Das OpenAPI-Dokument erzeugt
-`gateway/schema.py` direkt aus den aktuellen, mit
+Der Gateway nutzt Go `net/http` für HTTP und liefert Swagger UI aus. Das OpenAPI-Dokument
+erzeugt `internal/gateway/schema.go` direkt aus den aktuellen, mit
 `platform.example.com/expose: "true"` markierten CRDs. `spec`, `status`, Defaults,
 Enums und Beschreibungen stammen aus deren `openAPIV3Schema`; es gibt keine
 fachlichen Pydantic-Modelle oder Terraform-Variablen-Mappings. Das Dokument wird
-bei jeder Abfrage neu erzeugt. Neue namespaced CRDs mit `spec` erscheinen ohne
-Neubau oder Neustart. Alle served-Versionen erhalten eigene Routen. Die API
+aus einem kurzzeitig gecachten Discovery-Ergebnis erzeugt (Standard fünf Sekunden).
+Neue namespaced CRDs mit `spec` erscheinen ohne Neubau oder Neustart. Alle served-Versionen erhalten eigene Routen. Die API
 verwendet die Version und den Pluralnamen aus der CRD; kollidierende Routen
 verschiedener Gruppen werden als Konfigurationsfehler gemeldet.
 
@@ -168,7 +172,7 @@ Der lokale Port ist standardmäßig 8081 (`make gateway-forward GATEWAY_PORT=909
 Danach funktioniert die Entwicklerseite ausschließlich per HTTP; sie braucht
 weder Kubernetes-Zugang noch Kubernetes-Metadaten. Lokale Tokens liegen in der
 ignorierten Datei `.local/team-tokens.json` (Dateimodus 0600) sowie im gemounteten
-Secret `infra-runners/gateway-auth`. Beispiel im zweiten Terminal:
+Secret `infra-gateway/gateway-auth`. Beispiel im zweiten Terminal:
 
 ```sh
 TOKEN="$(mise exec -- python -c 'import json; print(json.load(open(".local/team-tokens.json"))["team-a"])')"
@@ -219,7 +223,8 @@ Team-Namespaces, die Teamgrenze setzt der Gateway durch.
 - Lokales Labor mit einem Postgres und PVC: keine Hochverfügbarkeit, Backups,
   TLS zu Postgres oder produktionsreife Mandantenisolation im Datenbankserver.
 - Kubernetes-State-Secrets enthalten Login-Passwörter; Secret-Größe maximal 1 MiB.
-  Die Runner gelten als vertrauenswürdig und verwalten States beider Teams.
+  Runner verwalten ausschließlich den State ihres Teams, teilen sich aber weiterhin
+  den PostgreSQL-Adminzugang.
   Die Metacontroller-Installation verwendet die breiten Standardrechte des Charts.
 - Nur die beiden konfigurierten Team-Namespaces sind provisioniert. Weitere Teams
   benötigen explizite Namespace-/RBAC-Konfiguration und ein Token. Exponierte APIs
@@ -227,8 +232,8 @@ Team-Namespaces, die Teamgrenze setzt der Gateway durch.
 - Applies erfolgen bei Spec-/Generationsänderungen. Ein verlorenes Secret oder
   externe Drift löst derzeit keinen periodischen Apply aus. Kein automatischer
   Retry fehlgeschlagener Applies derselben Generation.
-- Die CR wird beim Apply live gelesen. Ändert sie sich während des Jobs, folgt
-  anschließend ein weiterer Job für die neue Generation; es gibt keinen Snapshot.
+- Jeder neue Job verarbeitet einen festen Spec-Snapshot. Ändert sich die CR während
+  des Jobs, folgt anschließend ein weiterer Job für die neue Generation.
 - Gleichzeitige Änderungen werden als Merge Patches verarbeitet; kein ETag-Vertrag.
   Listen sind für das kleine Labor ungepaginiert. Swagger lädt UI-Dateien vom CDN.
 - Images verwenden lokale `:dev`-Tags; `make build && make deploy` importiert und

@@ -1,41 +1,70 @@
-"""A real apply/destroy before introducing Metacontroller hooks."""
+"""Exercise the runner as an external Job, independent of its implementation language."""
+import copy
+import hashlib
 import json
 import os
-import subprocess
+from pathlib import Path
 import time
 
-K = ['kubectl', '--kubeconfig', os.environ.get('KUBECONFIG', '.local/kubeconfig')]
-
-def kube(*args, obj=None):
-    return subprocess.check_output(K + list(args), input=json.dumps(obj).encode() if obj else None).decode()
+from e2e import credentials, get, kube, sql, wait
 
 
-def job(action):
-    obj = {'apiVersion': 'batch/v1', 'kind': 'Job',
-           'metadata': {'name': 'runner-smoke-' + action, 'namespace': 'team-a'},
-           'spec': {'backoffLimit': 0, 'activeDeadlineSeconds': 180, 'template': {'spec': {
-               'serviceAccountName': 'tofu-runner', 'restartPolicy': 'Never',
-               'containers': [{'name': 'tofu', 'image': 'panko-runner:dev', 'imagePullPolicy': 'Never',
-                               'args': [action, 'team-a', 'runner-smoke']} ]}}}}
-    kube('create', '-f', '-', obj=obj)
-    for _ in range(120):
-        result = json.loads(kube('get', 'job', 'runner-smoke-' + action, '-n', 'team-a', '-o', 'json'))
-        status = result.get('status', {})
-        if status.get('succeeded') or status.get('failed'):
-            print(kube('logs', '-n', 'team-a', 'job/runner-smoke-' + action))
-            assert status.get('succeeded'), status
-            return
-        time.sleep(2)
-    raise AssertionError('runner timed out')
+def main():
+    name = 'runner-smoke-' + str(time.time_ns())
+    job_names = []
+    replicas = get('deployment', 'database-hook', 'infra-runners')['spec']['replicas']
+    creds = None
+    try:
+        kube('scale', 'deploy/database-hook', '-n', 'infra-runners', '--replicas=0')
+        wait(lambda: not json.loads(kube('get', 'pods', '-n', 'infra-runners', '-l',
+                                        'app=database-hook', '-o', 'json').stdout)['items'], 'hook stopped')
+        kube('create', '-f', '-', obj={'apiVersion': 'platform.example.com/v1', 'kind': 'Database',
+             'metadata': {'name': name, 'namespace': 'team-a'},
+             'spec': {'owner': 'team-a', 'extensions': ['pgcrypto'], 'connectionLimit': 20}})
+        parent = get('db', name)
+        snapshot = {'metadata': {k: parent['metadata'][k] for k in ('name', 'namespace', 'uid', 'generation')},
+                    'spec': parent['spec']}
+        digest = hashlib.sha256(json.dumps({'spec': snapshot['spec'], 'generation': snapshot['metadata']['generation']},
+                                          sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+        fixture = json.loads(Path('testdata/reconcile.json').read_text())[0]['expected']['children'][0]
+        for action in ('apply', 'destroy'):
+            job_name = name + '-' + action
+            child = copy.deepcopy(fixture)
+            child['metadata'] = {'name': job_name, 'namespace': 'team-a'}
+            container = child['spec']['template']['spec']['containers'][0]
+            container['image'] = os.environ.get('RUNNER_IMAGE', 'panko-runner:dev')
+            container['args'] = [action, 'team-a', name]
+            container['env'] = [{'name': key, 'value': value} for key, value in {
+                'PANKO_RESOURCE': json.dumps(snapshot), 'PANKO_HASH': digest, 'PANKO_JOB': job_name}.items()]
+            kube('create', '-f', '-', obj=child)
+            job_names.append(job_name)
+            def completed():
+                job = get('job', job_name)
+                for condition in job.get('status', {}).get('conditions', []):
+                    if condition['status'] == 'True' and condition['type'] == 'Failed':
+                        raise AssertionError('Runner Job failed: ' + job_name)
+                    if condition['status'] == 'True' and condition['type'] == 'Complete':
+                        return True
+                return False
+            wait(completed, 'runner ' + action)
+            if action == 'apply':
+                creds = credentials(name)
+                assert sql(f"SELECT count(*) FROM pg_database WHERE datname='{creds['database']}';") == '1'
+        assert get('secret', 'tfstate-default-team-a-' + name, 'panko-state-team-a') is None
+        assert get('lease', 'lock-tfstate-default-team-a-' + name, 'panko-state-team-a') is None
+        assert get('secret', name + '-connection') is None
+        assert sql(f"SELECT count(*) FROM pg_database WHERE datname='{creds['database']}';") == '0'
+        assert sql(f"SELECT count(*) FROM pg_roles WHERE rolname='{creds['username']}';") == '0'
+        print('External runner smoke: apply, owned connection Secret, destroy, state and lock cleanup passed', flush=True)
+    finally:
+        kube('delete', 'db', name, '-n', 'team-a', '--ignore-not-found', '--wait=false', check=False)
+        for job_name in job_names:
+            kube('delete', 'job', job_name, '-n', 'team-a', '--ignore-not-found', '--wait=false', check=False)
+        kube('scale', 'deploy/database-hook', '-n', 'infra-runners', '--replicas=' + str(replicas))
+        kube('rollout', 'status', 'deploy/database-hook', '-n', 'infra-runners', '--timeout=120s')
+        if replicas:
+            wait(lambda: get('db', name) is None, 'smoke resource finalized')
 
-kube('create', '-f', '-', obj={'apiVersion': 'platform.example.com/v1', 'kind': 'Database',
-     'metadata': {'name': 'runner-smoke', 'namespace': 'team-a'},
-     'spec': {'owner': 'team-a', 'extensions': ['pgcrypto'], 'connectionLimit': 20}})
-job('apply')
-s = json.loads(kube('get', 'secret', 'runner-smoke-connection', '-n', 'team-a', '-o', 'json'))
-assert s['metadata']['ownerReferences'][0]['kind'] == 'Database'
-job('destroy')
-assert not kube('get', 'secret', 'tfstate-default-team-a-runner-smoke', '-n', 'infra-runners', '--ignore-not-found')
-kube('delete', 'db', 'runner-smoke', '-n', 'team-a')
-kube('delete', 'jobs', 'runner-smoke-apply', 'runner-smoke-destroy', '-n', 'team-a')
-print('Runner apply, ownerReference, destroy and state cleanup passed')
+
+if __name__ == '__main__':
+    main()

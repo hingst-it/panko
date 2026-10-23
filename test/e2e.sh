@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 export KUBECONFIG="${KUBECONFIG:-$PWD/.local/kubeconfig}"
-python3 -m unittest discover -s test -p 'test_*.py'
-tofu -chdir=terraform/database fmt -check
-tofu -chdir=terraform/database init -backend=false -lockfile=readonly -input=false
-tofu -chdir=terraform/database validate
+make test-unit lint lint-go validate
+python3 test/rbac_e2e.py
 python3 test/e2e.py
 bash test/gateway.sh
+python3 test/observability_e2e.py
+python3 test/runner-smoke.py
+python3 test/admin_e2e.py

@@ -1,4 +1,5 @@
 .git
 .local
+.venv
 **/.terraform
 **/__pycache__

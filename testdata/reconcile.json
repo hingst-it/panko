@@ -1,0 +1,3397 @@
+[
+  {
+    "name": "pending",
+    "request": {
+      "parent": {
+        "metadata": {
+          "name": "orders",
+          "namespace": "team-a",
+          "uid": "abc",
+          "generation": 1
+        },
+        "spec": {
+          "owner": "team-a",
+          "extensions": [],
+          "connectionLimit": 20
+        }
+      },
+      "children": {
+        "Job.batch/v1": {}
+      },
+      "finalizing": false
+    },
+    "expected": {
+      "status": {
+        "phase": "Pending",
+        "observedGeneration": 1,
+        "message": "Apply scheduled",
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "False",
+            "reason": "Pending",
+            "message": "Apply scheduled",
+            "observedGeneration": 1,
+            "lastTransitionTime": "TIME"
+          }
+        ]
+      },
+      "children": [
+        {
+          "apiVersion": "batch/v1",
+          "kind": "Job",
+          "metadata": {
+            "name": "db-orders-2529007422842ece61c7062c-apply",
+            "namespace": "team-a",
+            "labels": {
+              "platform.example.com/uid": "abc"
+            },
+            "annotations": {
+              "platform.example.com/hash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+              "platform.example.com/action": "apply",
+              "platform.example.com/generation": "1",
+              "platform.example.com/attempt": "1",
+              "platform.example.com/retry-token": ""
+            }
+          },
+          "spec": {
+            "backoffLimit": 0,
+            "activeDeadlineSeconds": 300,
+            "ttlSecondsAfterFinished": 3600,
+            "template": {
+              "spec": {
+                "serviceAccountName": "tofu-runner",
+                "restartPolicy": "Never",
+                "securityContext": {
+                  "runAsNonRoot": true,
+                  "runAsUser": 1000,
+                  "fsGroup": 1000
+                },
+                "containers": [
+                  {
+                    "name": "tofu",
+                    "image": "panko-runner:dev",
+                    "imagePullPolicy": "Never",
+                    "args": [
+                      "apply",
+                      "team-a",
+                      "orders"
+                    ],
+                    "env": [
+                      {
+                        "name": "PANKO_RESOURCE",
+                        "value": "{\"metadata\": {\"name\": \"orders\", \"namespace\": \"team-a\", \"uid\": \"abc\", \"generation\": 1}, \"spec\": {\"owner\": \"team-a\", \"extensions\": [], \"connectionLimit\": 20}}"
+                      },
+                      {
+                        "name": "PANKO_HASH",
+                        "value": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f"
+                      },
+                      {
+                        "name": "PANKO_JOB",
+                        "value": "db-orders-2529007422842ece61c7062c-apply"
+                      }
+                    ],
+                    "securityContext": {
+                      "allowPrivilegeEscalation": false,
+                      "readOnlyRootFilesystem": true,
+                      "capabilities": {
+                        "drop": [
+                          "ALL"
+                        ]
+                      }
+                    },
+                    "resources": {
+                      "requests": {
+                        "cpu": "100m",
+                        "memory": "128Mi"
+                      },
+                      "limits": {
+                        "memory": "512Mi"
+                      }
+                    },
+                    "volumeMounts": [
+                      {
+                        "name": "work",
+                        "mountPath": "/work"
+                      },
+                      {
+                        "name": "tmp",
+                        "mountPath": "/tmp"
+                      }
+                    ]
+                  }
+                ],
+                "volumes": [
+                  {
+                    "name": "work",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "tmp",
+                    "emptyDir": {}
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "resyncAfterSeconds": 5
+    }
+  },
+  {
+    "name": "running",
+    "request": {
+      "parent": {
+        "metadata": {
+          "name": "orders",
+          "namespace": "team-a",
+          "uid": "abc",
+          "generation": 1
+        },
+        "spec": {
+          "owner": "team-a",
+          "extensions": [],
+          "connectionLimit": 20
+        }
+      },
+      "children": {
+        "Job.batch/v1": {
+          "db-orders-2529007422842ece61c7062c-apply": {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "metadata": {
+              "name": "db-orders-2529007422842ece61c7062c-apply",
+              "namespace": "team-a",
+              "labels": {
+                "platform.example.com/uid": "abc"
+              },
+              "annotations": {
+                "platform.example.com/hash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+                "platform.example.com/action": "apply",
+                "platform.example.com/generation": "1",
+                "platform.example.com/attempt": "1",
+                "platform.example.com/retry-token": ""
+              }
+            },
+            "spec": {
+              "backoffLimit": 0,
+              "activeDeadlineSeconds": 300,
+              "ttlSecondsAfterFinished": 3600,
+              "template": {
+                "spec": {
+                  "serviceAccountName": "tofu-runner",
+                  "restartPolicy": "Never",
+                  "securityContext": {
+                    "runAsNonRoot": true,
+                    "runAsUser": 1000,
+                    "fsGroup": 1000
+                  },
+                  "containers": [
+                    {
+                      "name": "tofu",
+                      "image": "panko-runner:dev",
+                      "imagePullPolicy": "Never",
+                      "args": [
+                        "apply",
+                        "team-a",
+                        "orders"
+                      ],
+                      "env": [
+                        {
+                          "name": "PANKO_RESOURCE",
+                          "value": "{\"metadata\": {\"name\": \"orders\", \"namespace\": \"team-a\", \"uid\": \"abc\", \"generation\": 1}, \"spec\": {\"owner\": \"team-a\", \"extensions\": [], \"connectionLimit\": 20}}"
+                        },
+                        {
+                          "name": "PANKO_HASH",
+                          "value": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f"
+                        },
+                        {
+                          "name": "PANKO_JOB",
+                          "value": "db-orders-2529007422842ece61c7062c-apply"
+                        }
+                      ],
+                      "securityContext": {
+                        "allowPrivilegeEscalation": false,
+                        "readOnlyRootFilesystem": true,
+                        "capabilities": {
+                          "drop": [
+                            "ALL"
+                          ]
+                        }
+                      },
+                      "resources": {
+                        "requests": {
+                          "cpu": "100m",
+                          "memory": "128Mi"
+                        },
+                        "limits": {
+                          "memory": "512Mi"
+                        }
+                      },
+                      "volumeMounts": [
+                        {
+                          "name": "work",
+                          "mountPath": "/work"
+                        },
+                        {
+                          "name": "tmp",
+                          "mountPath": "/tmp"
+                        }
+                      ]
+                    }
+                  ],
+                  "volumes": [
+                    {
+                      "name": "work",
+                      "emptyDir": {}
+                    },
+                    {
+                      "name": "tmp",
+                      "emptyDir": {}
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "finalizing": false
+    },
+    "expected": {
+      "status": {
+        "phase": "Applying",
+        "observedGeneration": 1,
+        "message": "OpenTofu apply is running",
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "False",
+            "reason": "Applying",
+            "message": "OpenTofu apply is running",
+            "observedGeneration": 1,
+            "lastTransitionTime": "TIME"
+          }
+        ]
+      },
+      "children": [
+        {
+          "apiVersion": "batch/v1",
+          "kind": "Job",
+          "metadata": {
+            "name": "db-orders-2529007422842ece61c7062c-apply",
+            "namespace": "team-a",
+            "labels": {
+              "platform.example.com/uid": "abc"
+            },
+            "annotations": {
+              "platform.example.com/hash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+              "platform.example.com/action": "apply",
+              "platform.example.com/generation": "1",
+              "platform.example.com/attempt": "1",
+              "platform.example.com/retry-token": ""
+            }
+          },
+          "spec": {
+            "backoffLimit": 0,
+            "activeDeadlineSeconds": 300,
+            "ttlSecondsAfterFinished": 3600,
+            "template": {
+              "spec": {
+                "serviceAccountName": "tofu-runner",
+                "restartPolicy": "Never",
+                "securityContext": {
+                  "runAsNonRoot": true,
+                  "runAsUser": 1000,
+                  "fsGroup": 1000
+                },
+                "containers": [
+                  {
+                    "name": "tofu",
+                    "image": "panko-runner:dev",
+                    "imagePullPolicy": "Never",
+                    "args": [
+                      "apply",
+                      "team-a",
+                      "orders"
+                    ],
+                    "env": [
+                      {
+                        "name": "PANKO_RESOURCE",
+                        "value": "{\"metadata\": {\"name\": \"orders\", \"namespace\": \"team-a\", \"uid\": \"abc\", \"generation\": 1}, \"spec\": {\"owner\": \"team-a\", \"extensions\": [], \"connectionLimit\": 20}}"
+                      },
+                      {
+                        "name": "PANKO_HASH",
+                        "value": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f"
+                      },
+                      {
+                        "name": "PANKO_JOB",
+                        "value": "db-orders-2529007422842ece61c7062c-apply"
+                      }
+                    ],
+                    "securityContext": {
+                      "allowPrivilegeEscalation": false,
+                      "readOnlyRootFilesystem": true,
+                      "capabilities": {
+                        "drop": [
+                          "ALL"
+                        ]
+                      }
+                    },
+                    "resources": {
+                      "requests": {
+                        "cpu": "100m",
+                        "memory": "128Mi"
+                      },
+                      "limits": {
+                        "memory": "512Mi"
+                      }
+                    },
+                    "volumeMounts": [
+                      {
+                        "name": "work",
+                        "mountPath": "/work"
+                      },
+                      {
+                        "name": "tmp",
+                        "mountPath": "/tmp"
+                      }
+                    ]
+                  }
+                ],
+                "volumes": [
+                  {
+                    "name": "work",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "tmp",
+                    "emptyDir": {}
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "resyncAfterSeconds": 5
+    }
+  },
+  {
+    "name": "legacy-running",
+    "request": {
+      "parent": {
+        "metadata": {
+          "name": "orders",
+          "namespace": "team-a",
+          "uid": "abc",
+          "generation": 1
+        },
+        "spec": {
+          "owner": "team-a",
+          "extensions": [],
+          "connectionLimit": 20
+        }
+      },
+      "children": {
+        "Job.batch/v1": {
+          "db-orders-legacy": {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "metadata": {
+              "name": "db-orders-legacy",
+              "namespace": "team-a",
+              "labels": {
+                "platform.example.com/uid": "abc"
+              },
+              "annotations": {
+                "platform.example.com/hash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+                "platform.example.com/action": "apply",
+                "platform.example.com/generation": "1",
+                "platform.example.com/attempt": "1",
+                "platform.example.com/retry-token": ""
+              }
+            },
+            "spec": {
+              "backoffLimit": 0,
+              "activeDeadlineSeconds": 300,
+              "ttlSecondsAfterFinished": 3600,
+              "template": {
+                "spec": {
+                  "serviceAccountName": "tofu-runner",
+                  "restartPolicy": "Never",
+                  "securityContext": {
+                    "runAsNonRoot": true,
+                    "runAsUser": 1000,
+                    "fsGroup": 1000
+                  },
+                  "containers": [
+                    {
+                      "name": "tofu",
+                      "image": "panko-runner:dev",
+                      "imagePullPolicy": "Never",
+                      "args": [
+                        "apply",
+                        "team-a",
+                        "orders"
+                      ],
+                      "securityContext": {
+                        "allowPrivilegeEscalation": false,
+                        "readOnlyRootFilesystem": true,
+                        "capabilities": {
+                          "drop": [
+                            "ALL"
+                          ]
+                        }
+                      },
+                      "resources": {
+                        "requests": {
+                          "cpu": "100m",
+                          "memory": "128Mi"
+                        },
+                        "limits": {
+                          "memory": "512Mi"
+                        }
+                      },
+                      "volumeMounts": [
+                        {
+                          "name": "work",
+                          "mountPath": "/work"
+                        },
+                        {
+                          "name": "tmp",
+                          "mountPath": "/tmp"
+                        }
+                      ]
+                    }
+                  ],
+                  "volumes": [
+                    {
+                      "name": "work",
+                      "emptyDir": {}
+                    },
+                    {
+                      "name": "tmp",
+                      "emptyDir": {}
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "finalizing": false
+    },
+    "expected": {
+      "status": {
+        "phase": "Applying",
+        "observedGeneration": 1,
+        "message": "OpenTofu apply is running",
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "False",
+            "reason": "Applying",
+            "message": "OpenTofu apply is running",
+            "observedGeneration": 1,
+            "lastTransitionTime": "TIME"
+          }
+        ]
+      },
+      "children": [
+        {
+          "apiVersion": "batch/v1",
+          "kind": "Job",
+          "metadata": {
+            "name": "db-orders-legacy",
+            "namespace": "team-a",
+            "labels": {
+              "platform.example.com/uid": "abc"
+            },
+            "annotations": {
+              "platform.example.com/hash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+              "platform.example.com/action": "apply",
+              "platform.example.com/generation": "1",
+              "platform.example.com/attempt": "1",
+              "platform.example.com/retry-token": ""
+            }
+          },
+          "spec": {
+            "backoffLimit": 0,
+            "activeDeadlineSeconds": 300,
+            "ttlSecondsAfterFinished": 3600,
+            "template": {
+              "spec": {
+                "serviceAccountName": "tofu-runner",
+                "restartPolicy": "Never",
+                "securityContext": {
+                  "runAsNonRoot": true,
+                  "runAsUser": 1000,
+                  "fsGroup": 1000
+                },
+                "containers": [
+                  {
+                    "name": "tofu",
+                    "image": "panko-runner:dev",
+                    "imagePullPolicy": "Never",
+                    "args": [
+                      "apply",
+                      "team-a",
+                      "orders"
+                    ],
+                    "securityContext": {
+                      "allowPrivilegeEscalation": false,
+                      "readOnlyRootFilesystem": true,
+                      "capabilities": {
+                        "drop": [
+                          "ALL"
+                        ]
+                      }
+                    },
+                    "resources": {
+                      "requests": {
+                        "cpu": "100m",
+                        "memory": "128Mi"
+                      },
+                      "limits": {
+                        "memory": "512Mi"
+                      }
+                    },
+                    "volumeMounts": [
+                      {
+                        "name": "work",
+                        "mountPath": "/work"
+                      },
+                      {
+                        "name": "tmp",
+                        "mountPath": "/tmp"
+                      }
+                    ]
+                  }
+                ],
+                "volumes": [
+                  {
+                    "name": "work",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "tmp",
+                    "emptyDir": {}
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "resyncAfterSeconds": 5
+    }
+  },
+  {
+    "name": "new-generation-waits",
+    "request": {
+      "parent": {
+        "metadata": {
+          "name": "orders",
+          "namespace": "team-a",
+          "uid": "abc",
+          "generation": 2
+        },
+        "spec": {
+          "owner": "team-a",
+          "extensions": [],
+          "connectionLimit": 30
+        }
+      },
+      "children": {
+        "Job.batch/v1": {
+          "db-orders-2529007422842ece61c7062c-apply": {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "metadata": {
+              "name": "db-orders-2529007422842ece61c7062c-apply",
+              "namespace": "team-a",
+              "labels": {
+                "platform.example.com/uid": "abc"
+              },
+              "annotations": {
+                "platform.example.com/hash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+                "platform.example.com/action": "apply",
+                "platform.example.com/generation": "1",
+                "platform.example.com/attempt": "1",
+                "platform.example.com/retry-token": ""
+              }
+            },
+            "spec": {
+              "backoffLimit": 0,
+              "activeDeadlineSeconds": 300,
+              "ttlSecondsAfterFinished": 3600,
+              "template": {
+                "spec": {
+                  "serviceAccountName": "tofu-runner",
+                  "restartPolicy": "Never",
+                  "securityContext": {
+                    "runAsNonRoot": true,
+                    "runAsUser": 1000,
+                    "fsGroup": 1000
+                  },
+                  "containers": [
+                    {
+                      "name": "tofu",
+                      "image": "panko-runner:dev",
+                      "imagePullPolicy": "Never",
+                      "args": [
+                        "apply",
+                        "team-a",
+                        "orders"
+                      ],
+                      "env": [
+                        {
+                          "name": "PANKO_RESOURCE",
+                          "value": "{\"metadata\": {\"name\": \"orders\", \"namespace\": \"team-a\", \"uid\": \"abc\", \"generation\": 1}, \"spec\": {\"owner\": \"team-a\", \"extensions\": [], \"connectionLimit\": 20}}"
+                        },
+                        {
+                          "name": "PANKO_HASH",
+                          "value": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f"
+                        },
+                        {
+                          "name": "PANKO_JOB",
+                          "value": "db-orders-2529007422842ece61c7062c-apply"
+                        }
+                      ],
+                      "securityContext": {
+                        "allowPrivilegeEscalation": false,
+                        "readOnlyRootFilesystem": true,
+                        "capabilities": {
+                          "drop": [
+                            "ALL"
+                          ]
+                        }
+                      },
+                      "resources": {
+                        "requests": {
+                          "cpu": "100m",
+                          "memory": "128Mi"
+                        },
+                        "limits": {
+                          "memory": "512Mi"
+                        }
+                      },
+                      "volumeMounts": [
+                        {
+                          "name": "work",
+                          "mountPath": "/work"
+                        },
+                        {
+                          "name": "tmp",
+                          "mountPath": "/tmp"
+                        }
+                      ]
+                    }
+                  ],
+                  "volumes": [
+                    {
+                      "name": "work",
+                      "emptyDir": {}
+                    },
+                    {
+                      "name": "tmp",
+                      "emptyDir": {}
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "finalizing": false
+    },
+    "expected": {
+      "status": {
+        "phase": "Applying",
+        "observedGeneration": 1,
+        "message": "OpenTofu apply is running",
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "False",
+            "reason": "Applying",
+            "message": "OpenTofu apply is running",
+            "observedGeneration": 1,
+            "lastTransitionTime": "TIME"
+          }
+        ]
+      },
+      "children": [
+        {
+          "apiVersion": "batch/v1",
+          "kind": "Job",
+          "metadata": {
+            "name": "db-orders-2529007422842ece61c7062c-apply",
+            "namespace": "team-a",
+            "labels": {
+              "platform.example.com/uid": "abc"
+            },
+            "annotations": {
+              "platform.example.com/hash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+              "platform.example.com/action": "apply",
+              "platform.example.com/generation": "1",
+              "platform.example.com/attempt": "1",
+              "platform.example.com/retry-token": ""
+            }
+          },
+          "spec": {
+            "backoffLimit": 0,
+            "activeDeadlineSeconds": 300,
+            "ttlSecondsAfterFinished": 3600,
+            "template": {
+              "spec": {
+                "serviceAccountName": "tofu-runner",
+                "restartPolicy": "Never",
+                "securityContext": {
+                  "runAsNonRoot": true,
+                  "runAsUser": 1000,
+                  "fsGroup": 1000
+                },
+                "containers": [
+                  {
+                    "name": "tofu",
+                    "image": "panko-runner:dev",
+                    "imagePullPolicy": "Never",
+                    "args": [
+                      "apply",
+                      "team-a",
+                      "orders"
+                    ],
+                    "env": [
+                      {
+                        "name": "PANKO_RESOURCE",
+                        "value": "{\"metadata\": {\"name\": \"orders\", \"namespace\": \"team-a\", \"uid\": \"abc\", \"generation\": 1}, \"spec\": {\"owner\": \"team-a\", \"extensions\": [], \"connectionLimit\": 20}}"
+                      },
+                      {
+                        "name": "PANKO_HASH",
+                        "value": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f"
+                      },
+                      {
+                        "name": "PANKO_JOB",
+                        "value": "db-orders-2529007422842ece61c7062c-apply"
+                      }
+                    ],
+                    "securityContext": {
+                      "allowPrivilegeEscalation": false,
+                      "readOnlyRootFilesystem": true,
+                      "capabilities": {
+                        "drop": [
+                          "ALL"
+                        ]
+                      }
+                    },
+                    "resources": {
+                      "requests": {
+                        "cpu": "100m",
+                        "memory": "128Mi"
+                      },
+                      "limits": {
+                        "memory": "512Mi"
+                      }
+                    },
+                    "volumeMounts": [
+                      {
+                        "name": "work",
+                        "mountPath": "/work"
+                      },
+                      {
+                        "name": "tmp",
+                        "mountPath": "/tmp"
+                      }
+                    ]
+                  }
+                ],
+                "volumes": [
+                  {
+                    "name": "work",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "tmp",
+                    "emptyDir": {}
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "resyncAfterSeconds": 5
+    }
+  },
+  {
+    "name": "delete-waits-for-apply",
+    "request": {
+      "parent": {
+        "metadata": {
+          "name": "orders",
+          "namespace": "team-a",
+          "uid": "abc",
+          "generation": 2
+        },
+        "spec": {
+          "owner": "team-a",
+          "extensions": [],
+          "connectionLimit": 30
+        }
+      },
+      "children": {
+        "Job.batch/v1": {
+          "db-orders-2529007422842ece61c7062c-apply": {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "metadata": {
+              "name": "db-orders-2529007422842ece61c7062c-apply",
+              "namespace": "team-a",
+              "labels": {
+                "platform.example.com/uid": "abc"
+              },
+              "annotations": {
+                "platform.example.com/hash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+                "platform.example.com/action": "apply",
+                "platform.example.com/generation": "1",
+                "platform.example.com/attempt": "1",
+                "platform.example.com/retry-token": ""
+              }
+            },
+            "spec": {
+              "backoffLimit": 0,
+              "activeDeadlineSeconds": 300,
+              "ttlSecondsAfterFinished": 3600,
+              "template": {
+                "spec": {
+                  "serviceAccountName": "tofu-runner",
+                  "restartPolicy": "Never",
+                  "securityContext": {
+                    "runAsNonRoot": true,
+                    "runAsUser": 1000,
+                    "fsGroup": 1000
+                  },
+                  "containers": [
+                    {
+                      "name": "tofu",
+                      "image": "panko-runner:dev",
+                      "imagePullPolicy": "Never",
+                      "args": [
+                        "apply",
+                        "team-a",
+                        "orders"
+                      ],
+                      "env": [
+                        {
+                          "name": "PANKO_RESOURCE",
+                          "value": "{\"metadata\": {\"name\": \"orders\", \"namespace\": \"team-a\", \"uid\": \"abc\", \"generation\": 1}, \"spec\": {\"owner\": \"team-a\", \"extensions\": [], \"connectionLimit\": 20}}"
+                        },
+                        {
+                          "name": "PANKO_HASH",
+                          "value": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f"
+                        },
+                        {
+                          "name": "PANKO_JOB",
+                          "value": "db-orders-2529007422842ece61c7062c-apply"
+                        }
+                      ],
+                      "securityContext": {
+                        "allowPrivilegeEscalation": false,
+                        "readOnlyRootFilesystem": true,
+                        "capabilities": {
+                          "drop": [
+                            "ALL"
+                          ]
+                        }
+                      },
+                      "resources": {
+                        "requests": {
+                          "cpu": "100m",
+                          "memory": "128Mi"
+                        },
+                        "limits": {
+                          "memory": "512Mi"
+                        }
+                      },
+                      "volumeMounts": [
+                        {
+                          "name": "work",
+                          "mountPath": "/work"
+                        },
+                        {
+                          "name": "tmp",
+                          "mountPath": "/tmp"
+                        }
+                      ]
+                    }
+                  ],
+                  "volumes": [
+                    {
+                      "name": "work",
+                      "emptyDir": {}
+                    },
+                    {
+                      "name": "tmp",
+                      "emptyDir": {}
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "finalizing": true
+    },
+    "expected": {
+      "status": {
+        "phase": "Deleting",
+        "observedGeneration": 2,
+        "message": "Waiting for running job before teardown",
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "False",
+            "reason": "Deleting",
+            "message": "Waiting for running job before teardown",
+            "observedGeneration": 2,
+            "lastTransitionTime": "TIME"
+          }
+        ]
+      },
+      "children": [
+        {
+          "apiVersion": "batch/v1",
+          "kind": "Job",
+          "metadata": {
+            "name": "db-orders-2529007422842ece61c7062c-apply",
+            "namespace": "team-a",
+            "labels": {
+              "platform.example.com/uid": "abc"
+            },
+            "annotations": {
+              "platform.example.com/hash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+              "platform.example.com/action": "apply",
+              "platform.example.com/generation": "1",
+              "platform.example.com/attempt": "1",
+              "platform.example.com/retry-token": ""
+            }
+          },
+          "spec": {
+            "backoffLimit": 0,
+            "activeDeadlineSeconds": 300,
+            "ttlSecondsAfterFinished": 3600,
+            "template": {
+              "spec": {
+                "serviceAccountName": "tofu-runner",
+                "restartPolicy": "Never",
+                "securityContext": {
+                  "runAsNonRoot": true,
+                  "runAsUser": 1000,
+                  "fsGroup": 1000
+                },
+                "containers": [
+                  {
+                    "name": "tofu",
+                    "image": "panko-runner:dev",
+                    "imagePullPolicy": "Never",
+                    "args": [
+                      "apply",
+                      "team-a",
+                      "orders"
+                    ],
+                    "env": [
+                      {
+                        "name": "PANKO_RESOURCE",
+                        "value": "{\"metadata\": {\"name\": \"orders\", \"namespace\": \"team-a\", \"uid\": \"abc\", \"generation\": 1}, \"spec\": {\"owner\": \"team-a\", \"extensions\": [], \"connectionLimit\": 20}}"
+                      },
+                      {
+                        "name": "PANKO_HASH",
+                        "value": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f"
+                      },
+                      {
+                        "name": "PANKO_JOB",
+                        "value": "db-orders-2529007422842ece61c7062c-apply"
+                      }
+                    ],
+                    "securityContext": {
+                      "allowPrivilegeEscalation": false,
+                      "readOnlyRootFilesystem": true,
+                      "capabilities": {
+                        "drop": [
+                          "ALL"
+                        ]
+                      }
+                    },
+                    "resources": {
+                      "requests": {
+                        "cpu": "100m",
+                        "memory": "128Mi"
+                      },
+                      "limits": {
+                        "memory": "512Mi"
+                      }
+                    },
+                    "volumeMounts": [
+                      {
+                        "name": "work",
+                        "mountPath": "/work"
+                      },
+                      {
+                        "name": "tmp",
+                        "mountPath": "/tmp"
+                      }
+                    ]
+                  }
+                ],
+                "volumes": [
+                  {
+                    "name": "work",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "tmp",
+                    "emptyDir": {}
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "resyncAfterSeconds": 5,
+      "finalized": false
+    }
+  },
+  {
+    "name": "ready",
+    "request": {
+      "parent": {
+        "metadata": {
+          "name": "orders",
+          "namespace": "team-a",
+          "uid": "abc",
+          "generation": 1
+        },
+        "spec": {
+          "owner": "team-a",
+          "extensions": [],
+          "connectionLimit": 20
+        }
+      },
+      "children": {
+        "Job.batch/v1": {
+          "db-orders-2529007422842ece61c7062c-apply": {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "metadata": {
+              "name": "db-orders-2529007422842ece61c7062c-apply",
+              "namespace": "team-a",
+              "labels": {
+                "platform.example.com/uid": "abc"
+              },
+              "annotations": {
+                "platform.example.com/hash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+                "platform.example.com/action": "apply",
+                "platform.example.com/generation": "1",
+                "platform.example.com/attempt": "1",
+                "platform.example.com/retry-token": ""
+              }
+            },
+            "spec": {
+              "backoffLimit": 0,
+              "activeDeadlineSeconds": 300,
+              "ttlSecondsAfterFinished": 3600,
+              "template": {
+                "spec": {
+                  "serviceAccountName": "tofu-runner",
+                  "restartPolicy": "Never",
+                  "securityContext": {
+                    "runAsNonRoot": true,
+                    "runAsUser": 1000,
+                    "fsGroup": 1000
+                  },
+                  "containers": [
+                    {
+                      "name": "tofu",
+                      "image": "panko-runner:dev",
+                      "imagePullPolicy": "Never",
+                      "args": [
+                        "apply",
+                        "team-a",
+                        "orders"
+                      ],
+                      "env": [
+                        {
+                          "name": "PANKO_RESOURCE",
+                          "value": "{\"metadata\": {\"name\": \"orders\", \"namespace\": \"team-a\", \"uid\": \"abc\", \"generation\": 1}, \"spec\": {\"owner\": \"team-a\", \"extensions\": [], \"connectionLimit\": 20}}"
+                        },
+                        {
+                          "name": "PANKO_HASH",
+                          "value": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f"
+                        },
+                        {
+                          "name": "PANKO_JOB",
+                          "value": "db-orders-2529007422842ece61c7062c-apply"
+                        }
+                      ],
+                      "securityContext": {
+                        "allowPrivilegeEscalation": false,
+                        "readOnlyRootFilesystem": true,
+                        "capabilities": {
+                          "drop": [
+                            "ALL"
+                          ]
+                        }
+                      },
+                      "resources": {
+                        "requests": {
+                          "cpu": "100m",
+                          "memory": "128Mi"
+                        },
+                        "limits": {
+                          "memory": "512Mi"
+                        }
+                      },
+                      "volumeMounts": [
+                        {
+                          "name": "work",
+                          "mountPath": "/work"
+                        },
+                        {
+                          "name": "tmp",
+                          "mountPath": "/tmp"
+                        }
+                      ]
+                    }
+                  ],
+                  "volumes": [
+                    {
+                      "name": "work",
+                      "emptyDir": {}
+                    },
+                    {
+                      "name": "tmp",
+                      "emptyDir": {}
+                    }
+                  ]
+                }
+              }
+            },
+            "status": {
+              "conditions": [
+                {
+                  "type": "Complete",
+                  "status": "True"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "finalizing": false
+    },
+    "expected": {
+      "status": {
+        "phase": "Ready",
+        "observedGeneration": 1,
+        "message": "Database is ready",
+        "lastAppliedHash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+        "connectionSecretRef": {
+          "name": "orders-connection"
+        },
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "True",
+            "reason": "Ready",
+            "message": "Database is ready",
+            "observedGeneration": 1,
+            "lastTransitionTime": "TIME"
+          }
+        ]
+      },
+      "children": [
+        {
+          "apiVersion": "batch/v1",
+          "kind": "Job",
+          "metadata": {
+            "name": "db-orders-2529007422842ece61c7062c-apply",
+            "namespace": "team-a",
+            "labels": {
+              "platform.example.com/uid": "abc"
+            },
+            "annotations": {
+              "platform.example.com/hash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+              "platform.example.com/action": "apply",
+              "platform.example.com/generation": "1",
+              "platform.example.com/attempt": "1",
+              "platform.example.com/retry-token": ""
+            }
+          },
+          "spec": {
+            "backoffLimit": 0,
+            "activeDeadlineSeconds": 300,
+            "ttlSecondsAfterFinished": 3600,
+            "template": {
+              "spec": {
+                "serviceAccountName": "tofu-runner",
+                "restartPolicy": "Never",
+                "securityContext": {
+                  "runAsNonRoot": true,
+                  "runAsUser": 1000,
+                  "fsGroup": 1000
+                },
+                "containers": [
+                  {
+                    "name": "tofu",
+                    "image": "panko-runner:dev",
+                    "imagePullPolicy": "Never",
+                    "args": [
+                      "apply",
+                      "team-a",
+                      "orders"
+                    ],
+                    "env": [
+                      {
+                        "name": "PANKO_RESOURCE",
+                        "value": "{\"metadata\": {\"name\": \"orders\", \"namespace\": \"team-a\", \"uid\": \"abc\", \"generation\": 1}, \"spec\": {\"owner\": \"team-a\", \"extensions\": [], \"connectionLimit\": 20}}"
+                      },
+                      {
+                        "name": "PANKO_HASH",
+                        "value": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f"
+                      },
+                      {
+                        "name": "PANKO_JOB",
+                        "value": "db-orders-2529007422842ece61c7062c-apply"
+                      }
+                    ],
+                    "securityContext": {
+                      "allowPrivilegeEscalation": false,
+                      "readOnlyRootFilesystem": true,
+                      "capabilities": {
+                        "drop": [
+                          "ALL"
+                        ]
+                      }
+                    },
+                    "resources": {
+                      "requests": {
+                        "cpu": "100m",
+                        "memory": "128Mi"
+                      },
+                      "limits": {
+                        "memory": "512Mi"
+                      }
+                    },
+                    "volumeMounts": [
+                      {
+                        "name": "work",
+                        "mountPath": "/work"
+                      },
+                      {
+                        "name": "tmp",
+                        "mountPath": "/tmp"
+                      }
+                    ]
+                  }
+                ],
+                "volumes": [
+                  {
+                    "name": "work",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "tmp",
+                    "emptyDir": {}
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "resyncAfterSeconds": 5
+    }
+  },
+  {
+    "name": "ready-after-ttl",
+    "request": {
+      "parent": {
+        "metadata": {
+          "name": "orders",
+          "namespace": "team-a",
+          "uid": "abc",
+          "generation": 1
+        },
+        "spec": {
+          "owner": "team-a",
+          "extensions": [],
+          "connectionLimit": 20
+        },
+        "status": {
+          "phase": "Ready",
+          "observedGeneration": 1,
+          "message": "Database is ready",
+          "lastAppliedHash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+          "connectionSecretRef": {
+            "name": "orders-connection"
+          },
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "True",
+              "reason": "Ready",
+              "message": "Database is ready",
+              "observedGeneration": 1,
+              "lastTransitionTime": "TIME"
+            }
+          ]
+        }
+      },
+      "children": {
+        "Job.batch/v1": {}
+      },
+      "finalizing": false
+    },
+    "expected": {
+      "status": {
+        "phase": "Ready",
+        "observedGeneration": 1,
+        "message": "Database is ready",
+        "lastAppliedHash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+        "connectionSecretRef": {
+          "name": "orders-connection"
+        },
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "True",
+            "reason": "Ready",
+            "message": "Database is ready",
+            "observedGeneration": 1,
+            "lastTransitionTime": "TIME"
+          }
+        ]
+      },
+      "children": [],
+      "resyncAfterSeconds": 5
+    }
+  },
+  {
+    "name": "next-generation",
+    "request": {
+      "parent": {
+        "metadata": {
+          "name": "orders",
+          "namespace": "team-a",
+          "uid": "abc",
+          "generation": 2
+        },
+        "spec": {
+          "owner": "team-a",
+          "extensions": [],
+          "connectionLimit": 30
+        }
+      },
+      "children": {
+        "Job.batch/v1": {
+          "db-orders-2529007422842ece61c7062c-apply": {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "metadata": {
+              "name": "db-orders-2529007422842ece61c7062c-apply",
+              "namespace": "team-a",
+              "labels": {
+                "platform.example.com/uid": "abc"
+              },
+              "annotations": {
+                "platform.example.com/hash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+                "platform.example.com/action": "apply",
+                "platform.example.com/generation": "1",
+                "platform.example.com/attempt": "1",
+                "platform.example.com/retry-token": ""
+              }
+            },
+            "spec": {
+              "backoffLimit": 0,
+              "activeDeadlineSeconds": 300,
+              "ttlSecondsAfterFinished": 3600,
+              "template": {
+                "spec": {
+                  "serviceAccountName": "tofu-runner",
+                  "restartPolicy": "Never",
+                  "securityContext": {
+                    "runAsNonRoot": true,
+                    "runAsUser": 1000,
+                    "fsGroup": 1000
+                  },
+                  "containers": [
+                    {
+                      "name": "tofu",
+                      "image": "panko-runner:dev",
+                      "imagePullPolicy": "Never",
+                      "args": [
+                        "apply",
+                        "team-a",
+                        "orders"
+                      ],
+                      "env": [
+                        {
+                          "name": "PANKO_RESOURCE",
+                          "value": "{\"metadata\": {\"name\": \"orders\", \"namespace\": \"team-a\", \"uid\": \"abc\", \"generation\": 1}, \"spec\": {\"owner\": \"team-a\", \"extensions\": [], \"connectionLimit\": 20}}"
+                        },
+                        {
+                          "name": "PANKO_HASH",
+                          "value": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f"
+                        },
+                        {
+                          "name": "PANKO_JOB",
+                          "value": "db-orders-2529007422842ece61c7062c-apply"
+                        }
+                      ],
+                      "securityContext": {
+                        "allowPrivilegeEscalation": false,
+                        "readOnlyRootFilesystem": true,
+                        "capabilities": {
+                          "drop": [
+                            "ALL"
+                          ]
+                        }
+                      },
+                      "resources": {
+                        "requests": {
+                          "cpu": "100m",
+                          "memory": "128Mi"
+                        },
+                        "limits": {
+                          "memory": "512Mi"
+                        }
+                      },
+                      "volumeMounts": [
+                        {
+                          "name": "work",
+                          "mountPath": "/work"
+                        },
+                        {
+                          "name": "tmp",
+                          "mountPath": "/tmp"
+                        }
+                      ]
+                    }
+                  ],
+                  "volumes": [
+                    {
+                      "name": "work",
+                      "emptyDir": {}
+                    },
+                    {
+                      "name": "tmp",
+                      "emptyDir": {}
+                    }
+                  ]
+                }
+              }
+            },
+            "status": {
+              "conditions": [
+                {
+                  "type": "Complete",
+                  "status": "True"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "finalizing": false
+    },
+    "expected": {
+      "status": {
+        "phase": "Pending",
+        "observedGeneration": 2,
+        "message": "Apply scheduled",
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "False",
+            "reason": "Pending",
+            "message": "Apply scheduled",
+            "observedGeneration": 2,
+            "lastTransitionTime": "TIME"
+          }
+        ]
+      },
+      "children": [
+        {
+          "apiVersion": "batch/v1",
+          "kind": "Job",
+          "metadata": {
+            "name": "db-orders-75d5226ba61af5f560f0d198-apply",
+            "namespace": "team-a",
+            "labels": {
+              "platform.example.com/uid": "abc"
+            },
+            "annotations": {
+              "platform.example.com/hash": "6896f47ee22823dc2ab40c60f4fcdcc2dfa71c4931f90cb302528147daf0dddf",
+              "platform.example.com/action": "apply",
+              "platform.example.com/generation": "2",
+              "platform.example.com/attempt": "1",
+              "platform.example.com/retry-token": ""
+            }
+          },
+          "spec": {
+            "backoffLimit": 0,
+            "activeDeadlineSeconds": 300,
+            "ttlSecondsAfterFinished": 3600,
+            "template": {
+              "spec": {
+                "serviceAccountName": "tofu-runner",
+                "restartPolicy": "Never",
+                "securityContext": {
+                  "runAsNonRoot": true,
+                  "runAsUser": 1000,
+                  "fsGroup": 1000
+                },
+                "containers": [
+                  {
+                    "name": "tofu",
+                    "image": "panko-runner:dev",
+                    "imagePullPolicy": "Never",
+                    "args": [
+                      "apply",
+                      "team-a",
+                      "orders"
+                    ],
+                    "env": [
+                      {
+                        "name": "PANKO_RESOURCE",
+                        "value": "{\"metadata\": {\"name\": \"orders\", \"namespace\": \"team-a\", \"uid\": \"abc\", \"generation\": 2}, \"spec\": {\"owner\": \"team-a\", \"extensions\": [], \"connectionLimit\": 30}}"
+                      },
+                      {
+                        "name": "PANKO_HASH",
+                        "value": "6896f47ee22823dc2ab40c60f4fcdcc2dfa71c4931f90cb302528147daf0dddf"
+                      },
+                      {
+                        "name": "PANKO_JOB",
+                        "value": "db-orders-75d5226ba61af5f560f0d198-apply"
+                      }
+                    ],
+                    "securityContext": {
+                      "allowPrivilegeEscalation": false,
+                      "readOnlyRootFilesystem": true,
+                      "capabilities": {
+                        "drop": [
+                          "ALL"
+                        ]
+                      }
+                    },
+                    "resources": {
+                      "requests": {
+                        "cpu": "100m",
+                        "memory": "128Mi"
+                      },
+                      "limits": {
+                        "memory": "512Mi"
+                      }
+                    },
+                    "volumeMounts": [
+                      {
+                        "name": "work",
+                        "mountPath": "/work"
+                      },
+                      {
+                        "name": "tmp",
+                        "mountPath": "/tmp"
+                      }
+                    ]
+                  }
+                ],
+                "volumes": [
+                  {
+                    "name": "work",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "tmp",
+                    "emptyDir": {}
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "resyncAfterSeconds": 5
+    }
+  },
+  {
+    "name": "failed",
+    "request": {
+      "parent": {
+        "metadata": {
+          "name": "orders",
+          "namespace": "team-a",
+          "uid": "abc",
+          "generation": 1
+        },
+        "spec": {
+          "owner": "team-a",
+          "extensions": [],
+          "connectionLimit": 20
+        }
+      },
+      "children": {
+        "Job.batch/v1": {
+          "db-orders-2529007422842ece61c7062c-apply": {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "metadata": {
+              "name": "db-orders-2529007422842ece61c7062c-apply",
+              "namespace": "team-a",
+              "labels": {
+                "platform.example.com/uid": "abc"
+              },
+              "annotations": {
+                "platform.example.com/hash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+                "platform.example.com/action": "apply",
+                "platform.example.com/generation": "1",
+                "platform.example.com/attempt": "1",
+                "platform.example.com/retry-token": ""
+              }
+            },
+            "spec": {
+              "backoffLimit": 0,
+              "activeDeadlineSeconds": 300,
+              "ttlSecondsAfterFinished": 3600,
+              "template": {
+                "spec": {
+                  "serviceAccountName": "tofu-runner",
+                  "restartPolicy": "Never",
+                  "securityContext": {
+                    "runAsNonRoot": true,
+                    "runAsUser": 1000,
+                    "fsGroup": 1000
+                  },
+                  "containers": [
+                    {
+                      "name": "tofu",
+                      "image": "panko-runner:dev",
+                      "imagePullPolicy": "Never",
+                      "args": [
+                        "apply",
+                        "team-a",
+                        "orders"
+                      ],
+                      "env": [
+                        {
+                          "name": "PANKO_RESOURCE",
+                          "value": "{\"metadata\": {\"name\": \"orders\", \"namespace\": \"team-a\", \"uid\": \"abc\", \"generation\": 1}, \"spec\": {\"owner\": \"team-a\", \"extensions\": [], \"connectionLimit\": 20}}"
+                        },
+                        {
+                          "name": "PANKO_HASH",
+                          "value": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f"
+                        },
+                        {
+                          "name": "PANKO_JOB",
+                          "value": "db-orders-2529007422842ece61c7062c-apply"
+                        }
+                      ],
+                      "securityContext": {
+                        "allowPrivilegeEscalation": false,
+                        "readOnlyRootFilesystem": true,
+                        "capabilities": {
+                          "drop": [
+                            "ALL"
+                          ]
+                        }
+                      },
+                      "resources": {
+                        "requests": {
+                          "cpu": "100m",
+                          "memory": "128Mi"
+                        },
+                        "limits": {
+                          "memory": "512Mi"
+                        }
+                      },
+                      "volumeMounts": [
+                        {
+                          "name": "work",
+                          "mountPath": "/work"
+                        },
+                        {
+                          "name": "tmp",
+                          "mountPath": "/tmp"
+                        }
+                      ]
+                    }
+                  ],
+                  "volumes": [
+                    {
+                      "name": "work",
+                      "emptyDir": {}
+                    },
+                    {
+                      "name": "tmp",
+                      "emptyDir": {}
+                    }
+                  ]
+                }
+              }
+            },
+            "status": {
+              "conditions": [
+                {
+                  "type": "Failed",
+                  "status": "True"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "finalizing": false
+    },
+    "expected": {
+      "status": {
+        "phase": "Failed",
+        "observedGeneration": 1,
+        "message": "Apply failed; inspect job logs and update spec to retry",
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "False",
+            "reason": "Failed",
+            "message": "Apply failed; inspect job logs and update spec to retry",
+            "observedGeneration": 1,
+            "lastTransitionTime": "TIME"
+          }
+        ]
+      },
+      "children": [
+        {
+          "apiVersion": "batch/v1",
+          "kind": "Job",
+          "metadata": {
+            "name": "db-orders-2529007422842ece61c7062c-apply",
+            "namespace": "team-a",
+            "labels": {
+              "platform.example.com/uid": "abc"
+            },
+            "annotations": {
+              "platform.example.com/hash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+              "platform.example.com/action": "apply",
+              "platform.example.com/generation": "1",
+              "platform.example.com/attempt": "1",
+              "platform.example.com/retry-token": ""
+            }
+          },
+          "spec": {
+            "backoffLimit": 0,
+            "activeDeadlineSeconds": 300,
+            "ttlSecondsAfterFinished": 3600,
+            "template": {
+              "spec": {
+                "serviceAccountName": "tofu-runner",
+                "restartPolicy": "Never",
+                "securityContext": {
+                  "runAsNonRoot": true,
+                  "runAsUser": 1000,
+                  "fsGroup": 1000
+                },
+                "containers": [
+                  {
+                    "name": "tofu",
+                    "image": "panko-runner:dev",
+                    "imagePullPolicy": "Never",
+                    "args": [
+                      "apply",
+                      "team-a",
+                      "orders"
+                    ],
+                    "env": [
+                      {
+                        "name": "PANKO_RESOURCE",
+                        "value": "{\"metadata\": {\"name\": \"orders\", \"namespace\": \"team-a\", \"uid\": \"abc\", \"generation\": 1}, \"spec\": {\"owner\": \"team-a\", \"extensions\": [], \"connectionLimit\": 20}}"
+                      },
+                      {
+                        "name": "PANKO_HASH",
+                        "value": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f"
+                      },
+                      {
+                        "name": "PANKO_JOB",
+                        "value": "db-orders-2529007422842ece61c7062c-apply"
+                      }
+                    ],
+                    "securityContext": {
+                      "allowPrivilegeEscalation": false,
+                      "readOnlyRootFilesystem": true,
+                      "capabilities": {
+                        "drop": [
+                          "ALL"
+                        ]
+                      }
+                    },
+                    "resources": {
+                      "requests": {
+                        "cpu": "100m",
+                        "memory": "128Mi"
+                      },
+                      "limits": {
+                        "memory": "512Mi"
+                      }
+                    },
+                    "volumeMounts": [
+                      {
+                        "name": "work",
+                        "mountPath": "/work"
+                      },
+                      {
+                        "name": "tmp",
+                        "mountPath": "/tmp"
+                      }
+                    ]
+                  }
+                ],
+                "volumes": [
+                  {
+                    "name": "work",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "tmp",
+                    "emptyDir": {}
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "resyncAfterSeconds": 5
+    }
+  },
+  {
+    "name": "failed-after-ttl",
+    "request": {
+      "parent": {
+        "metadata": {
+          "name": "orders",
+          "namespace": "team-a",
+          "uid": "abc",
+          "generation": 1
+        },
+        "spec": {
+          "owner": "team-a",
+          "extensions": [],
+          "connectionLimit": 20
+        },
+        "status": {
+          "phase": "Failed",
+          "observedGeneration": 1,
+          "message": "Apply failed; inspect job logs and update spec to retry",
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "False",
+              "reason": "Failed",
+              "message": "Apply failed; inspect job logs and update spec to retry",
+              "observedGeneration": 1,
+              "lastTransitionTime": "TIME"
+            }
+          ]
+        }
+      },
+      "children": {
+        "Job.batch/v1": {}
+      },
+      "finalizing": false
+    },
+    "expected": {
+      "status": {
+        "phase": "Failed",
+        "observedGeneration": 1,
+        "message": "Apply failed; inspect job logs and update spec to retry",
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "False",
+            "reason": "Failed",
+            "message": "Apply failed; inspect job logs and update spec to retry",
+            "observedGeneration": 1,
+            "lastTransitionTime": "TIME"
+          }
+        ]
+      },
+      "children": [],
+      "resyncAfterSeconds": 5
+    }
+  },
+  {
+    "name": "destroy-scheduled",
+    "request": {
+      "parent": {
+        "metadata": {
+          "name": "orders",
+          "namespace": "team-a",
+          "uid": "abc",
+          "generation": 1
+        },
+        "spec": {
+          "owner": "team-a",
+          "extensions": [],
+          "connectionLimit": 20
+        },
+        "status": {
+          "phase": "Failed",
+          "observedGeneration": 1,
+          "message": "Apply failed; inspect job logs and update spec to retry",
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "False",
+              "reason": "Failed",
+              "message": "Apply failed; inspect job logs and update spec to retry",
+              "observedGeneration": 1,
+              "lastTransitionTime": "TIME"
+            }
+          ]
+        }
+      },
+      "children": {
+        "Job.batch/v1": {}
+      },
+      "finalizing": true
+    },
+    "expected": {
+      "status": {
+        "phase": "Deleting",
+        "observedGeneration": 1,
+        "message": "Destroy scheduled",
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "False",
+            "reason": "Deleting",
+            "message": "Destroy scheduled",
+            "observedGeneration": 1,
+            "lastTransitionTime": "TIME"
+          }
+        ],
+        "destroy": {
+          "attempt": 1,
+          "retryToken": "",
+          "jobName": "db-orders-734f853046fe4a36acea3eb0-destroy",
+          "result": "Pending"
+        }
+      },
+      "children": [
+        {
+          "apiVersion": "batch/v1",
+          "kind": "Job",
+          "metadata": {
+            "name": "db-orders-734f853046fe4a36acea3eb0-destroy",
+            "namespace": "team-a",
+            "labels": {
+              "platform.example.com/uid": "abc"
+            },
+            "annotations": {
+              "platform.example.com/hash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+              "platform.example.com/action": "destroy",
+              "platform.example.com/generation": "1",
+              "platform.example.com/attempt": "1",
+              "platform.example.com/retry-token": ""
+            }
+          },
+          "spec": {
+            "backoffLimit": 0,
+            "activeDeadlineSeconds": 300,
+            "ttlSecondsAfterFinished": 3600,
+            "template": {
+              "spec": {
+                "serviceAccountName": "tofu-runner",
+                "restartPolicy": "Never",
+                "securityContext": {
+                  "runAsNonRoot": true,
+                  "runAsUser": 1000,
+                  "fsGroup": 1000
+                },
+                "containers": [
+                  {
+                    "name": "tofu",
+                    "image": "panko-runner:dev",
+                    "imagePullPolicy": "Never",
+                    "args": [
+                      "destroy",
+                      "team-a",
+                      "orders"
+                    ],
+                    "env": [
+                      {
+                        "name": "PANKO_RESOURCE",
+                        "value": "{\"metadata\": {\"name\": \"orders\", \"namespace\": \"team-a\", \"uid\": \"abc\", \"generation\": 1}, \"spec\": {\"owner\": \"team-a\", \"extensions\": [], \"connectionLimit\": 20}}"
+                      },
+                      {
+                        "name": "PANKO_HASH",
+                        "value": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f"
+                      },
+                      {
+                        "name": "PANKO_JOB",
+                        "value": "db-orders-734f853046fe4a36acea3eb0-destroy"
+                      }
+                    ],
+                    "securityContext": {
+                      "allowPrivilegeEscalation": false,
+                      "readOnlyRootFilesystem": true,
+                      "capabilities": {
+                        "drop": [
+                          "ALL"
+                        ]
+                      }
+                    },
+                    "resources": {
+                      "requests": {
+                        "cpu": "100m",
+                        "memory": "128Mi"
+                      },
+                      "limits": {
+                        "memory": "512Mi"
+                      }
+                    },
+                    "volumeMounts": [
+                      {
+                        "name": "work",
+                        "mountPath": "/work"
+                      },
+                      {
+                        "name": "tmp",
+                        "mountPath": "/tmp"
+                      }
+                    ]
+                  }
+                ],
+                "volumes": [
+                  {
+                    "name": "work",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "tmp",
+                    "emptyDir": {}
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "resyncAfterSeconds": 5,
+      "finalized": false
+    }
+  },
+  {
+    "name": "destroy-running",
+    "request": {
+      "parent": {
+        "metadata": {
+          "name": "orders",
+          "namespace": "team-a",
+          "uid": "abc",
+          "generation": 1
+        },
+        "spec": {
+          "owner": "team-a",
+          "extensions": [],
+          "connectionLimit": 20
+        },
+        "status": {
+          "phase": "Failed",
+          "observedGeneration": 1,
+          "message": "Apply failed; inspect job logs and update spec to retry",
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "False",
+              "reason": "Failed",
+              "message": "Apply failed; inspect job logs and update spec to retry",
+              "observedGeneration": 1,
+              "lastTransitionTime": "TIME"
+            }
+          ]
+        }
+      },
+      "children": {
+        "Job.batch/v1": {
+          "db-orders-734f853046fe4a36acea3eb0-destroy": {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "metadata": {
+              "name": "db-orders-734f853046fe4a36acea3eb0-destroy",
+              "namespace": "team-a",
+              "labels": {
+                "platform.example.com/uid": "abc"
+              },
+              "annotations": {
+                "platform.example.com/hash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+                "platform.example.com/action": "destroy",
+                "platform.example.com/generation": "1",
+                "platform.example.com/attempt": "1",
+                "platform.example.com/retry-token": ""
+              }
+            },
+            "spec": {
+              "backoffLimit": 0,
+              "activeDeadlineSeconds": 300,
+              "ttlSecondsAfterFinished": 3600,
+              "template": {
+                "spec": {
+                  "serviceAccountName": "tofu-runner",
+                  "restartPolicy": "Never",
+                  "securityContext": {
+                    "runAsNonRoot": true,
+                    "runAsUser": 1000,
+                    "fsGroup": 1000
+                  },
+                  "containers": [
+                    {
+                      "name": "tofu",
+                      "image": "panko-runner:dev",
+                      "imagePullPolicy": "Never",
+                      "args": [
+                        "destroy",
+                        "team-a",
+                        "orders"
+                      ],
+                      "env": [
+                        {
+                          "name": "PANKO_RESOURCE",
+                          "value": "{\"metadata\": {\"name\": \"orders\", \"namespace\": \"team-a\", \"uid\": \"abc\", \"generation\": 1}, \"spec\": {\"owner\": \"team-a\", \"extensions\": [], \"connectionLimit\": 20}}"
+                        },
+                        {
+                          "name": "PANKO_HASH",
+                          "value": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f"
+                        },
+                        {
+                          "name": "PANKO_JOB",
+                          "value": "db-orders-734f853046fe4a36acea3eb0-destroy"
+                        }
+                      ],
+                      "securityContext": {
+                        "allowPrivilegeEscalation": false,
+                        "readOnlyRootFilesystem": true,
+                        "capabilities": {
+                          "drop": [
+                            "ALL"
+                          ]
+                        }
+                      },
+                      "resources": {
+                        "requests": {
+                          "cpu": "100m",
+                          "memory": "128Mi"
+                        },
+                        "limits": {
+                          "memory": "512Mi"
+                        }
+                      },
+                      "volumeMounts": [
+                        {
+                          "name": "work",
+                          "mountPath": "/work"
+                        },
+                        {
+                          "name": "tmp",
+                          "mountPath": "/tmp"
+                        }
+                      ]
+                    }
+                  ],
+                  "volumes": [
+                    {
+                      "name": "work",
+                      "emptyDir": {}
+                    },
+                    {
+                      "name": "tmp",
+                      "emptyDir": {}
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "finalizing": true
+    },
+    "expected": {
+      "status": {
+        "phase": "Deleting",
+        "observedGeneration": 1,
+        "message": "Waiting for running job before teardown",
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "False",
+            "reason": "Deleting",
+            "message": "Waiting for running job before teardown",
+            "observedGeneration": 1,
+            "lastTransitionTime": "TIME"
+          }
+        ],
+        "destroy": {
+          "attempt": 1,
+          "retryToken": "",
+          "jobName": "db-orders-734f853046fe4a36acea3eb0-destroy",
+          "result": "Running"
+        }
+      },
+      "children": [
+        {
+          "apiVersion": "batch/v1",
+          "kind": "Job",
+          "metadata": {
+            "name": "db-orders-734f853046fe4a36acea3eb0-destroy",
+            "namespace": "team-a",
+            "labels": {
+              "platform.example.com/uid": "abc"
+            },
+            "annotations": {
+              "platform.example.com/hash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+              "platform.example.com/action": "destroy",
+              "platform.example.com/generation": "1",
+              "platform.example.com/attempt": "1",
+              "platform.example.com/retry-token": ""
+            }
+          },
+          "spec": {
+            "backoffLimit": 0,
+            "activeDeadlineSeconds": 300,
+            "ttlSecondsAfterFinished": 3600,
+            "template": {
+              "spec": {
+                "serviceAccountName": "tofu-runner",
+                "restartPolicy": "Never",
+                "securityContext": {
+                  "runAsNonRoot": true,
+                  "runAsUser": 1000,
+                  "fsGroup": 1000
+                },
+                "containers": [
+                  {
+                    "name": "tofu",
+                    "image": "panko-runner:dev",
+                    "imagePullPolicy": "Never",
+                    "args": [
+                      "destroy",
+                      "team-a",
+                      "orders"
+                    ],
+                    "env": [
+                      {
+                        "name": "PANKO_RESOURCE",
+                        "value": "{\"metadata\": {\"name\": \"orders\", \"namespace\": \"team-a\", \"uid\": \"abc\", \"generation\": 1}, \"spec\": {\"owner\": \"team-a\", \"extensions\": [], \"connectionLimit\": 20}}"
+                      },
+                      {
+                        "name": "PANKO_HASH",
+                        "value": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f"
+                      },
+                      {
+                        "name": "PANKO_JOB",
+                        "value": "db-orders-734f853046fe4a36acea3eb0-destroy"
+                      }
+                    ],
+                    "securityContext": {
+                      "allowPrivilegeEscalation": false,
+                      "readOnlyRootFilesystem": true,
+                      "capabilities": {
+                        "drop": [
+                          "ALL"
+                        ]
+                      }
+                    },
+                    "resources": {
+                      "requests": {
+                        "cpu": "100m",
+                        "memory": "128Mi"
+                      },
+                      "limits": {
+                        "memory": "512Mi"
+                      }
+                    },
+                    "volumeMounts": [
+                      {
+                        "name": "work",
+                        "mountPath": "/work"
+                      },
+                      {
+                        "name": "tmp",
+                        "mountPath": "/tmp"
+                      }
+                    ]
+                  }
+                ],
+                "volumes": [
+                  {
+                    "name": "work",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "tmp",
+                    "emptyDir": {}
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "resyncAfterSeconds": 5,
+      "finalized": false
+    }
+  },
+  {
+    "name": "destroy-failed",
+    "request": {
+      "parent": {
+        "metadata": {
+          "name": "orders",
+          "namespace": "team-a",
+          "uid": "abc",
+          "generation": 1
+        },
+        "spec": {
+          "owner": "team-a",
+          "extensions": [],
+          "connectionLimit": 20
+        },
+        "status": {
+          "phase": "Failed",
+          "observedGeneration": 1,
+          "message": "Apply failed; inspect job logs and update spec to retry",
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "False",
+              "reason": "Failed",
+              "message": "Apply failed; inspect job logs and update spec to retry",
+              "observedGeneration": 1,
+              "lastTransitionTime": "TIME"
+            }
+          ]
+        }
+      },
+      "children": {
+        "Job.batch/v1": {
+          "db-orders-734f853046fe4a36acea3eb0-destroy": {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "metadata": {
+              "name": "db-orders-734f853046fe4a36acea3eb0-destroy",
+              "namespace": "team-a",
+              "labels": {
+                "platform.example.com/uid": "abc"
+              },
+              "annotations": {
+                "platform.example.com/hash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+                "platform.example.com/action": "destroy",
+                "platform.example.com/generation": "1",
+                "platform.example.com/attempt": "1",
+                "platform.example.com/retry-token": ""
+              }
+            },
+            "spec": {
+              "backoffLimit": 0,
+              "activeDeadlineSeconds": 300,
+              "ttlSecondsAfterFinished": 3600,
+              "template": {
+                "spec": {
+                  "serviceAccountName": "tofu-runner",
+                  "restartPolicy": "Never",
+                  "securityContext": {
+                    "runAsNonRoot": true,
+                    "runAsUser": 1000,
+                    "fsGroup": 1000
+                  },
+                  "containers": [
+                    {
+                      "name": "tofu",
+                      "image": "panko-runner:dev",
+                      "imagePullPolicy": "Never",
+                      "args": [
+                        "destroy",
+                        "team-a",
+                        "orders"
+                      ],
+                      "env": [
+                        {
+                          "name": "PANKO_RESOURCE",
+                          "value": "{\"metadata\": {\"name\": \"orders\", \"namespace\": \"team-a\", \"uid\": \"abc\", \"generation\": 1}, \"spec\": {\"owner\": \"team-a\", \"extensions\": [], \"connectionLimit\": 20}}"
+                        },
+                        {
+                          "name": "PANKO_HASH",
+                          "value": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f"
+                        },
+                        {
+                          "name": "PANKO_JOB",
+                          "value": "db-orders-734f853046fe4a36acea3eb0-destroy"
+                        }
+                      ],
+                      "securityContext": {
+                        "allowPrivilegeEscalation": false,
+                        "readOnlyRootFilesystem": true,
+                        "capabilities": {
+                          "drop": [
+                            "ALL"
+                          ]
+                        }
+                      },
+                      "resources": {
+                        "requests": {
+                          "cpu": "100m",
+                          "memory": "128Mi"
+                        },
+                        "limits": {
+                          "memory": "512Mi"
+                        }
+                      },
+                      "volumeMounts": [
+                        {
+                          "name": "work",
+                          "mountPath": "/work"
+                        },
+                        {
+                          "name": "tmp",
+                          "mountPath": "/tmp"
+                        }
+                      ]
+                    }
+                  ],
+                  "volumes": [
+                    {
+                      "name": "work",
+                      "emptyDir": {}
+                    },
+                    {
+                      "name": "tmp",
+                      "emptyDir": {}
+                    }
+                  ]
+                }
+              }
+            },
+            "status": {
+              "conditions": [
+                {
+                  "type": "Failed",
+                  "status": "True"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "finalizing": true
+    },
+    "expected": {
+      "status": {
+        "phase": "Deleting",
+        "observedGeneration": 1,
+        "message": "Destroy failed; inspect logs and change platform.example.com/retry-destroy to retry",
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "False",
+            "reason": "Deleting",
+            "message": "Destroy failed; inspect logs and change platform.example.com/retry-destroy to retry",
+            "observedGeneration": 1,
+            "lastTransitionTime": "TIME"
+          }
+        ],
+        "destroy": {
+          "attempt": 1,
+          "retryToken": "",
+          "jobName": "db-orders-734f853046fe4a36acea3eb0-destroy",
+          "result": "Failed"
+        }
+      },
+      "children": [
+        {
+          "apiVersion": "batch/v1",
+          "kind": "Job",
+          "metadata": {
+            "name": "db-orders-734f853046fe4a36acea3eb0-destroy",
+            "namespace": "team-a",
+            "labels": {
+              "platform.example.com/uid": "abc"
+            },
+            "annotations": {
+              "platform.example.com/hash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+              "platform.example.com/action": "destroy",
+              "platform.example.com/generation": "1",
+              "platform.example.com/attempt": "1",
+              "platform.example.com/retry-token": ""
+            }
+          },
+          "spec": {
+            "backoffLimit": 0,
+            "activeDeadlineSeconds": 300,
+            "ttlSecondsAfterFinished": 3600,
+            "template": {
+              "spec": {
+                "serviceAccountName": "tofu-runner",
+                "restartPolicy": "Never",
+                "securityContext": {
+                  "runAsNonRoot": true,
+                  "runAsUser": 1000,
+                  "fsGroup": 1000
+                },
+                "containers": [
+                  {
+                    "name": "tofu",
+                    "image": "panko-runner:dev",
+                    "imagePullPolicy": "Never",
+                    "args": [
+                      "destroy",
+                      "team-a",
+                      "orders"
+                    ],
+                    "env": [
+                      {
+                        "name": "PANKO_RESOURCE",
+                        "value": "{\"metadata\": {\"name\": \"orders\", \"namespace\": \"team-a\", \"uid\": \"abc\", \"generation\": 1}, \"spec\": {\"owner\": \"team-a\", \"extensions\": [], \"connectionLimit\": 20}}"
+                      },
+                      {
+                        "name": "PANKO_HASH",
+                        "value": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f"
+                      },
+                      {
+                        "name": "PANKO_JOB",
+                        "value": "db-orders-734f853046fe4a36acea3eb0-destroy"
+                      }
+                    ],
+                    "securityContext": {
+                      "allowPrivilegeEscalation": false,
+                      "readOnlyRootFilesystem": true,
+                      "capabilities": {
+                        "drop": [
+                          "ALL"
+                        ]
+                      }
+                    },
+                    "resources": {
+                      "requests": {
+                        "cpu": "100m",
+                        "memory": "128Mi"
+                      },
+                      "limits": {
+                        "memory": "512Mi"
+                      }
+                    },
+                    "volumeMounts": [
+                      {
+                        "name": "work",
+                        "mountPath": "/work"
+                      },
+                      {
+                        "name": "tmp",
+                        "mountPath": "/tmp"
+                      }
+                    ]
+                  }
+                ],
+                "volumes": [
+                  {
+                    "name": "work",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "tmp",
+                    "emptyDir": {}
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "resyncAfterSeconds": 5,
+      "finalized": false
+    }
+  },
+  {
+    "name": "destroy-failed-after-ttl",
+    "request": {
+      "parent": {
+        "metadata": {
+          "name": "orders",
+          "namespace": "team-a",
+          "uid": "abc",
+          "generation": 1
+        },
+        "spec": {
+          "owner": "team-a",
+          "extensions": [],
+          "connectionLimit": 20
+        },
+        "status": {
+          "phase": "Deleting",
+          "observedGeneration": 1,
+          "message": "Destroy failed; inspect logs and change platform.example.com/retry-destroy to retry",
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "False",
+              "reason": "Deleting",
+              "message": "Destroy failed; inspect logs and change platform.example.com/retry-destroy to retry",
+              "observedGeneration": 1,
+              "lastTransitionTime": "TIME"
+            }
+          ],
+          "destroy": {
+            "attempt": 1,
+            "retryToken": "",
+            "jobName": "db-orders-734f853046fe4a36acea3eb0-destroy",
+            "result": "Failed"
+          }
+        }
+      },
+      "children": {
+        "Job.batch/v1": {}
+      },
+      "finalizing": true
+    },
+    "expected": {
+      "status": {
+        "phase": "Deleting",
+        "observedGeneration": 1,
+        "message": "Destroy failed; inspect logs and change platform.example.com/retry-destroy to retry",
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "False",
+            "reason": "Deleting",
+            "message": "Destroy failed; inspect logs and change platform.example.com/retry-destroy to retry",
+            "observedGeneration": 1,
+            "lastTransitionTime": "TIME"
+          }
+        ],
+        "destroy": {
+          "attempt": 1,
+          "retryToken": "",
+          "jobName": "db-orders-734f853046fe4a36acea3eb0-destroy",
+          "result": "Failed"
+        }
+      },
+      "children": [],
+      "resyncAfterSeconds": 5,
+      "finalized": false
+    }
+  },
+  {
+    "name": "destroy-retry",
+    "request": {
+      "parent": {
+        "metadata": {
+          "name": "orders",
+          "namespace": "team-a",
+          "uid": "abc",
+          "generation": 1,
+          "annotations": {
+            "platform.example.com/retry-destroy": "retry-1"
+          }
+        },
+        "spec": {
+          "owner": "team-a",
+          "extensions": [],
+          "connectionLimit": 20
+        },
+        "status": {
+          "phase": "Deleting",
+          "observedGeneration": 1,
+          "message": "Destroy failed; inspect logs and change platform.example.com/retry-destroy to retry",
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "False",
+              "reason": "Deleting",
+              "message": "Destroy failed; inspect logs and change platform.example.com/retry-destroy to retry",
+              "observedGeneration": 1,
+              "lastTransitionTime": "TIME"
+            }
+          ],
+          "destroy": {
+            "attempt": 1,
+            "retryToken": "",
+            "jobName": "db-orders-734f853046fe4a36acea3eb0-destroy",
+            "result": "Failed"
+          }
+        }
+      },
+      "children": {
+        "Job.batch/v1": {
+          "db-orders-734f853046fe4a36acea3eb0-destroy": {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "metadata": {
+              "name": "db-orders-734f853046fe4a36acea3eb0-destroy",
+              "namespace": "team-a",
+              "labels": {
+                "platform.example.com/uid": "abc"
+              },
+              "annotations": {
+                "platform.example.com/hash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+                "platform.example.com/action": "destroy",
+                "platform.example.com/generation": "1",
+                "platform.example.com/attempt": "1",
+                "platform.example.com/retry-token": ""
+              }
+            },
+            "spec": {
+              "backoffLimit": 0,
+              "activeDeadlineSeconds": 300,
+              "ttlSecondsAfterFinished": 3600,
+              "template": {
+                "spec": {
+                  "serviceAccountName": "tofu-runner",
+                  "restartPolicy": "Never",
+                  "securityContext": {
+                    "runAsNonRoot": true,
+                    "runAsUser": 1000,
+                    "fsGroup": 1000
+                  },
+                  "containers": [
+                    {
+                      "name": "tofu",
+                      "image": "panko-runner:dev",
+                      "imagePullPolicy": "Never",
+                      "args": [
+                        "destroy",
+                        "team-a",
+                        "orders"
+                      ],
+                      "env": [
+                        {
+                          "name": "PANKO_RESOURCE",
+                          "value": "{\"metadata\": {\"name\": \"orders\", \"namespace\": \"team-a\", \"uid\": \"abc\", \"generation\": 1}, \"spec\": {\"owner\": \"team-a\", \"extensions\": [], \"connectionLimit\": 20}}"
+                        },
+                        {
+                          "name": "PANKO_HASH",
+                          "value": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f"
+                        },
+                        {
+                          "name": "PANKO_JOB",
+                          "value": "db-orders-734f853046fe4a36acea3eb0-destroy"
+                        }
+                      ],
+                      "securityContext": {
+                        "allowPrivilegeEscalation": false,
+                        "readOnlyRootFilesystem": true,
+                        "capabilities": {
+                          "drop": [
+                            "ALL"
+                          ]
+                        }
+                      },
+                      "resources": {
+                        "requests": {
+                          "cpu": "100m",
+                          "memory": "128Mi"
+                        },
+                        "limits": {
+                          "memory": "512Mi"
+                        }
+                      },
+                      "volumeMounts": [
+                        {
+                          "name": "work",
+                          "mountPath": "/work"
+                        },
+                        {
+                          "name": "tmp",
+                          "mountPath": "/tmp"
+                        }
+                      ]
+                    }
+                  ],
+                  "volumes": [
+                    {
+                      "name": "work",
+                      "emptyDir": {}
+                    },
+                    {
+                      "name": "tmp",
+                      "emptyDir": {}
+                    }
+                  ]
+                }
+              }
+            },
+            "status": {
+              "conditions": [
+                {
+                  "type": "Failed",
+                  "status": "True"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "finalizing": true
+    },
+    "expected": {
+      "status": {
+        "phase": "Deleting",
+        "observedGeneration": 1,
+        "message": "Destroy scheduled",
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "False",
+            "reason": "Deleting",
+            "message": "Destroy scheduled",
+            "observedGeneration": 1,
+            "lastTransitionTime": "TIME"
+          }
+        ],
+        "destroy": {
+          "attempt": 2,
+          "retryToken": "retry-1",
+          "jobName": "db-orders-331698018d43e8dfd8482c35-destroy",
+          "result": "Pending"
+        }
+      },
+      "children": [
+        {
+          "apiVersion": "batch/v1",
+          "kind": "Job",
+          "metadata": {
+            "name": "db-orders-331698018d43e8dfd8482c35-destroy",
+            "namespace": "team-a",
+            "labels": {
+              "platform.example.com/uid": "abc"
+            },
+            "annotations": {
+              "platform.example.com/hash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+              "platform.example.com/action": "destroy",
+              "platform.example.com/generation": "1",
+              "platform.example.com/attempt": "2",
+              "platform.example.com/retry-token": "retry-1"
+            }
+          },
+          "spec": {
+            "backoffLimit": 0,
+            "activeDeadlineSeconds": 300,
+            "ttlSecondsAfterFinished": 3600,
+            "template": {
+              "spec": {
+                "serviceAccountName": "tofu-runner",
+                "restartPolicy": "Never",
+                "securityContext": {
+                  "runAsNonRoot": true,
+                  "runAsUser": 1000,
+                  "fsGroup": 1000
+                },
+                "containers": [
+                  {
+                    "name": "tofu",
+                    "image": "panko-runner:dev",
+                    "imagePullPolicy": "Never",
+                    "args": [
+                      "destroy",
+                      "team-a",
+                      "orders"
+                    ],
+                    "env": [
+                      {
+                        "name": "PANKO_RESOURCE",
+                        "value": "{\"metadata\": {\"name\": \"orders\", \"namespace\": \"team-a\", \"uid\": \"abc\", \"generation\": 1}, \"spec\": {\"owner\": \"team-a\", \"extensions\": [], \"connectionLimit\": 20}}"
+                      },
+                      {
+                        "name": "PANKO_HASH",
+                        "value": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f"
+                      },
+                      {
+                        "name": "PANKO_JOB",
+                        "value": "db-orders-331698018d43e8dfd8482c35-destroy"
+                      }
+                    ],
+                    "securityContext": {
+                      "allowPrivilegeEscalation": false,
+                      "readOnlyRootFilesystem": true,
+                      "capabilities": {
+                        "drop": [
+                          "ALL"
+                        ]
+                      }
+                    },
+                    "resources": {
+                      "requests": {
+                        "cpu": "100m",
+                        "memory": "128Mi"
+                      },
+                      "limits": {
+                        "memory": "512Mi"
+                      }
+                    },
+                    "volumeMounts": [
+                      {
+                        "name": "work",
+                        "mountPath": "/work"
+                      },
+                      {
+                        "name": "tmp",
+                        "mountPath": "/tmp"
+                      }
+                    ]
+                  }
+                ],
+                "volumes": [
+                  {
+                    "name": "work",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "tmp",
+                    "emptyDir": {}
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "resyncAfterSeconds": 5,
+      "finalized": false
+    }
+  },
+  {
+    "name": "pending-retry-after-disappearance",
+    "request": {
+      "parent": {
+        "metadata": {
+          "name": "orders",
+          "namespace": "team-a",
+          "uid": "abc",
+          "generation": 1,
+          "annotations": {
+            "platform.example.com/retry-destroy": "retry-1"
+          }
+        },
+        "spec": {
+          "owner": "team-a",
+          "extensions": [],
+          "connectionLimit": 20
+        },
+        "status": {
+          "phase": "Deleting",
+          "observedGeneration": 1,
+          "message": "Destroy scheduled",
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "False",
+              "reason": "Deleting",
+              "message": "Destroy scheduled",
+              "observedGeneration": 1,
+              "lastTransitionTime": "TIME"
+            }
+          ],
+          "destroy": {
+            "attempt": 2,
+            "retryToken": "retry-1",
+            "jobName": "db-orders-331698018d43e8dfd8482c35-destroy",
+            "result": "Pending"
+          }
+        }
+      },
+      "children": {
+        "Job.batch/v1": {}
+      },
+      "finalizing": true
+    },
+    "expected": {
+      "status": {
+        "phase": "Deleting",
+        "observedGeneration": 1,
+        "message": "Destroy scheduled",
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "False",
+            "reason": "Deleting",
+            "message": "Destroy scheduled",
+            "observedGeneration": 1,
+            "lastTransitionTime": "TIME"
+          }
+        ],
+        "destroy": {
+          "attempt": 2,
+          "retryToken": "retry-1",
+          "jobName": "db-orders-331698018d43e8dfd8482c35-destroy",
+          "result": "Pending"
+        }
+      },
+      "children": [
+        {
+          "apiVersion": "batch/v1",
+          "kind": "Job",
+          "metadata": {
+            "name": "db-orders-331698018d43e8dfd8482c35-destroy",
+            "namespace": "team-a",
+            "labels": {
+              "platform.example.com/uid": "abc"
+            },
+            "annotations": {
+              "platform.example.com/hash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+              "platform.example.com/action": "destroy",
+              "platform.example.com/generation": "1",
+              "platform.example.com/attempt": "2",
+              "platform.example.com/retry-token": "retry-1"
+            }
+          },
+          "spec": {
+            "backoffLimit": 0,
+            "activeDeadlineSeconds": 300,
+            "ttlSecondsAfterFinished": 3600,
+            "template": {
+              "spec": {
+                "serviceAccountName": "tofu-runner",
+                "restartPolicy": "Never",
+                "securityContext": {
+                  "runAsNonRoot": true,
+                  "runAsUser": 1000,
+                  "fsGroup": 1000
+                },
+                "containers": [
+                  {
+                    "name": "tofu",
+                    "image": "panko-runner:dev",
+                    "imagePullPolicy": "Never",
+                    "args": [
+                      "destroy",
+                      "team-a",
+                      "orders"
+                    ],
+                    "env": [
+                      {
+                        "name": "PANKO_RESOURCE",
+                        "value": "{\"metadata\": {\"name\": \"orders\", \"namespace\": \"team-a\", \"uid\": \"abc\", \"generation\": 1}, \"spec\": {\"owner\": \"team-a\", \"extensions\": [], \"connectionLimit\": 20}}"
+                      },
+                      {
+                        "name": "PANKO_HASH",
+                        "value": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f"
+                      },
+                      {
+                        "name": "PANKO_JOB",
+                        "value": "db-orders-331698018d43e8dfd8482c35-destroy"
+                      }
+                    ],
+                    "securityContext": {
+                      "allowPrivilegeEscalation": false,
+                      "readOnlyRootFilesystem": true,
+                      "capabilities": {
+                        "drop": [
+                          "ALL"
+                        ]
+                      }
+                    },
+                    "resources": {
+                      "requests": {
+                        "cpu": "100m",
+                        "memory": "128Mi"
+                      },
+                      "limits": {
+                        "memory": "512Mi"
+                      }
+                    },
+                    "volumeMounts": [
+                      {
+                        "name": "work",
+                        "mountPath": "/work"
+                      },
+                      {
+                        "name": "tmp",
+                        "mountPath": "/tmp"
+                      }
+                    ]
+                  }
+                ],
+                "volumes": [
+                  {
+                    "name": "work",
+                    "emptyDir": {}
+                  },
+                  {
+                    "name": "tmp",
+                    "emptyDir": {}
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "resyncAfterSeconds": 5,
+      "finalized": false
+    }
+  },
+  {
+    "name": "destroy-success",
+    "request": {
+      "parent": {
+        "metadata": {
+          "name": "orders",
+          "namespace": "team-a",
+          "uid": "abc",
+          "generation": 1,
+          "annotations": {
+            "platform.example.com/retry-destroy": "retry-1"
+          }
+        },
+        "spec": {
+          "owner": "team-a",
+          "extensions": [],
+          "connectionLimit": 20
+        },
+        "status": {
+          "phase": "Deleting",
+          "observedGeneration": 1,
+          "message": "Destroy scheduled",
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "False",
+              "reason": "Deleting",
+              "message": "Destroy scheduled",
+              "observedGeneration": 1,
+              "lastTransitionTime": "TIME"
+            }
+          ],
+          "destroy": {
+            "attempt": 2,
+            "retryToken": "retry-1",
+            "jobName": "db-orders-331698018d43e8dfd8482c35-destroy",
+            "result": "Pending"
+          }
+        }
+      },
+      "children": {
+        "Job.batch/v1": {
+          "db-orders-331698018d43e8dfd8482c35-destroy": {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "metadata": {
+              "name": "db-orders-331698018d43e8dfd8482c35-destroy",
+              "namespace": "team-a",
+              "labels": {
+                "platform.example.com/uid": "abc"
+              },
+              "annotations": {
+                "platform.example.com/hash": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f",
+                "platform.example.com/action": "destroy",
+                "platform.example.com/generation": "1",
+                "platform.example.com/attempt": "2",
+                "platform.example.com/retry-token": "retry-1"
+              }
+            },
+            "spec": {
+              "backoffLimit": 0,
+              "activeDeadlineSeconds": 300,
+              "ttlSecondsAfterFinished": 3600,
+              "template": {
+                "spec": {
+                  "serviceAccountName": "tofu-runner",
+                  "restartPolicy": "Never",
+                  "securityContext": {
+                    "runAsNonRoot": true,
+                    "runAsUser": 1000,
+                    "fsGroup": 1000
+                  },
+                  "containers": [
+                    {
+                      "name": "tofu",
+                      "image": "panko-runner:dev",
+                      "imagePullPolicy": "Never",
+                      "args": [
+                        "destroy",
+                        "team-a",
+                        "orders"
+                      ],
+                      "env": [
+                        {
+                          "name": "PANKO_RESOURCE",
+                          "value": "{\"metadata\": {\"name\": \"orders\", \"namespace\": \"team-a\", \"uid\": \"abc\", \"generation\": 1}, \"spec\": {\"owner\": \"team-a\", \"extensions\": [], \"connectionLimit\": 20}}"
+                        },
+                        {
+                          "name": "PANKO_HASH",
+                          "value": "b6bff0e863bde680b73e8c5553b8f0a69a6f29dbadc610219ba97fc62a80a53f"
+                        },
+                        {
+                          "name": "PANKO_JOB",
+                          "value": "db-orders-331698018d43e8dfd8482c35-destroy"
+                        }
+                      ],
+                      "securityContext": {
+                        "allowPrivilegeEscalation": false,
+                        "readOnlyRootFilesystem": true,
+                        "capabilities": {
+                          "drop": [
+                            "ALL"
+                          ]
+                        }
+                      },
+                      "resources": {
+                        "requests": {
+                          "cpu": "100m",
+                          "memory": "128Mi"
+                        },
+                        "limits": {
+                          "memory": "512Mi"
+                        }
+                      },
+                      "volumeMounts": [
+                        {
+                          "name": "work",
+                          "mountPath": "/work"
+                        },
+                        {
+                          "name": "tmp",
+                          "mountPath": "/tmp"
+                        }
+                      ]
+                    }
+                  ],
+                  "volumes": [
+                    {
+                      "name": "work",
+                      "emptyDir": {}
+                    },
+                    {
+                      "name": "tmp",
+                      "emptyDir": {}
+                    }
+                  ]
+                }
+              }
+            },
+            "status": {
+              "conditions": [
+                {
+                  "type": "Complete",
+                  "status": "True"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "finalizing": true
+    },
+    "expected": {
+      "status": {
+        "phase": "Deleting",
+        "observedGeneration": 1,
+        "message": "Resources and state removed",
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "False",
+            "reason": "Deleting",
+            "message": "Resources and state removed",
+            "observedGeneration": 1,
+            "lastTransitionTime": "TIME"
+          }
+        ],
+        "destroy": {
+          "attempt": 2,
+          "retryToken": "retry-1",
+          "jobName": "db-orders-331698018d43e8dfd8482c35-destroy",
+          "result": "Succeeded"
+        }
+      },
+      "children": [],
+      "resyncAfterSeconds": 5,
+      "finalized": true
+    }
+  },
+  {
+    "name": "destroy-success-after-ttl",
+    "request": {
+      "parent": {
+        "metadata": {
+          "name": "orders",
+          "namespace": "team-a",
+          "uid": "abc",
+          "generation": 1,
+          "annotations": {
+            "platform.example.com/retry-destroy": "retry-1"
+          }
+        },
+        "spec": {
+          "owner": "team-a",
+          "extensions": [],
+          "connectionLimit": 20
+        },
+        "status": {
+          "phase": "Deleting",
+          "observedGeneration": 1,
+          "message": "Resources and state removed",
+          "conditions": [
+            {
+              "type": "Ready",
+              "status": "False",
+              "reason": "Deleting",
+              "message": "Resources and state removed",
+              "observedGeneration": 1,
+              "lastTransitionTime": "TIME"
+            }
+          ],
+          "destroy": {
+            "attempt": 2,
+            "retryToken": "retry-1",
+            "jobName": "db-orders-331698018d43e8dfd8482c35-destroy",
+            "result": "Succeeded"
+          }
+        }
+      },
+      "children": {
+        "Job.batch/v1": {}
+      },
+      "finalizing": true
+    },
+    "expected": {
+      "status": {
+        "phase": "Deleting",
+        "observedGeneration": 1,
+        "message": "Resources and state removed",
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "False",
+            "reason": "Deleting",
+            "message": "Resources and state removed",
+            "observedGeneration": 1,
+            "lastTransitionTime": "TIME"
+          }
+        ],
+        "destroy": {
+          "attempt": 2,
+          "retryToken": "retry-1",
+          "jobName": "db-orders-331698018d43e8dfd8482c35-destroy",
+          "result": "Succeeded"
+        }
+      },
+      "children": [],
+      "resyncAfterSeconds": 5,
+      "finalized": true
+    }
+  }
+]

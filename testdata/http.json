@@ -1,0 +1,893 @@
+[
+  {
+    "name": "list",
+    "method": "GET",
+    "path": "/v1/teams/team-a/databases",
+    "payload": null,
+    "token": "token-a",
+    "apiError": null,
+    "resource": {
+      "metadata": {
+        "name": "orders",
+        "namespace": "team-a",
+        "uid": "abc",
+        "generation": 1
+      },
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/apis/platform.example.com/v1/namespaces/team-a/databases",
+        "body": null,
+        "contentType": "application/json"
+      }
+    ],
+    "status": 200,
+    "response": [
+      {
+        "name": "orders",
+        "spec": {
+          "owner": "team-a",
+          "extensions": [],
+          "connectionLimit": 20
+        },
+        "status": {
+          "phase": "Pending"
+        }
+      }
+    ],
+    "authenticate": null
+  },
+  {
+    "name": "get",
+    "method": "GET",
+    "path": "/v1/teams/team-a/databases/orders",
+    "payload": null,
+    "token": "token-a",
+    "apiError": null,
+    "resource": {
+      "metadata": {
+        "name": "orders",
+        "namespace": "team-a",
+        "uid": "abc",
+        "generation": 1
+      },
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/apis/platform.example.com/v1/namespaces/team-a/databases/orders",
+        "body": null,
+        "contentType": "application/json"
+      }
+    ],
+    "status": 200,
+    "response": {
+      "name": "orders",
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    },
+    "authenticate": null
+  },
+  {
+    "name": "create",
+    "method": "POST",
+    "path": "/v1/teams/team-a/databases",
+    "payload": {
+      "name": "orders",
+      "spec": {
+        "owner": "team-a"
+      }
+    },
+    "token": "token-a",
+    "apiError": null,
+    "resource": {
+      "metadata": {
+        "name": "orders",
+        "namespace": "team-a",
+        "uid": "abc",
+        "generation": 1
+      },
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/apis/platform.example.com/v1/namespaces/team-a/databases?fieldValidation=Strict",
+        "body": {
+          "apiVersion": "platform.example.com/v1",
+          "kind": "Database",
+          "metadata": {
+            "name": "orders",
+            "namespace": "team-a"
+          },
+          "spec": {
+            "owner": "team-a"
+          }
+        },
+        "contentType": "application/json"
+      }
+    ],
+    "status": 201,
+    "response": {
+      "name": "orders",
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    },
+    "authenticate": null
+  },
+  {
+    "name": "patch",
+    "method": "PATCH",
+    "path": "/v1/teams/team-a/databases/orders",
+    "payload": {
+      "spec": {
+        "connectionLimit": 30
+      }
+    },
+    "token": "token-a",
+    "apiError": null,
+    "resource": {
+      "metadata": {
+        "name": "orders",
+        "namespace": "team-a",
+        "uid": "abc",
+        "generation": 1
+      },
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    },
+    "requests": [
+      {
+        "method": "PATCH",
+        "path": "/apis/platform.example.com/v1/namespaces/team-a/databases/orders?fieldValidation=Strict",
+        "body": {
+          "spec": {
+            "connectionLimit": 30
+          }
+        },
+        "contentType": "application/merge-patch+json"
+      }
+    ],
+    "status": 200,
+    "response": {
+      "name": "orders",
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    },
+    "authenticate": null
+  },
+  {
+    "name": "delete",
+    "method": "DELETE",
+    "path": "/v1/teams/team-a/databases/orders",
+    "payload": null,
+    "token": "token-a",
+    "apiError": null,
+    "resource": {
+      "metadata": {
+        "name": "orders",
+        "namespace": "team-a",
+        "uid": "abc",
+        "generation": 1
+      },
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    },
+    "requests": [
+      {
+        "method": "DELETE",
+        "path": "/apis/platform.example.com/v1/namespaces/team-a/databases/orders",
+        "body": {
+          "apiVersion": "v1",
+          "kind": "DeleteOptions",
+          "propagationPolicy": "Background"
+        },
+        "contentType": "application/json"
+      }
+    ],
+    "status": 202,
+    "response": null,
+    "authenticate": null
+  },
+  {
+    "name": "no-token",
+    "method": "GET",
+    "path": "/v1/teams/team-a/databases",
+    "payload": null,
+    "token": null,
+    "apiError": null,
+    "resource": {
+      "metadata": {
+        "name": "orders",
+        "namespace": "team-a",
+        "uid": "abc",
+        "generation": 1
+      },
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    },
+    "requests": [],
+    "status": 401,
+    "response": {
+      "message": "A team bearer token is required",
+      "errors": []
+    },
+    "authenticate": "Bearer"
+  },
+  {
+    "name": "invalid-token",
+    "method": "GET",
+    "path": "/v1/teams/team-a/databases",
+    "payload": null,
+    "token": "invalid",
+    "apiError": null,
+    "resource": {
+      "metadata": {
+        "name": "orders",
+        "namespace": "team-a",
+        "uid": "abc",
+        "generation": 1
+      },
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    },
+    "requests": [],
+    "status": 401,
+    "response": {
+      "message": "Invalid bearer token",
+      "errors": []
+    },
+    "authenticate": "Bearer"
+  },
+  {
+    "name": "foreign-token",
+    "method": "GET",
+    "path": "/v1/teams/team-b/databases",
+    "payload": null,
+    "token": "token-a",
+    "apiError": null,
+    "resource": {
+      "metadata": {
+        "name": "orders",
+        "namespace": "team-a",
+        "uid": "abc",
+        "generation": 1
+      },
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    },
+    "requests": [],
+    "status": 403,
+    "response": {
+      "message": "This token does not authorize the requested team",
+      "errors": []
+    },
+    "authenticate": null
+  },
+  {
+    "name": "unknown-resource",
+    "method": "GET",
+    "path": "/v1/teams/team-a/secrets",
+    "payload": null,
+    "token": "token-a",
+    "apiError": null,
+    "resource": {
+      "metadata": {
+        "name": "orders",
+        "namespace": "team-a",
+        "uid": "abc",
+        "generation": 1
+      },
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    },
+    "requests": [],
+    "status": 404,
+    "response": {
+      "message": "No exposed resource at this route",
+      "errors": []
+    },
+    "authenticate": null
+  },
+  {
+    "name": "unknown-fields",
+    "method": "POST",
+    "path": "/v1/teams/team-a/databases",
+    "payload": {
+      "metadata": {},
+      "z": 1
+    },
+    "token": "token-a",
+    "apiError": null,
+    "resource": {
+      "metadata": {
+        "name": "orders",
+        "namespace": "team-a",
+        "uid": "abc",
+        "generation": 1
+      },
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    },
+    "requests": [],
+    "status": 422,
+    "response": {
+      "message": "Unexpected fields",
+      "errors": [
+        {
+          "field": "metadata",
+          "message": "Field is not accepted"
+        },
+        {
+          "field": "z",
+          "message": "Field is not accepted"
+        }
+      ]
+    },
+    "authenticate": null
+  },
+  {
+    "name": "missing-name",
+    "method": "POST",
+    "path": "/v1/teams/team-a/databases",
+    "payload": {
+      "spec": {}
+    },
+    "token": "token-a",
+    "apiError": null,
+    "resource": {
+      "metadata": {
+        "name": "orders",
+        "namespace": "team-a",
+        "uid": "abc",
+        "generation": 1
+      },
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    },
+    "requests": [],
+    "status": 422,
+    "response": {
+      "message": "name is required",
+      "errors": [
+        {
+          "field": "name",
+          "message": "Expected a nonempty string"
+        }
+      ]
+    },
+    "authenticate": null
+  },
+  {
+    "name": "missing-spec",
+    "method": "POST",
+    "path": "/v1/teams/team-a/databases",
+    "payload": {
+      "name": "orders"
+    },
+    "token": "token-a",
+    "apiError": null,
+    "resource": {
+      "metadata": {
+        "name": "orders",
+        "namespace": "team-a",
+        "uid": "abc",
+        "generation": 1
+      },
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    },
+    "requests": [],
+    "status": 422,
+    "response": {
+      "message": "spec is required",
+      "errors": [
+        {
+          "field": "spec",
+          "message": "Required field"
+        }
+      ]
+    },
+    "authenticate": null
+  },
+  {
+    "name": "non-object",
+    "method": "POST",
+    "path": "/v1/teams/team-a/databases",
+    "payload": [],
+    "token": "token-a",
+    "apiError": null,
+    "resource": {
+      "metadata": {
+        "name": "orders",
+        "namespace": "team-a",
+        "uid": "abc",
+        "generation": 1
+      },
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    },
+    "requests": [],
+    "status": 422,
+    "response": {
+      "message": "Expected a JSON object",
+      "errors": [
+        {
+          "field": "body",
+          "message": "Expected a JSON object"
+        }
+      ]
+    },
+    "authenticate": null
+  },
+  {
+    "name": "immutable-error",
+    "method": "PATCH",
+    "path": "/v1/teams/team-a/databases/orders",
+    "payload": {
+      "spec": {
+        "owner": "other"
+      }
+    },
+    "token": "token-a",
+    "apiError": {
+      "code": 422,
+      "body": {
+        "message": "Invalid",
+        "details": {
+          "causes": [
+            {
+              "field": "spec.owner",
+              "message": "Immutable"
+            }
+          ]
+        }
+      }
+    },
+    "resource": {
+      "metadata": {
+        "name": "orders",
+        "namespace": "team-a",
+        "uid": "abc",
+        "generation": 1
+      },
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    },
+    "requests": [
+      {
+        "method": "PATCH",
+        "path": "/apis/platform.example.com/v1/namespaces/team-a/databases/orders?fieldValidation=Strict",
+        "body": {
+          "spec": {
+            "owner": "other"
+          }
+        },
+        "contentType": "application/merge-patch+json"
+      }
+    ],
+    "status": 422,
+    "response": {
+      "message": "Invalid",
+      "errors": [
+        {
+          "field": "spec.owner",
+          "message": "Immutable"
+        }
+      ]
+    },
+    "authenticate": null
+  },
+  {
+    "name": "empty-body",
+    "method": "POST",
+    "path": "/v1/teams/team-a/databases",
+    "payload": null,
+    "rawBody": "",
+    "contentType": "application/json",
+    "token": "token-a",
+    "apiError": null,
+    "resource": {
+      "metadata": {
+        "name": "orders",
+        "namespace": "team-a",
+        "uid": "abc",
+        "generation": 1
+      },
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    },
+    "requests": [],
+    "status": 422,
+    "response": {
+      "message": "Expected a JSON object",
+      "errors": [
+        {
+          "field": "body",
+          "message": "Expected a JSON object"
+        }
+      ]
+    },
+    "authenticate": null
+  },
+  {
+    "name": "null-body",
+    "method": "POST",
+    "path": "/v1/teams/team-a/databases",
+    "payload": null,
+    "rawBody": "null",
+    "contentType": "application/json",
+    "token": "token-a",
+    "apiError": null,
+    "resource": {
+      "metadata": {
+        "name": "orders",
+        "namespace": "team-a",
+        "uid": "abc",
+        "generation": 1
+      },
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    },
+    "requests": [],
+    "status": 422,
+    "response": {
+      "message": "Expected a JSON object",
+      "errors": [
+        {
+          "field": "body",
+          "message": "Expected a JSON object"
+        }
+      ]
+    },
+    "authenticate": null
+  },
+  {
+    "name": "malformed-body",
+    "method": "POST",
+    "path": "/v1/teams/team-a/databases",
+    "payload": null,
+    "rawBody": "{\"spec\":}",
+    "contentType": "application/json",
+    "token": "token-a",
+    "apiError": null,
+    "resource": {
+      "metadata": {
+        "name": "orders",
+        "namespace": "team-a",
+        "uid": "abc",
+        "generation": 1
+      },
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    },
+    "requests": [],
+    "status": 422,
+    "response": {
+      "message": "Invalid request body",
+      "errors": [
+        {
+          "field": "body.8",
+          "message": "JSON decode error"
+        }
+      ]
+    },
+    "authenticate": null
+  },
+  {
+    "name": "truncated-body",
+    "method": "POST",
+    "path": "/v1/teams/team-a/databases",
+    "payload": null,
+    "rawBody": "{\"spec\":",
+    "contentType": "application/json",
+    "token": "token-a",
+    "apiError": null,
+    "resource": {
+      "metadata": {
+        "name": "orders",
+        "namespace": "team-a",
+        "uid": "abc",
+        "generation": 1
+      },
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    },
+    "requests": [],
+    "status": 422,
+    "response": {
+      "message": "Invalid request body",
+      "errors": [
+        {
+          "field": "body.8",
+          "message": "JSON decode error"
+        }
+      ]
+    },
+    "authenticate": null
+  },
+  {
+    "name": "trailing-json",
+    "method": "POST",
+    "path": "/v1/teams/team-a/databases",
+    "payload": null,
+    "rawBody": "{} {}",
+    "contentType": "application/json",
+    "token": "token-a",
+    "apiError": null,
+    "resource": {
+      "metadata": {
+        "name": "orders",
+        "namespace": "team-a",
+        "uid": "abc",
+        "generation": 1
+      },
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    },
+    "requests": [],
+    "status": 422,
+    "response": {
+      "message": "Invalid request body",
+      "errors": [
+        {
+          "field": "body.3",
+          "message": "JSON decode error"
+        }
+      ]
+    },
+    "authenticate": null
+  },
+  {
+    "name": "non-json-content",
+    "method": "POST",
+    "path": "/v1/teams/team-a/databases",
+    "payload": null,
+    "rawBody": "{\"name\":\"orders\",\"spec\":{}}",
+    "contentType": "text/plain",
+    "token": "token-a",
+    "apiError": null,
+    "resource": {
+      "metadata": {
+        "name": "orders",
+        "namespace": "team-a",
+        "uid": "abc",
+        "generation": 1
+      },
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    },
+    "requests": [],
+    "status": 422,
+    "response": {
+      "message": "Expected a JSON object",
+      "errors": [
+        {
+          "field": "body",
+          "message": "Expected a JSON object"
+        }
+      ]
+    },
+    "authenticate": null
+  },
+  {
+    "name": "invalid-before-auth",
+    "method": "POST",
+    "path": "/v1/teams/team-a/databases",
+    "payload": null,
+    "rawBody": "{",
+    "contentType": "application/json",
+    "token": null,
+    "apiError": null,
+    "resource": {
+      "metadata": {
+        "name": "orders",
+        "namespace": "team-a",
+        "uid": "abc",
+        "generation": 1
+      },
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    },
+    "requests": [],
+    "status": 422,
+    "response": {
+      "message": "Invalid request body",
+      "errors": [
+        {
+          "field": "body.1",
+          "message": "JSON decode error"
+        }
+      ]
+    },
+    "authenticate": null
+  },
+  {
+    "name": "invalid-get-body",
+    "method": "GET",
+    "path": "/v1/teams/team-a/databases",
+    "payload": null,
+    "rawBody": "[1,]",
+    "contentType": "application/json",
+    "token": "token-a",
+    "apiError": null,
+    "resource": {
+      "metadata": {
+        "name": "orders",
+        "namespace": "team-a",
+        "uid": "abc",
+        "generation": 1
+      },
+      "spec": {
+        "owner": "team-a",
+        "extensions": [],
+        "connectionLimit": 20
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    },
+    "requests": [],
+    "status": 422,
+    "response": {
+      "message": "Invalid request body",
+      "errors": [
+        {
+          "field": "body.3",
+          "message": "JSON decode error"
+        }
+      ]
+    },
+    "authenticate": null
+  }
+]

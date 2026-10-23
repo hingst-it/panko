@@ -27,6 +27,15 @@ variable "name" {
   description = "Name of the Database custom resource; identity only."
 }
 
+variable "resource" {
+  type        = any
+  description = "Immutable resource snapshot captured by the controller, without credentials or status."
+  validation {
+    condition     = var.resource.metadata.namespace == var.namespace && var.resource.metadata.name == var.name
+    error_message = "Snapshot identity must match the requested resource."
+  }
+}
+
 # Technical authentication is supplied through KUBE_* environment variables.
 provider "kubernetes" {}
 
@@ -40,17 +49,8 @@ provider "postgresql" {
   connect_timeout = 15
 }
 
-data "kubernetes_resource" "database" {
-  api_version = "platform.example.com/v1"
-  kind        = "Database"
-  metadata {
-    namespace = var.namespace
-    name      = var.name
-  }
-}
-
 locals {
-  cr       = data.kubernetes_resource.database.object
+  cr       = var.resource
   spec     = local.cr.spec
   identity = substr(sha256(local.cr.metadata.uid), 0, 12)
   database = "${substr(var.name, 0, 40)}_${local.identity}"

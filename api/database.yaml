@@ -84,6 +84,25 @@ spec:
                 message:
                   type: string
                   description: Human-readable reconciliation result or failure.
+                destroy:
+                  type: object
+                  description: Durable teardown attempt; changing the retry-destroy annotation permits a new attempt after failure.
+                  required: [attempt, retryToken, jobName, result]
+                  properties:
+                    attempt:
+                      type: integer
+                      minimum: 1
+                      description: Monotonically increasing teardown attempt number.
+                    retryToken:
+                      type: string
+                      description: Retry annotation value consumed by this attempt.
+                    jobName:
+                      type: string
+                      description: Job executing this teardown attempt.
+                    result:
+                      type: string
+                      enum: [Pending, Running, Succeeded, Failed]
+                      description: Last observed teardown outcome, retained after Job TTL expiry.
                 connectionSecretRef:
                   type: object
                   description: Connection credentials in the resource namespace.

@@ -1,0 +1,49 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/hingst-it/panko/internal/kube"
+	"github.com/hingst-it/panko/internal/resource"
+	"github.com/hingst-it/panko/internal/runner"
+)
+
+func main() {
+	if err := run(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+func run() error {
+	if len(os.Args) != 4 || (os.Args[1] != "apply" && os.Args[1] != "destroy") {
+		return fmt.Errorf("usage: runner apply|destroy NAMESPACE NAME")
+	}
+	snapshot, err := resource.Validate(strings.NewReader(os.Getenv("PANKO_RESOURCE")), os.Args[2], os.Args[3], os.Getenv("PANKO_HASH"))
+	if err != nil {
+		return err
+	}
+	api, err := kube.New("", 30*time.Second)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT)
+	defer signal.Stop(signals)
+	go func() {
+		select {
+		case sig := <-signals:
+			cancel(runner.SignalError{Signal: sig})
+		case <-ctx.Done():
+		}
+	}()
+	r := &runner.Runner{API: api, Credentials: api.Credentials, ModuleDir: "/opt/module", WorkDir: "/work/module", Output: os.Stdout, ErrorOutput: os.Stderr, Log: os.Stdout}
+	return r.Run(ctx, os.Args[1], snapshot, os.Getenv("PANKO_JOB"))
+}

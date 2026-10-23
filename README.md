@@ -39,16 +39,15 @@ The ambition is simple: keep the joy of Terraform coding as infrastructure becom
 flowchart LR
   Team[Team / API client] --> Gateway[REST API + OpenAPI]
   Gateway --> CR[Kubernetes custom resource]
-  CR --> Controller[Metacontroller + Python hook]
-  Controller --> Job[Short-lived OpenTofu job]
-  Job -->|reads resource spec| CR
+  CR --> Controller[Metacontroller + Go hook]
+  Controller -->|captures spec snapshot| Job[Short-lived OpenTofu job]
   Job --> Infrastructure[PostgreSQL database + role]
   Job --> Secrets[Connection secret + state]
   Controller -->|reports lifecycle| CR
 ```
 
 - **One resource contract.** CRDs define fields, defaults, and validation. The gateway derives OpenAPI from exposed CRDs, including resources added at runtime.
-- **A small provisioning boundary.** The example module takes only a resource's namespace and name, then reads its spec directly. The gateway does not maintain a second mapping of business fields to Terraform variables.
+- **A small provisioning boundary.** The example module receives the resource identity and an immutable spec snapshot captured by the controller. The gateway does not maintain a second mapping of business fields to Terraform variables.
 - **Jobs for execution.** The controller starts OpenTofu jobs for changed generations, serializes changes per resource, and reports their outcome.
 - **An explicit lifecycle.** A finalizer keeps a resource in `Deleting` until its destroy job and state cleanup succeed. Credentials are delivered through a connection Secret.
 - **Team-scoped access.** Local bearer tokens map requests to team namespaces, backed by explicit Kubernetes RBAC.
@@ -62,6 +61,8 @@ You need a running Docker engine and [mise](https://mise.jdx.dev/). Tool version
 ```sh
 mise trust
 mise install
+mise exec -- python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements-dev.txt
 make cluster-up
 make bootstrap
 make build
@@ -114,6 +115,9 @@ Explore the API at [Swagger UI](http://127.0.0.1:8081/docs) or retrieve the [Ope
 
 | Command | Purpose |
 | --- | --- |
+| `make test-unit lint-go` | Run Go unit/contract tests with the race detector, formatting checks and go vet. |
+| `make lint` | Lint the Python E2E tests and tools after installing `requirements-dev.txt`. |
+| `make validate` | Check OpenTofu formatting and validate the module. |
 | `make test` | Exercise provisioning, updates, schema validation, deletion, and parallel resources across two team namespaces. |
 | `make test-gateway` | Check HTTP lifecycle, team isolation, dynamic CRD discovery, OpenAPI validation, and generated Python client code. |
 | `make gateway-rbac` | Rebuild explicit gateway permissions after changing exposed resource types. |
@@ -126,9 +130,10 @@ Explore the API at [Swagger UI](http://127.0.0.1:8081/docs) or retrieve the [Ope
 | --- | --- |
 | [api/](api/) | Database CRD, validation, and an example resource. |
 | [terraform/database/](terraform/database/) | OpenTofu module for the PostgreSQL role, database, extensions, and connection Secret. |
-| [controller/](controller/) | Reconciliation hook and Metacontroller configuration. |
-| [runner/](runner/) | Job image, bundled provider mirror, and apply/destroy execution. |
-| [gateway/](gateway/) | REST API, CRD-derived OpenAPI, team authorization, and RBAC generation. |
+| [cmd/](cmd/) / [internal/](internal/) | Go gateway, reconciliation hook, runner, administrator commands and shared packages. |
+| [controller/](controller/) | Metacontroller configuration and hook deployment. |
+| [runner/](runner/) | Go runner image, bundled provider mirror and image build script. |
+| [gateway/](gateway/) | Gateway deployment; implementation and CRD-derived OpenAPI live under `internal/gateway`. |
 | [cluster/](cluster/) | Local cluster setup, PostgreSQL, and deployment scripts. |
 | [test/](test/) | Controller checks and cluster-backed lifecycle/API tests. |
 | [docs/local-lab.de.md](docs/local-lab.de.md) | Original German technical guide and implementation/verification notes. |
@@ -136,11 +141,13 @@ Explore the API at [Swagger UI](http://127.0.0.1:8081/docs) or retrieve the [Ope
 
 ## Scope and limitations
 
+Gateway, Metacontroller hook, runner and administrator commands are implemented in Go. Python remains for external E2E tests and optional tooling. The [Go migration guide](docs/go-porting.de.md) records the component transitions and rollback procedure.
+
 The local example demonstrates the full request-to-resource lifecycle. It currently uses one PostgreSQL instance with a PVC, two configured team namespaces, local development images, and static team tokens. High availability, backups, PostgreSQL TLS, OIDC authentication, and production-grade tenant isolation are outside the implemented scope.
 
-Applies run on spec/generation changes. There is no periodic drift reconciliation or automatic retry of a failed apply for the same generation. Failed destroys retain the finalizer for diagnosis and require an administrator to remove the failed job before retrying.
+Applies run on spec/generation changes. There is no periodic drift reconciliation or automatic retry of a failed apply for the same generation. Failed destroys retain the finalizer and persist their outcome after Job TTL expiry. An administrator explicitly changes the `platform.example.com/retry-destroy` annotation to request another attempt.
 
-OpenTofu state lives in Kubernetes Secrets and includes credentials. The runner is trusted across both teams, and the gateway enforces the team boundary using a shared service account. See the [technical guide](docs/local-lab.de.md#bekannte-grenzen) for state limits, RBAC details, concurrency behavior, and other operational constraints.
+OpenTofu state lives in team-specific Kubernetes namespaces and includes credentials. Runner RBAC separates team states and blocks access to gateway tokens, while both runners still share privileged PostgreSQL credentials. The gateway enforces the HTTP team boundary using a shared service account. See the [operations guide](docs/operations.de.md) for upgrades from the shared backend, explicit retries, execution snapshots, discovery caching, JSON logs and Prometheus metrics. GitHub Actions runs unit checks and a separate cluster-backed E2E job. The [technical guide](docs/local-lab.de.md#bekannte-grenzen) covers other local-lab limitations.
 
 ## Build with us
 

@@ -1,0 +1,214 @@
+package admin
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/hingst-it/panko/internal/jsonx"
+	"github.com/hingst-it/panko/internal/kube"
+)
+
+type fakeAPI func(context.Context, string, string, any, string) (Object, error)
+
+func (f fakeAPI) Request(c context.Context, m, p string, b any, ct string) (Object, error) {
+	return f(c, m, p, b, ct)
+}
+func load(t *testing.T, name string, v any) {
+	t.Helper()
+	f, err := os.Open("../../testdata/" + name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := jsonx.Decode(f, v); err != nil {
+		t.Fatal(err)
+	}
+}
+func TestPythonRBACGolden(t *testing.T) {
+	var runner Object
+	load(t, "runner-rbac.json", &runner)
+	if !bytes.Equal(jsonx.Encode(RunnerRBAC()), jsonx.Encode(runner)) {
+		t.Fatal("runner permissions changed")
+	}
+	var source struct{ CRDs []any }
+	load(t, "openapi.json", &source)
+	got, err := GatewayRBAC(source.CRDs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var expected Object
+	load(t, "gateway-rbac.json", &expected)
+	if !bytes.Equal(jsonx.Encode(got), jsonx.Encode(expected)) {
+		t.Fatalf("gateway permissions changed\ngot %s\nwant %s", jsonx.Encode(got), jsonx.Encode(expected))
+	}
+}
+func secret() Object {
+	return Object{"apiVersion": "v1", "kind": "Secret", "metadata": Object{"name": "tfstate-default-team-a-orders", "namespace": "infra-runners", "uid": "server-uid", "resourceVersion": "123", "labels": Object{"tfstate": "true"}, "ownerReferences": []any{Object{"uid": "old-owner"}}}, "type": "Opaque", "data": Object{"tfstate": "private-state"}}
+}
+func TestCopyConflictsVerificationAndMetadata(t *testing.T) {
+	for _, test := range []string{"success", "conflict", "verification"} {
+		t.Run(test, func(t *testing.T) {
+			var copied Object
+			deletes := 0
+			api := fakeAPI(func(ctx context.Context, method, path string, body any, ct string) (Object, error) {
+				if method == "DELETE" {
+					deletes++
+				}
+				if path == "/api/v1/namespaces/panko-state-team-a" {
+					return Object{}, nil
+				}
+				if method == "POST" {
+					copied = jsonx.Obj(body)
+					return copied, nil
+				}
+				if test == "conflict" {
+					r := portable(secret(), "panko-state-team-a")
+					r["data"] = Object{"tfstate": "newer-state"}
+					return r, nil
+				}
+				if copied == nil {
+					return nil, &kube.Error{Code: 404}
+				}
+				if test == "verification" {
+					return Object{"data": Object{}, "type": "Opaque"}, nil
+				}
+				return copied, nil
+			})
+			m := Migrator{API: api}
+			err := m.CopySecret(context.Background(), secret(), "panko-state-team-a")
+			if (err == nil) != (test == "success") {
+				t.Fatal(err)
+			}
+			if deletes != 0 {
+				t.Fatal("source deleted before migration completed")
+			}
+			if test == "success" {
+				meta := jsonx.Obj(copied["metadata"])
+				if meta["uid"] != nil || meta["ownerReferences"] != nil || meta["namespace"] != "panko-state-team-a" {
+					t.Fatal(meta)
+				}
+			}
+		})
+	}
+}
+func TestPreflightBlocksLegacyState(t *testing.T) {
+	mutations := 0
+	m := Migrator{API: fakeAPI(func(ctx context.Context, method, path string, b any, ct string) (Object, error) {
+		if method != "GET" {
+			mutations++
+		}
+		return Object{"items": []any{secret()}}, nil
+	})}
+	if err := m.Preflight(context.Background()); err == nil {
+		t.Fatal("legacy state allowed")
+	}
+	if mutations != 0 {
+		t.Fatal("preflight changed legacy state")
+	}
+}
+func TestMigrationStopsPodsChecksJobsAndBacksUpFreshState(t *testing.T) {
+	for _, test := range []string{"success", "active-job", "held-lock", "copy-failure"} {
+		t.Run(test, func(t *testing.T) {
+			var logs bytes.Buffer
+			copied := Object(nil)
+			deleted := false
+			podsQueried := 0
+			scaled := false
+			source := secret()
+			source["data"] = Object{"tfstate": "last-state-after-quiescence"}
+			api := fakeAPI(func(ctx context.Context, method, path string, b any, ct string) (Object, error) {
+				if strings.HasSuffix(path, "deployments/database-hook") {
+					return Object{}, nil
+				}
+				if strings.HasSuffix(path, "deployments/platform-gateway") {
+					return nil, &kube.Error{Code: 404}
+				}
+				if strings.HasSuffix(path, "/scale") {
+					scaled = true
+					return Object{}, nil
+				}
+				if strings.Contains(path, "/pods?") {
+					podsQueried++
+					if podsQueried == 1 {
+						return Object{"items": []any{Object{}}}, nil
+					}
+					return Object{"items": []any{}}, nil
+				}
+				if strings.HasSuffix(path, "/jobs") {
+					if !scaled || podsQueried < 2 {
+						t.Fatal("jobs checked before hook pods stopped")
+					}
+					if test == "active-job" {
+						return Object{"items": []any{Object{"status": Object{"active": 1}}}}, nil
+					}
+					return Object{"items": []any{}}, nil
+				}
+				if strings.HasSuffix(path, "/leases") {
+					if test == "held-lock" {
+						return Object{"items": []any{Object{"spec": Object{"holderIdentity": "held"}}}}, nil
+					}
+					return Object{"items": []any{}}, nil
+				}
+				if method == "GET" && path == secretsPath("infra-runners") {
+					return Object{"items": []any{source}}, nil
+				}
+				if path == "/api/v1/namespaces/panko-state-team-a" {
+					return Object{}, nil
+				}
+				if method == "POST" {
+					if test == "copy-failure" {
+						return nil, errors.New("copy unavailable")
+					}
+					copied = jsonx.Obj(b)
+					return copied, nil
+				}
+				if method == "DELETE" {
+					if copied == nil {
+						t.Fatal("source deleted before copy")
+					}
+					pre := jsonx.Obj(jsonx.Obj(b)["preconditions"])
+					if pre["resourceVersion"] != "123" {
+						t.Fatal("missing concurrent-write protection")
+					}
+					deleted = true
+					return Object{}, nil
+				}
+				if copied == nil {
+					return nil, &kube.Error{Code: 404}
+				}
+				return copied, nil
+			})
+			dir := t.TempDir()
+			m := Migrator{API: api, BackupDir: dir, Log: &logs, Wait: func(context.Context) error { return nil }}
+			err := m.Migrate(context.Background())
+			if (err == nil) != (test == "success") {
+				t.Fatal(err)
+			}
+			if deleted != (test == "success") {
+				t.Fatal("source deletion was not safe")
+			}
+			if strings.Contains(logs.String(), "last-state") {
+				t.Fatal("state logged")
+			}
+			if test == "success" {
+				files, _ := filepath.Glob(filepath.Join(dir, "state-backup-*.json"))
+				if len(files) != 1 {
+					t.Fatal(files)
+				}
+				info, _ := os.Stat(files[0])
+				if info.Mode().Perm() != 0600 {
+					t.Fatal("backup is not private")
+				}
+				contents, _ := os.ReadFile(files[0])
+				if !bytes.Contains(contents, []byte("last-state-after-quiescence")) {
+					t.Fatal("stale state backed up")
+				}
+			}
+		})
+	}
+}

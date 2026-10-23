@@ -1,0 +1,59 @@
+name: Checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - name: Install test dependencies
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -r requirements-dev.txt
+      - name: Unit tests, lint and module validation
+        run: make test-unit lint lint-go validate
+
+  e2e:
+    needs: unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - name: Install test dependencies
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -r requirements-dev.txt
+      - name: Build local lab and run lifecycle, RBAC and gateway tests
+        run: |
+          make cluster-up bootstrap build deploy
+          make test
+      - name: Collect diagnostics
+        if: failure()
+        env:
+          KUBECONFIG: ${{ github.workspace }}/.local/kubeconfig
+        run: |
+          mkdir -p .local/diagnostics
+          kubectl get pods,jobs,databases -A -o wide > .local/diagnostics/resources.txt 2>&1 || true
+          kubectl get events -A --sort-by=.lastTimestamp > .local/diagnostics/events.txt 2>&1 || true
+          for ns in infra-runners infra-gateway team-a team-b; do
+            kubectl -n "$ns" logs --all-containers --prefix -l app=database-hook > ".local/diagnostics/$ns-hook.log" 2>&1 || true
+            kubectl -n "$ns" logs --all-containers --prefix -l app=platform-gateway > ".local/diagnostics/$ns-gateway.log" 2>&1 || true
+          done
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: lab-diagnostics
+          path: .local/diagnostics/
+      - name: Remove test cluster
+        if: always()
+        run: make cluster-down
