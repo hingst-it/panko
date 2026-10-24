@@ -1,0 +1,62 @@
+# The cache survives restarts, so cached providers stay available during upstream outages.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: provider-mirror-cache
+  namespace: infra-runners
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: {storage: 2Gi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: provider-mirror
+  namespace: infra-runners
+spec:
+  replicas: 1
+  # One writer for the ReadWriteOnce cache volume.
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: provider-mirror}
+  template:
+    metadata:
+      labels: {app: provider-mirror}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000}
+      containers:
+        - name: mirror
+          image: panko-mirror:dev
+          imagePullPolicy: Never
+          env:
+            - {name: TLS_CERT_FILE, value: /tls/tls.crt}
+            - {name: TLS_KEY_FILE, value: /tls/tls.key}
+          ports: [{name: https, containerPort: 8443}]
+          readinessProbe:
+            httpGet: {path: /healthz, port: https, scheme: HTTPS}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: cache, mountPath: /cache}
+            - {name: tls, mountPath: /tls, readOnly: true}
+          resources:
+            requests: {cpu: 20m, memory: 32Mi}
+            limits: {memory: 128Mi}
+      volumes:
+        - name: cache
+          persistentVolumeClaim: {claimName: provider-mirror-cache}
+        - name: tls
+          secret: {secretName: provider-mirror-tls, defaultMode: 0440}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: provider-mirror
+  namespace: infra-runners
+spec:
+  selector: {app: provider-mirror}
+  ports: [{name: https, port: 8443, targetPort: https}]

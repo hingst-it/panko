@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"os"
 	"path"
 	"regexp"
@@ -65,6 +66,7 @@ func Children(r Request) []Object {
 // JobConfig selects the engine image and the pinned module revision each Job assembles at start.
 type JobConfig struct {
 	RunnerImage, EngineImage, EngineBinary, GitSyncImage, ModuleRepo, ModuleRevision, ModuleSecret string
+	ProviderMirror                                                                                 string
 	// Backends gates team-defined state backends; the Kubernetes fallback is always available.
 	Backends statebackend.Settings
 }
@@ -83,9 +85,15 @@ func JobConfigFrom(lookup func(string) string) JobConfig {
 	}
 	return JobConfig{RunnerImage: value("RUNNER_IMAGE", "panko-runner:dev"), EngineImage: lookup("ENGINE_IMAGE"), EngineBinary: value("ENGINE_BINARY", "/usr/local/bin/tofu"),
 		GitSyncImage: lookup("GIT_SYNC_IMAGE"), ModuleRepo: lookup("MODULE_REPO"), ModuleRevision: lookup("MODULE_REVISION"), ModuleSecret: value("MODULE_SECRET", "panko-module-git"),
-		Backends: statebackend.Settings{External: lookup("EXTERNAL_STATE_BACKENDS") == "enabled", Installation: lookup("INSTALLATION_ID")}}
+		ProviderMirror: lookup("PROVIDER_MIRROR"), Backends: statebackend.Settings{External: lookup("EXTERNAL_STATE_BACKENDS") == "enabled", Installation: lookup("INSTALLATION_ID")}}
 }
 func (c JobConfig) Validate() error {
+	if c.ProviderMirror != "" {
+		u, err := url.Parse(c.ProviderMirror)
+		if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			return fmt.Errorf("PROVIDER_MIRROR must be an https URL")
+		}
+	}
 	if c.EngineImage == "" || c.GitSyncImage == "" || c.ModuleRepo == "" {
 		return fmt.Errorf("ENGINE_IMAGE, GIT_SYNC_IMAGE and MODULE_REPO are required")
 	}
@@ -122,7 +130,7 @@ func CreateJobWith(config JobConfig, parent Object, action, hash, revision strin
 	// git-sync needs its image's own passwd entry for SSH; the pod fsGroup grants it the key.
 	gitUser := Object{"allowPrivilegeEscalation": false, "readOnlyRootFilesystem": true, "capabilities": Object{"drop": []any{"ALL"}}, "runAsUser": 65533, "runAsGroup": 65533}
 	small := Object{"requests": Object{"cpu": "50m", "memory": "32Mi"}, "limits": Object{"memory": "128Mi"}}
-	return Object{"apiVersion": "batch/v1", "kind": "Job", "metadata": Object{"name": name, "namespace": meta.Namespace,
+	job := Object{"apiVersion": "batch/v1", "kind": "Job", "metadata": Object{"name": name, "namespace": meta.Namespace,
 		"labels": Object{Prefix + "uid": meta.UID}, "annotations": Object{Prefix + "hash": hash, Prefix + "action": action, Prefix + "generation": strconv.FormatInt(generation, 10), Prefix + "attempt": strconv.FormatInt(attempt, 10), Prefix + "retry-token": retry, Prefix + "module-revision": revision}},
 		"spec": Object{"backoffLimit": 0, "activeDeadlineSeconds": 300, "ttlSecondsAfterFinished": 3600, "template": Object{"metadata": Object{"labels": Object{Prefix + "uid": meta.UID}}, "spec": Object{
 			"serviceAccountName": "tofu-runner", "restartPolicy": "Never", "securityContext": Object{"runAsNonRoot": true, "runAsUser": 1000, "fsGroup": 1000},
@@ -139,7 +147,15 @@ func CreateJobWith(config JobConfig, parent Object, action, hash, revision strin
 				"resources":       Object{"requests": Object{"cpu": "100m", "memory": "128Mi"}, "limits": Object{"memory": "512Mi"}},
 				"volumeMounts":    []any{Object{"name": "work", "mountPath": "/work"}, Object{"name": "tmp", "mountPath": "/tmp"}, Object{"name": "engine", "mountPath": "/engine", "readOnly": true}, Object{"name": "module", "mountPath": "/module", "readOnly": true}}}},
 			"volumes": []any{Object{"name": "work", "emptyDir": Object{}}, Object{"name": "tmp", "emptyDir": Object{}}, Object{"name": "engine", "emptyDir": Object{}}, Object{"name": "module", "emptyDir": Object{}}, Object{"name": "git-tmp", "emptyDir": Object{}},
-				Object{"name": "git-secret", "secret": Object{"secretName": config.ModuleSecret, "defaultMode": 0440}}}}}}}, nil
+				Object{"name": "git-secret", "secret": Object{"secretName": config.ModuleSecret, "defaultMode": 0440}}}}}}}
+	if config.ProviderMirror != "" {
+		pod := jsonx.Obj(jsonx.Obj(jsonx.Obj(job["spec"])["template"])["spec"])
+		container := jsonx.Obj(jsonx.Array(pod["containers"])[0])
+		container["env"] = append(jsonx.Array(container["env"]), Object{"name": "PANKO_PROVIDER_MIRROR", "value": config.ProviderMirror})
+		container["volumeMounts"] = append(jsonx.Array(container["volumeMounts"]), Object{"name": "mirror-ca", "mountPath": "/mirror-ca", "readOnly": true})
+		pod["volumes"] = append(jsonx.Array(pod["volumes"]), Object{"name": "mirror-ca", "configMap": Object{"name": "panko-mirror-ca", "optional": true}})
+	}
+	return job, nil
 }
 func Retain(child Object) Object {
 	meta := Object{}

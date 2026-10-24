@@ -48,7 +48,7 @@ func run() error {
 		}
 	}
 	if flags.NArg() != 1 {
-		return fmt.Errorf("usage: panko-admin [--kubeconfig PATH] runner-rbac|module-secret|s3-profiles|gateway-rbac|preflight|migrate-state|migrate-backend|ensure-postgres-auth|ensure-gateway-auth|ensure-installation-id|ensure-s3-auth|ensure-s3-teams")
+		return fmt.Errorf("usage: panko-admin [--kubeconfig PATH] runner-rbac|module-secret|ensure-mirror-tls|mirror-ca|s3-profiles|gateway-rbac|preflight|migrate-state|migrate-backend|ensure-postgres-auth|ensure-gateway-auth|ensure-installation-id|ensure-s3-auth|ensure-s3-teams")
 	}
 	command := flags.Arg(0)
 	if command == "runner-rbac" {
@@ -74,7 +74,7 @@ func run() error {
 		fmt.Println(string(jsonx.Encode(admin.S3Profiles())))
 		return nil
 	}
-	clusterCommands := map[string]bool{"gateway-rbac": true, "preflight": true, "migrate-state": true, "migrate-backend": true, "ensure-postgres-auth": true,
+	clusterCommands := map[string]bool{"ensure-mirror-tls": true, "mirror-ca": true, "gateway-rbac": true, "preflight": true, "migrate-state": true, "migrate-backend": true, "ensure-postgres-auth": true,
 		"ensure-gateway-auth": true, "ensure-installation-id": true, "ensure-s3-auth": true, "ensure-s3-teams": true}
 	if !clusterCommands[command] {
 		return fmt.Errorf("unknown admin command")
@@ -110,6 +110,15 @@ func run() error {
 		return m.Preflight(ctx)
 	}
 	switch command {
+	case "ensure-mirror-tls":
+		return m.EnsureMirrorTLS(ctx)
+	case "mirror-ca":
+		ca, err := m.MirrorCA(ctx)
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(jsonx.Encode(ca)))
+		return nil
 	case "ensure-installation-id":
 		return m.EnsureInstallationID(ctx)
 	case "ensure-s3-auth":

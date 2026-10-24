@@ -45,8 +45,15 @@ func (r *Runner) migrate(ctx context.Context, snapshot resource.Snapshot) error 
 		dir string
 		env []string
 	}
+	mirrorValues := map[string]string{}
+	if err := r.mirrorEnvironment(ctx, mirrorValues); err != nil {
+		return err
+	}
 	credentials := func(bindings ...Object) (map[string]string, error) {
 		values := map[string]string{"TF_IN_AUTOMATION": "1", "TF_INPUT": "0"}
+		for key, value := range mirrorValues {
+			values[key] = value
+		}
 		for _, binding := range bindings {
 			own := map[string]string{}
 			if err := r.backendCredentials(ctx, m.Namespace, binding, own); err != nil {

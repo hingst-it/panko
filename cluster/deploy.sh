@@ -15,6 +15,11 @@ kubectl apply -f cluster/s3-onboard.yaml
 kubectl -n infra-backends wait --for=condition=complete job/s3-onboard --timeout=180s
 .local/bin/admin s3-profiles | kubectl apply -f -
 .local/bin/admin --kubeconfig "$KUBECONFIG" ensure-installation-id
+.local/bin/admin --kubeconfig "$KUBECONFIG" ensure-mirror-tls
+.local/bin/admin --kubeconfig "$KUBECONFIG" mirror-ca | kubectl apply -f -
+kubectl apply -f cluster/provider-mirror.yaml
+kubectl -n infra-runners rollout restart deploy/provider-mirror
+kubectl -n infra-runners rollout status deploy/provider-mirror --timeout=120s
 kubectl apply -f controller/deployment.yaml
 kubectl -n infra-runners rollout restart deploy/database-hook
 kubectl -n infra-runners rollout status deploy/database-hook --timeout=120s

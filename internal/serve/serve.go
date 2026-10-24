@@ -2,6 +2,7 @@ package serve
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"net"
 	"net/http"
@@ -11,7 +12,9 @@ import (
 	"time"
 )
 
-func Run(handler http.Handler) error {
+func Run(handler http.Handler) error { return RunTLS(handler, "", "") }
+
+func RunTLS(handler http.Handler, cert, key string) error {
 	addr := os.Getenv("LISTEN_ADDRESS")
 	if addr == "" {
 		addr = ":8080"
@@ -23,6 +26,16 @@ func Run(handler http.Handler) error {
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
+	}
+	if cert != "" || key != "" {
+		// A cold provider download can take longer than an ordinary API response.
+		server.WriteTimeout = 3 * time.Minute
+		pair, err := tls.LoadX509KeyPair(cert, key)
+		if err != nil {
+			listener.Close()
+			return err
+		}
+		listener = tls.NewListener(listener, &tls.Config{Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS12})
 	}
 	return run(ctx, server, listener)
 }

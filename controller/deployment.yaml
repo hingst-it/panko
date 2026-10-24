@@ -25,6 +25,7 @@ spec:
             - {name: MODULE_REVISION, value: a002bdcd497130e38d2cc2e526ebcb2187791232}
             # Team-defined state backends; the Kubernetes fallback stays the default.
             - {name: EXTERNAL_STATE_BACKENDS, value: enabled}
+            - {name: PROVIDER_MIRROR, value: "https://provider-mirror.infra-runners.svc:8443"}
             - name: INSTALLATION_ID
               valueFrom:
                 configMapKeyRef: {name: panko-installation, key: id}

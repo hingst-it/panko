@@ -43,14 +43,22 @@ bereits einen Job scheitern lassen, auch Destroys sind betroffen.
 
 - Kleiner Cache-Dienst im Cluster, der OpenTofus Network-Mirror-Protokoll spricht und bei
   Cache-Miss aus der Registry lädt.
-- Runner-CLI-Konfiguration: `network_mirror` mit `direct` als Rückfall. Fällt der Mirror
-  aus, laufen Jobs weiter; das Lockfile sichert die Integrität in beiden Fällen.
+- HTTPS-Mirror mit eigener CA; der Runner vertraut Systemwurzeln plus `/mirror-ca`
+  über `SSL_CERT_DIR=/etc/ssl/certs:/mirror-ca`. Die CA wird als ConfigMap je Team verteilt.
+- Vor `init` prüft der Runner `/healthz` mit zwei Sekunden Timeout, auch bei Migrationen.
+  Erreichbar: CLI-Konfiguration mit `network_mirror`. Nicht erreichbar: direkter
+  Registry-Zugriff und ein strukturiertes Warnereignis. OpenTofu verlangt HTTPS und
+  fällt bei einem unerreichbaren konfigurierten Mirror nicht auf `direct` zurück.
+  Fällt der Mirror erst nach der Probe aus, kann `init` deshalb scheitern.
+- Indizes haben eine begrenzte TTL; Versionsmetadaten und ZIPs bleiben unverändert.
+  ZIPs werden vor dem atomaren Speichern gegen die Registry-SHA-256 geprüft.
+  Das Modul-Lockfile prüft die Provider zusätzlich im Runner.
 - Nur Downloads laufen über den Mirror. Kein allgemeiner HTTPS-Forward-Proxy: Er könnte
   verschlüsselten Verkehr nicht cachen und würde Provider-, Backend- und API-Verbindungen
   beeinflussen. Die Runner-Umgebung entfernt `HTTP(S)_PROXY` weiterhin.
 
 Abnahme: Zweiter Job lädt keine Provider mehr aus dem Internet; ein gestoppter Mirror
-verhindert keinen Apply oder Destroy.
+verhindert keinen Apply oder Destroy, wenn er bereits bei der Probe nicht erreichbar ist.
 
 ### 2. Geprobte Sicherung und Wiederherstellung
 

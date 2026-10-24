@@ -39,7 +39,7 @@ Der Init-Container `module` holt das Modul per git-sync aus `MODULE_REPO` zum Co
 Beide Images sind per Digest festgelegt, das Modul per vollständigem Commit-SHA; der
 Hook startet nicht, wenn die Revision ein Branch oder Tag ist.
 
-Provider lädt OpenTofu beim Start aus der Registry. `-lockfile=readonly` prüft sie
+Provider lädt OpenTofu beim Start über den unten beschriebenen Mirror oder direkt aus der Registry. `-lockfile=readonly` prüft sie
 gegen das Lockfile des Moduls, das deshalb Prüfsummen aller Runner-Plattformen
 enthalten muss. Jobs benötigen damit Netzwerkzugriff auf GitHub und die
 Provider-Registry.
@@ -60,6 +60,43 @@ von GitHub aktualisiert werden.
 Ein separates Lab lässt sich mit `make CLUSTER_NAME=infra-lab-go KUBECONFIG="$PWD/.local/go-fresh-kubeconfig" cluster-up bootstrap build deploy` erstellen. Für alle weiteren
 Make-Aufrufe dieselben Werte verwenden. `make cluster-down` entfernt ausschließlich
 den ausgewählten Cluster.
+
+## Provider-Mirror
+
+`make build deploy` baut und startet `provider-mirror` in `infra-runners` unter
+`https://provider-mirror.infra-runners.svc:8443`. `admin ensure-mirror-tls` erzeugt
+nur bei fehlendem Secret `provider-mirror-tls` eine ECDSA-P-256-CA (fünf Jahre)
+und ein Serverzertifikat (ein Jahr) für beide Service-DNS-Namen. Der CA-Schlüssel
+wird nach dem Signieren verworfen; gespeichert wird nur der Server-Schlüssel.
+`admin --kubeconfig "$KUBECONFIG" mirror-ca | kubectl apply -f -` verteilt allein
+das CA-Zertifikat als ConfigMap `panko-mirror-ca` an die Team-Namespaces.
+
+`PROVIDER_MIRROR` am Hook aktiviert die optionale CA-Einbindung in neue Jobs.
+Der Runner prüft vor `init` (auch bei Migrationen) `/healthz` mit zwei Sekunden
+Timeout und Systemwurzeln plus `/mirror-ca`. Bei Erfolg schreibt er eine private
+CLI-Konfiguration mit `network_mirror` und setzt `TF_CLI_CONFIG_FILE` sowie
+`SSL_CERT_DIR=/etc/ssl/certs:/mirror-ca`; `SSL_CERT_FILE` wird dafür nicht gesetzt.
+Bei fehlender CA oder unerreichbarem Dienst verwendet er direkten Registry-Zugriff
+und protokolliert einmal `provider_mirror_unavailable` mit `level=warning`.
+OpenTofu selbst kann weder HTTP-Mirrors nutzen noch bei einem Mirror-Ausfall auf
+`direct` zurückfallen. Ein Ausfall nach erfolgreicher Probe kann daher `init`
+scheitern lassen. Ohne `PROVIDER_MIRROR` bleibt der Job-Vertrag unverändert.
+
+Der Mirror erlaubt standardmäßig `registry.opentofu.org`, `registry.terraform.io`
+und `linux_amd64`, `linux_arm64`. Flags `-hosts`, `-platforms` und `-index-ttl`
+ändern diese Auswahl; eine leere Plattformliste erlaubt alle Plattformen.
+Indizes gelten fünf Minuten (höchstens eine Stunde), Versionsmetadaten und ZIPs
+bleiben unverändert. Nur vollständig heruntergeladene, gegen `shasum` geprüfte
+ZIPs gelangen atomar in den Cache. Das Modul-Lockfile bleibt maßgeblich.
+Der Cache liegt auf `emptyDir`: Container-Neustarts behalten ihn, ein neuer Pod
+beginnt leer. Der Dienst braucht ausgehenden HTTPS-Zugriff auf Registry und Downloads;
+Runner brauchen ihn weiterhin für den Direktbetrieb.
+
+Zur Diagnose `kubectl -n infra-runners get pods -l app=provider-mirror` und
+`kubectl -n infra-runners rollout status deploy/provider-mirror` verwenden.
+Vor Ablauf des Serverzertifikats in einem Wartungsfenster das TLS-Secret löschen,
+`make deploy` ausführen und die CA-Verteilung samt Rollout prüfen. Dies erzeugt
+auch eine neue CA; bereits laufende Jobs vorher abschließen lassen.
 
 ## Ausführungsvertrag
 
@@ -91,7 +128,7 @@ Python-Portierungsbaseline verwenden denselben Snapshot-Vertrag wie Go.
 | `panko-state-team-a` | State-Secrets und Lock-Leases von team-a | Nur Runner von team-a |
 | `panko-state-team-b` | State-Secrets und Lock-Leases von team-b | Nur Runner von team-b |
 | `infra-gateway` | Gateway und `gateway-auth` | Kein Zugriff |
-| `infra-runners` | Controller-Hook | Kein Zugriff auf Secrets oder Leases |
+| `infra-runners` | Controller-Hook, Provider-Mirror und TLS-Secret | Kein Zugriff auf Secrets oder Leases |
 | `infra-backends` | PostgreSQL und Admin-Secret | Nur `get` auf `postgres-admin` |
 
 States und Leases behalten ihre bisherigen Namen; nur ihr Namespace wechselt.

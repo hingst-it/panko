@@ -36,6 +36,7 @@ type Runner struct {
 	Process                  ProcessFunc
 }
 type Event struct {
+	Level           string   `json:"level,omitempty"`
 	Event           string   `json:"event"`
 	UID             string   `json:"uid"`
 	Namespace       string   `json:"namespace"`
@@ -101,10 +102,13 @@ func (r *Runner) execute(ctx context.Context, action string, snapshot resource.S
 	if err := r.backendCredentials(ctx, m.Namespace, r.Backend, values); err != nil {
 		return nil, stage("credentials", err)
 	}
-	env := environment(os.Environ(), values)
 	if err := copyModule(r.ModuleDir, r.WorkDir); err != nil {
 		return nil, stage("module", err)
 	}
+	if err := r.mirrorEnvironment(ctx, values); err != nil {
+		return nil, stage("module", err)
+	}
+	env := environment(os.Environ(), values)
 	if err := os.WriteFile(filepath.Join(r.WorkDir, "resource.auto.tfvars.json"), jsonx.Encode(map[string]any{"resource": snapshot}), 0600); err != nil {
 		return nil, stage("module", err)
 	}
