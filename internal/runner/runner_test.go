@@ -336,3 +336,78 @@ func TestParseStateTreatsEmptyDocumentsAsAbsent(t *testing.T) {
 		t.Fatal(s)
 	}
 }
+func readResult(t *testing.T, path string) Result {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result Result
+	if err := jsonx.Decode(bytes.NewReader(data), &result); err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+func TestResultReportsChangesOnSuccess(t *testing.T) {
+	r, s, _ := setup(t)
+	r.ResultFile = filepath.Join(t.TempDir(), "termination-log")
+	f := &tofu{written: stateJSON("L1", 1)}
+	run := f.run
+	r.API, r.Process = fakeAPI((&cluster{}).api), func(ctx context.Context, binary string, args []string, dir string, env []string, out, errOut io.Writer) error {
+		if args[0] == "apply" {
+			if !strings.Contains(strings.Join(args, " "), "-json") {
+				t.Fatal("apply without machine-readable output")
+			}
+			_, _ = io.WriteString(out, `{"@level":"info","type":"apply_complete"}`+"\n"+`{"@level":"info","type":"change_summary","changes":{"add":4,"change":1,"remove":0,"operation":"apply"}}`+"\n")
+		}
+		return run(ctx, binary, args, dir, env, out, errOut)
+	}
+	if err := r.Run(context.Background(), "apply", s, "job-1"); err != nil {
+		t.Fatal(err)
+	}
+	result := readResult(t, r.ResultFile)
+	if result.Code != "" || result.Changes == nil || result.Changes.Add != 4 || result.Changes.Change != 1 {
+		t.Fatal(result)
+	}
+}
+func TestResultCodePerStage(t *testing.T) {
+	cases := map[string]func(*Runner, *tofu, *cluster){
+		"binding":     func(r *Runner, f *tofu, c *cluster) { r.Backend = statebackend.Fallback("team-b", "orders") },
+		"credentials": func(r *Runner, f *tofu, c *cluster) { c.fail = map[string]int{"postgres-admin": 403} },
+		"module": func(r *Runner, f *tofu, c *cluster) {
+			_ = os.WriteFile(filepath.Join(r.ModuleDir, "override.tf"), nil, 0644)
+		},
+		"backend_init": func(r *Runner, f *tofu, c *cluster) { f.failAt = "init" },
+		"backend_mismatch": func(r *Runner, f *tofu, c *cluster) {
+			f.record = func(Object) Object { return Object{"type": "local"} }
+		},
+		"checkpoint": func(r *Runner, f *tofu, c *cluster) {
+			c.checkpoint = Object{"data": Object{"lineage": base64.StdEncoding.EncodeToString([]byte("L1")), "serial": base64.StdEncoding.EncodeToString([]byte("3"))}}
+		},
+		"provider": func(r *Runner, f *tofu, c *cluster) { f.failAt = "apply" },
+	}
+	for code, breakIt := range cases {
+		t.Run(code, func(t *testing.T) {
+			r, s, _ := setup(t)
+			r.ResultFile = filepath.Join(t.TempDir(), "termination-log")
+			f, c := &tofu{}, &cluster{}
+			breakIt(r, f, c)
+			r.API, r.Process = fakeAPI(c.api), f.run
+			if err := r.Run(context.Background(), "apply", s, "job-1"); err == nil {
+				t.Fatal("failure reported success")
+			}
+			result := readResult(t, r.ResultFile)
+			if result.Code != code || result.Message == "" {
+				t.Fatalf("got %+v", result)
+			}
+			for _, secret := range []string{"private-password", "private-token", "state-password"} {
+				if strings.Contains(result.Message, secret) {
+					t.Fatal("secret in result")
+				}
+			}
+			if code == "checkpoint" && !strings.Contains(result.Message, "missing") {
+				t.Fatal("checkpoint reason not reported")
+			}
+		})
+	}
+}

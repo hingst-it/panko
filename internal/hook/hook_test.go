@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -316,8 +317,12 @@ func TestMaintenanceFreezesJobsAndKeepsChildren(t *testing.T) {
 }
 func TestCustomizeSelectsOnlyOwnNamespace(t *testing.T) {
 	rules := jsonx.Array(Customize(unbound("minio"))["relatedResources"])
-	if len(rules) != 2 {
+	if len(rules) != 3 {
 		t.Fatal(rules)
+	}
+	pods := jsonx.Obj(rules[2])
+	if pods["resource"] != "pods" || jsonx.Obj(jsonx.Obj(pods["labelSelector"])["matchLabels"])[Prefix+"uid"] != "abc" {
+		t.Fatal("pods not selected by the resource UID")
 	}
 	for _, item := range rules {
 		rule := jsonx.Obj(item)
@@ -327,5 +332,95 @@ func TestCustomizeSelectsOnlyOwnNamespace(t *testing.T) {
 	}
 	if names := jsonx.Array(jsonx.Obj(rules[0])["names"]); len(names) != 1 || names[0] != "minio" {
 		t.Fatal(rules[0])
+	}
+}
+func failedJob(name string, attempt int, token string) Object {
+	return Object{"apiVersion": "batch/v1", "kind": "Job", "metadata": Object{"name": name, "annotations": Object{Prefix + "action": "apply", Prefix + "attempt": strconv.Itoa(attempt),
+		Prefix + "retry-token": token, Prefix + "generation": "1", Prefix + "module-revision": testRevision}},
+		"spec": Object{}, "status": Object{"startTime": "t0", "conditions": []any{Object{"type": "Failed", "status": "True", "lastTransitionTime": "t1"}}}}
+}
+func pod(job string, status Object) Object {
+	return Object{"metadata": Object{"name": job + "-x", "labels": Object{"job-name": job}}, "status": status}
+}
+func terminatedWith(name string, state Object) Object {
+	return Object{"name": name, "state": Object{"terminated": state}}
+}
+func TestExecutionCodesFromPods(t *testing.T) {
+	job := failedJob("j", 1, "")
+	cases := map[string]Object{
+		"module_fetch":  {"initContainerStatuses": []any{terminatedWith("engine", Object{"exitCode": 0}), terminatedWith("module", Object{"exitCode": 1})}},
+		"engine_copy":   {"initContainerStatuses": []any{terminatedWith("engine", Object{"exitCode": 1})}},
+		"image_pull":    {"initContainerStatuses": []any{Object{"name": "engine", "state": Object{"waiting": Object{"reason": "ImagePullBackOff"}}}}},
+		"out_of_memory": {"containerStatuses": []any{terminatedWith("tofu", Object{"exitCode": 137, "reason": "OOMKilled"})}},
+		"provider":      {"containerStatuses": []any{terminatedWith("tofu", Object{"exitCode": 1, "message": `{"code":"provider","message":"OpenTofu failed while changing infrastructure","changes":{"add":1,"change":0,"remove":0,"secret":"x"}}`})}},
+		"unknown":       {"containerStatuses": []any{terminatedWith("tofu", Object{"exitCode": 1, "message": `{"code":"injected","message":"anything"}`})}},
+	}
+	for code, status := range cases {
+		e := Execution(job, map[string]Object{"p": pod("j", status)})
+		if e["code"] != code || e["result"] != "Failed" || e["startedAt"] != "t0" || e["finishedAt"] != "t1" {
+			t.Fatalf("%s: %v", code, e)
+		}
+		if code == "provider" && (jsonx.Obj(e["changes"])["add"] == nil || jsonx.Obj(e["changes"])["secret"] != nil) {
+			t.Fatal("changes not bounded to add/change/remove")
+		}
+	}
+	long := `{"code":"provider","message":"` + strings.Repeat("x", 1000) + `"}`
+	e := Execution(job, map[string]Object{"p": pod("j", Object{"containerStatuses": []any{terminatedWith("tofu", Object{"exitCode": 1, "message": long})}})})
+	if len(jsonx.Str(e["message"])) > maxMessage {
+		t.Fatal("oversized message not truncated")
+	}
+	deadline := failedJob("j", 1, "")
+	jsonx.Obj(deadline["status"])["conditions"] = []any{Object{"type": "Failed", "status": "True", "reason": "DeadlineExceeded"}}
+	if e := Execution(deadline, nil); e["code"] != "timeout" {
+		t.Fatal(e)
+	}
+	if e := Execution(failedJob("j", 1, ""), map[string]Object{"p": pod("other", cases["engine_copy"])}); e["code"] != "unknown" {
+		t.Fatal("pod of another Job used")
+	}
+}
+func applyJob(p Object, attempt int, token, condition string) Object {
+	job, _ := CreateJob(p, "apply", mustHash(p), testRevision, statebackend.Fallback("team-a", "orders"), 1, int64(attempt), token)
+	job["status"] = Object{"conditions": []any{Object{"type": condition, "status": "True"}}}
+	return job
+}
+func mustHash(p Object) string {
+	hash, _ := jsonx.Digest(p["spec"], jsonx.Int(jsonx.Obj(p["metadata"])["generation"]))
+	return hash
+}
+func TestRetryApplyCreatesNextAttemptOnce(t *testing.T) {
+	p := parent()
+	failed := applyJob(p, 1, "", "Failed")
+	children := map[string]map[string]Object{"Job.batch/v1": {"one": failed}}
+	r, _ := Reconcile(Request{Parent: p, Children: children})
+	if r.Status["phase"] != "Failed" || !strings.Contains(jsonx.Str(r.Status["message"]), "retry action") || jsonx.Obj(r.Status["lastExecution"])["code"] != "unknown" {
+		t.Fatal(r.Status)
+	}
+	jsonx.Obj(p["metadata"])["annotations"] = Object{Prefix + "retry-apply": "r1"}
+	r, _ = Reconcile(Request{Parent: p, Children: children})
+	if r.Status["phase"] != "Pending" || len(r.Children) != 1 || Ann(r.Children[0])[Prefix+"attempt"] != "2" || Ann(r.Children[0])[Prefix+"retry-token"] != "r1" {
+		t.Fatal("retry did not schedule attempt 2", r.Status)
+	}
+	second := applyJob(p, 2, "r1", "Failed")
+	children["Job.batch/v1"]["two"] = second
+	if r, _ := Reconcile(Request{Parent: p, Children: children}); r.Status["phase"] != "Failed" || jsonx.Obj(r.Status["lastExecution"])["attempt"] != int64(2) {
+		t.Fatal("used token retried again or older attempt reported", r.Status)
+	}
+	children["Job.batch/v1"]["two"] = applyJob(p, 2, "r1", "Complete")
+	if r, _ := Reconcile(Request{Parent: p, Children: children}); r.Status["phase"] != "Ready" {
+		t.Fatal("successful retry not reported Ready", r.Status)
+	}
+}
+func TestRetryApplyAfterJobTTL(t *testing.T) {
+	p := parent()
+	p["status"] = status(Object{"phase": "Failed", "message": "Apply failed", "observedGeneration": int64(1), "observedRevision": testRevision,
+		"lastExecution": Object{"action": "apply", "attempt": int64(3), "retryToken": "old", "result": "Failed"}})
+	jsonx.Obj(p["metadata"])["annotations"] = Object{Prefix + "retry-apply": "old"}
+	if r, _ := Reconcile(Request{Parent: p}); r.Status["phase"] != "Failed" || len(r.Children) != 0 {
+		t.Fatal("used token retried after TTL")
+	}
+	jsonx.Obj(p["metadata"])["annotations"] = Object{Prefix + "retry-apply": "new"}
+	r, _ := Reconcile(Request{Parent: p})
+	if len(r.Children) != 1 || Ann(r.Children[0])[Prefix+"attempt"] != "4" {
+		t.Fatal("retry after TTL did not continue the attempt count")
 	}
 }

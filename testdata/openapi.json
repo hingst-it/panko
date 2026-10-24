@@ -1346,6 +1346,198 @@
             }
           }
         }
+      },
+      "/v1/teams/{team}/databases/{name}/retry": {
+        "post": {
+          "operationId": "retry_platform_example_com_v1_Database_item",
+          "tags": [
+            "Database"
+          ],
+          "summary": "Retry the failed execution of a Database",
+          "parameters": [
+            {
+              "name": "team",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "Team namespace authorized by the bearer token."
+            },
+            {
+              "name": "name",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "description": "Resource name, unique within this team."
+              }
+            }
+          ],
+          "security": [
+            {
+              "TeamToken": []
+            }
+          ],
+          "responses": {
+            "202": {
+              "description": "Retry requested",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/platform_example_com_v1_Database"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Token required",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            },
+            "403": {
+              "description": "Forbidden",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            },
+            "404": {
+              "description": "Not found",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            },
+            "409": {
+              "description": "Nothing to retry or resource changed",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            },
+            "503": {
+              "description": "Kubernetes unavailable",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/v1/teams/{team}/widgets/{name}/retry": {
+        "post": {
+          "operationId": "retry_platform_example_com_v1_Widget_item",
+          "tags": [
+            "Widget"
+          ],
+          "summary": "Retry the failed execution of a Widget",
+          "parameters": [
+            {
+              "name": "team",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "Team namespace authorized by the bearer token."
+            },
+            {
+              "name": "name",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "description": "Resource name, unique within this team."
+              }
+            }
+          ],
+          "security": [
+            {
+              "TeamToken": []
+            }
+          ],
+          "responses": {
+            "202": {
+              "description": "Retry requested",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/platform_example_com_v1_Widget"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Token required",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            },
+            "403": {
+              "description": "Forbidden",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            },
+            "404": {
+              "description": "Not found",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            },
+            "409": {
+              "description": "Nothing to retry or resource changed",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            },
+            "503": {
+              "description": "Kubernetes unavailable",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "components": {

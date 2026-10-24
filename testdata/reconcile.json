@@ -277,6 +277,11 @@
                     ]
                   }
                 ]
+              },
+              "metadata": {
+                "labels": {
+                  "platform.example.com/uid": "abc"
+                }
               }
             }
           }
@@ -1461,6 +1466,14 @@
             "namespace": "panko-state-team-a",
             "secret_suffix": "team-a-orders"
           }
+        },
+        "lastExecution": {
+          "action": "apply",
+          "job": "db-orders-2529007422842ece61c7062c-apply",
+          "attempt": 1,
+          "generation": 1,
+          "moduleRevision": "1111111111111111111111111111111111111111",
+          "result": "Succeeded"
         }
       },
       "children": [
@@ -2036,6 +2049,11 @@
                     ]
                   }
                 ]
+              },
+              "metadata": {
+                "labels": {
+                  "platform.example.com/uid": "abc"
+                }
               }
             }
           }
@@ -2187,13 +2205,13 @@
       "status": {
         "phase": "Failed",
         "observedGeneration": 1,
-        "message": "Apply failed; inspect job logs and update spec to retry",
+        "message": "Apply failed (unknown): The Job failed without reporting a result. Retry with the retry action or update the spec.",
         "conditions": [
           {
             "type": "Ready",
             "status": "False",
             "reason": "Failed",
-            "message": "Apply failed; inspect job logs and update spec to retry",
+            "message": "Apply failed (unknown): The Job failed without reporting a result. Retry with the retry action or update the spec.",
             "observedGeneration": 1,
             "lastTransitionTime": "TIME"
           }
@@ -2206,6 +2224,16 @@
             "namespace": "panko-state-team-a",
             "secret_suffix": "team-a-orders"
           }
+        },
+        "lastExecution": {
+          "action": "apply",
+          "job": "db-orders-2529007422842ece61c7062c-apply",
+          "attempt": 1,
+          "generation": 1,
+          "moduleRevision": "1111111111111111111111111111111111111111",
+          "result": "Failed",
+          "code": "unknown",
+          "message": "The Job failed without reporting a result"
         }
       },
       "children": [
@@ -2684,6 +2712,11 @@
                     ]
                   }
                 ]
+              },
+              "metadata": {
+                "labels": {
+                  "platform.example.com/uid": "abc"
+                }
               }
             }
           }
@@ -3131,13 +3164,13 @@
       "status": {
         "phase": "Deleting",
         "observedGeneration": 1,
-        "message": "Destroy failed; inspect logs and change platform.example.com/retry-destroy to retry",
+        "message": "Destroy failed (unknown): The Job failed without reporting a result. Retry with the retry action.",
         "conditions": [
           {
             "type": "Ready",
             "status": "False",
             "reason": "Deleting",
-            "message": "Destroy failed; inspect logs and change platform.example.com/retry-destroy to retry",
+            "message": "Destroy failed (unknown): The Job failed without reporting a result. Retry with the retry action.",
             "observedGeneration": 1,
             "lastTransitionTime": "TIME"
           }
@@ -3156,6 +3189,16 @@
             "namespace": "panko-state-team-a",
             "secret_suffix": "team-a-orders"
           }
+        },
+        "lastExecution": {
+          "action": "destroy",
+          "job": "db-orders-734f853046fe4a36acea3eb0-destroy",
+          "attempt": 1,
+          "generation": 1,
+          "moduleRevision": "1111111111111111111111111111111111111111",
+          "result": "Failed",
+          "code": "unknown",
+          "message": "The Job failed without reporting a result"
         }
       },
       "children": [
@@ -3317,13 +3360,13 @@
       "status": {
         "phase": "Deleting",
         "observedGeneration": 1,
-        "message": "Destroy failed; inspect logs and change platform.example.com/retry-destroy to retry",
+        "message": "Destroy failed; retry with the retry action",
         "conditions": [
           {
             "type": "Ready",
             "status": "False",
             "reason": "Deleting",
-            "message": "Destroy failed; inspect logs and change platform.example.com/retry-destroy to retry",
+            "message": "Destroy failed; retry with the retry action",
             "observedGeneration": 1,
             "lastTransitionTime": "TIME"
           }
@@ -3537,6 +3580,16 @@
             "namespace": "panko-state-team-a",
             "secret_suffix": "team-a-orders"
           }
+        },
+        "lastExecution": {
+          "action": "destroy",
+          "job": "db-orders-734f853046fe4a36acea3eb0-destroy",
+          "attempt": 1,
+          "generation": 1,
+          "moduleRevision": "1111111111111111111111111111111111111111",
+          "result": "Failed",
+          "code": "unknown",
+          "message": "The Job failed without reporting a result"
         }
       },
       "children": [
@@ -3761,6 +3814,11 @@
                     ]
                   }
                 ]
+              },
+              "metadata": {
+                "labels": {
+                  "platform.example.com/uid": "abc"
+                }
               }
             }
           }
@@ -4075,6 +4133,11 @@
                     ]
                   }
                 ]
+              },
+              "metadata": {
+                "labels": {
+                  "platform.example.com/uid": "abc"
+                }
               }
             }
           }
@@ -4273,6 +4336,15 @@
             "namespace": "panko-state-team-a",
             "secret_suffix": "team-a-orders"
           }
+        },
+        "lastExecution": {
+          "action": "destroy",
+          "job": "db-orders-331698018d43e8dfd8482c35-destroy",
+          "attempt": 2,
+          "generation": 1,
+          "moduleRevision": "1111111111111111111111111111111111111111",
+          "retryToken": "retry-1",
+          "result": "Succeeded"
         }
       },
       "children": [],

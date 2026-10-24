@@ -124,7 +124,7 @@ func CreateJobWith(config JobConfig, parent Object, action, hash, revision strin
 	small := Object{"requests": Object{"cpu": "50m", "memory": "32Mi"}, "limits": Object{"memory": "128Mi"}}
 	return Object{"apiVersion": "batch/v1", "kind": "Job", "metadata": Object{"name": name, "namespace": meta.Namespace,
 		"labels": Object{Prefix + "uid": meta.UID}, "annotations": Object{Prefix + "hash": hash, Prefix + "action": action, Prefix + "generation": strconv.FormatInt(generation, 10), Prefix + "attempt": strconv.FormatInt(attempt, 10), Prefix + "retry-token": retry, Prefix + "module-revision": revision}},
-		"spec": Object{"backoffLimit": 0, "activeDeadlineSeconds": 300, "ttlSecondsAfterFinished": 3600, "template": Object{"spec": Object{
+		"spec": Object{"backoffLimit": 0, "activeDeadlineSeconds": 300, "ttlSecondsAfterFinished": 3600, "template": Object{"metadata": Object{"labels": Object{Prefix + "uid": meta.UID}}, "spec": Object{
 			"serviceAccountName": "tofu-runner", "restartPolicy": "Never", "securityContext": Object{"runAsNonRoot": true, "runAsUser": 1000, "fsGroup": 1000},
 			"initContainers": []any{
 				Object{"name": "engine", "image": config.EngineImage, "imagePullPolicy": "IfNotPresent", "command": []any{"cp", config.EngineBinary, engine},
@@ -226,7 +226,23 @@ func Customize(parent Object) Object {
 	name, _ := statebackend.Reference(parent)
 	return Object{"relatedResources": []any{
 		Object{"apiVersion": statebackend.Group, "resource": "statebackends", "namespace": namespace, "names": []any{name}},
-		Object{"apiVersion": statebackend.Group, "resource": "backendprofiles", "namespace": namespace, "labelSelector": Object{}}}}
+		Object{"apiVersion": statebackend.Group, "resource": "backendprofiles", "namespace": namespace, "labelSelector": Object{}},
+		// Pods explain failures the Job object does not carry: init containers and the runner's termination message.
+		Object{"apiVersion": "v1", "resource": "pods", "namespace": namespace, "labelSelector": Object{"matchLabels": Object{Prefix + "uid": jsonx.Str(jsonx.Obj(parent["metadata"])["uid"])}}}}}
+}
+
+// latestApply returns the newest attempt among apply Jobs for this hash and module revision.
+func latestApply(children []Object, hash, revision string) Object {
+	var latest Object
+	for _, c := range children {
+		if Ann(c)[Prefix+"hash"] == hash && Ann(c)[Prefix+"action"] == "apply" && revisionOf(c) == revision && (latest == nil || attempt(c) > attempt(latest)) {
+			latest = c
+		}
+	}
+	return latest
+}
+func annotation(parent Object, key string) string {
+	return jsonx.Str(jsonx.Obj(jsonx.Obj(parent["metadata"])["annotations"])[Prefix+key])
 }
 
 // bind returns the persisted state backend, or a response that persists one before any Job can start.
@@ -296,16 +312,34 @@ func finalize(r Request, children []Object, generation int64, hash string) (Resp
 		}
 		state = DestroyState(latest, outcome)
 	}
-	if state["result"] == "Succeeded" {
-		return result(parent, "Deleting", generation, "Resources and state removed", nil, "", &yes, state), nil
+	var execution Object
+	if latest != nil && Terminal(latest) != "" {
+		execution = Execution(latest, r.Related[PodKey])
 	}
-	token := jsonx.Str(jsonx.Obj(jsonx.Obj(parent["metadata"])["annotations"])[Prefix+"retry-destroy"])
+	record := func(response Response) Response {
+		if execution != nil {
+			response.Status["lastExecution"] = execution
+		}
+		return response
+	}
+	if state["result"] == "Succeeded" {
+		return record(result(parent, "Deleting", generation, "Resources and state removed", nil, "", &yes, state)), nil
+	}
+	token := annotation(parent, "retry-destroy")
 	if state["result"] == "Failed" && token == jsonx.Str(state["retryToken"]) {
 		var kept []Object
 		if latest != nil {
 			kept = []Object{Retain(latest)}
 		}
-		return result(parent, "Deleting", generation, "Destroy failed; inspect logs and change platform.example.com/retry-destroy to retry", kept, "", &no, state), nil
+		last := execution
+		if last == nil {
+			last = jsonx.Obj(jsonx.Obj(parent["status"])["lastExecution"])
+		}
+		message := "Destroy failed; retry with the retry action"
+		if last != nil && last["action"] == "destroy" {
+			message = failure("Destroy", last, "Retry with the retry action.")
+		}
+		return record(result(parent, "Deleting", generation, message, kept, "", &no, state)), nil
 	}
 	a := jsonx.Int(state["attempt"]) + 1
 	if state["result"] == "Pending" || state["result"] == "Running" {
@@ -321,7 +355,7 @@ func finalize(r Request, children []Object, generation int64, hash string) (Resp
 	if err != nil {
 		return Response{}, err
 	}
-	return result(parent, "Deleting", generation, "Destroy scheduled", []Object{child}, "", &no, DestroyState(child, "Pending")), nil
+	return record(result(parent, "Deleting", generation, "Destroy scheduled", []Object{child}, "", &no, DestroyState(child, "Pending"))), nil
 }
 func Reconcile(r Request) (Response, error) {
 	p := r.Parent
@@ -358,23 +392,40 @@ func Reconcile(r Request) (Response, error) {
 		return *pending, nil
 	}
 	revision := LoadJobConfig().ModuleRevision
-	for _, c := range children {
-		if Ann(c)[Prefix+"hash"] == hash && Ann(c)[Prefix+"action"] == "apply" && revisionOf(c) == revision {
-			if Terminal(c) == "Complete" {
-				return withRevision(result(p, "Ready", meta.Generation, "Database is ready", []Object{Retain(c)}, hash, nil, nil), revision, revision), nil
+	retry := annotation(p, "retry-apply")
+	if c := latestApply(children, hash, revision); c != nil {
+		execution := Execution(c, r.Related[PodKey])
+		var response Response
+		switch {
+		case Terminal(c) == "Complete":
+			response = withRevision(result(p, "Ready", meta.Generation, "Database is ready", []Object{Retain(c)}, hash, nil, nil), revision, revision)
+		case retry != "" && retry != jsonx.Str(Ann(c)[Prefix+"retry-token"]):
+			child, err := CreateJob(p, "apply", hash, revision, backend, meta.Generation, attempt(c)+1, retry)
+			if err != nil {
+				return Response{}, err
 			}
-			return withRevision(result(p, "Failed", meta.Generation, "Apply failed; inspect job logs and update spec to retry", []Object{Retain(c)}, "", nil, nil), revision, ""), nil
+			response = withRevision(result(p, "Pending", meta.Generation, "Retry scheduled", []Object{child}, "", nil, nil), revision, "")
+		default:
+			response = withRevision(result(p, "Failed", meta.Generation, failure("Apply", execution, "Retry with the retry action or update the spec."), []Object{Retain(c)}, "", nil, nil), revision, "")
 		}
+		response.Status["lastExecution"] = execution
+		return response, nil
 	}
 	old := jsonx.Obj(p["status"])
 	// Resources applied before revisions were tracked are applied once with the configured module.
 	if old["lastAppliedHash"] == hash && old["lastAppliedRevision"] == revision {
 		return withRevision(result(p, "Ready", meta.Generation, "Database is ready", nil, hash, nil, nil), revision, revision), nil
 	}
+	next, token := int64(1), ""
 	if old["phase"] == "Failed" && jsonx.Int(old["observedGeneration"]) == meta.Generation && old["observedRevision"] == revision {
-		return withRevision(result(p, "Failed", meta.Generation, jsonx.Str(old["message"]), nil, "", nil, nil), revision, ""), nil
+		// The failed Job may be gone after its TTL; the recorded execution still carries its attempt and token.
+		last := jsonx.Obj(old["lastExecution"])
+		if retry == "" || retry == jsonx.Str(last["retryToken"]) {
+			return withRevision(result(p, "Failed", meta.Generation, jsonx.Str(old["message"]), nil, "", nil, nil), revision, ""), nil
+		}
+		next, token = jsonx.Int(last["attempt"])+1, retry
 	}
-	child, err := CreateJob(p, "apply", hash, revision, backend, meta.Generation, 1, "")
+	child, err := CreateJob(p, "apply", hash, revision, backend, meta.Generation, next, token)
 	if err != nil {
 		return Response{}, err
 	}

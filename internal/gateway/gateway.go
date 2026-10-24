@@ -2,7 +2,9 @@ package gateway
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -103,6 +105,7 @@ func (s *Server) Handler() http.Handler {
 	for _, method := range []string{"GET", "PATCH", "DELETE"} {
 		m.HandleFunc(method+" /{version}/teams/{team}/{plural}/{name}", s.handle)
 	}
+	m.HandleFunc("POST /{version}/teams/{team}/{plural}/{name}/retry", s.retry)
 	return m
 }
 
@@ -341,3 +344,50 @@ func requestPayload(r *http.Request) (any, []any) {
 }
 
 const swaggerHTML = `<!doctype html><html><head><title>Panko API</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css"></head><body><div id="swagger-ui"></div><script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script><script>SwaggerUIBundle({url:'/openapi.json',dom_id:'#swagger-ui',deepLinking:true,presets:[SwaggerUIBundle.presets.apis,SwaggerUIBundle.SwaggerUIStandalonePreset]});</script></body></html>`
+
+// retry asks the hook for one more attempt of a failed apply or destroy. It sets a fresh token
+// annotation instead of exposing annotations to teams; the hook starts at most one Job per token.
+func (s *Server) retry(w http.ResponseWriter, r *http.Request) {
+	team, version, plural, name := r.PathValue("team"), r.PathValue("version"), r.PathValue("plural"), r.PathValue("name")
+	if !s.authorize(w, r, team) {
+		return
+	}
+	discovered, err := s.Discovery.Get(r.Context())
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	resource, ok := discovered[Route{version, plural}]
+	if !ok {
+		fail(w, 404, "No exposed resource at this route", nil)
+		return
+	}
+	path := "/apis/" + url.PathEscape(resource.Group) + "/" + url.PathEscape(version) + "/namespaces/" + url.PathEscape(team) + "/" + url.PathEscape(plural) + "/" + url.PathEscape(name)
+	current, err := s.API.Request(r.Context(), "GET", path, nil, "")
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	status := jsonx.Obj(current["status"])
+	key, retryable := "retry-apply", status["phase"] == "Failed"
+	if jsonx.Obj(current["metadata"])["deletionTimestamp"] != nil {
+		key, retryable = "retry-destroy", jsonx.Obj(status["destroy"])["result"] == "Failed"
+	}
+	if !retryable {
+		fail(w, 409, "Nothing to retry; only failed executions can be retried", nil)
+		return
+	}
+	token := make([]byte, 8)
+	if _, err := rand.Read(token); err != nil {
+		fail(w, 503, "Retry token unavailable", nil)
+		return
+	}
+	patch := Object{"metadata": Object{"resourceVersion": jsonx.Obj(current["metadata"])["resourceVersion"], "annotations": Object{"platform.example.com/" + key: hex.EncodeToString(token)}}}
+	result, err := s.API.Request(r.Context(), "PATCH", path, patch, "application/merge-patch+json")
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	s.audit("RETRY", jsonx.Obj(result["metadata"]))
+	writeJSON(w, 202, view(result))
+}

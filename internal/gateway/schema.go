@@ -178,6 +178,14 @@ func OpenAPI(discovered map[Route]Resource) Object {
 			}
 			paths[path] = operations
 		}
+		responses := Object{"202": Object{"description": "Retry requested", "content": content(ref(id))}}
+		for _, e := range []struct{ code, label string }{{"401", "Token required"}, {"403", "Forbidden"}, {"404", "Not found"}, {"409", "Nothing to retry or resource changed"}, {"503", "Kubernetes unavailable"}} {
+			responses[e.code] = Object{"description": e.label, "content": content(ref("Error"))}
+		}
+		paths[collection+"/{name}/retry"] = Object{"post": Object{"operationId": "retry_" + id + "_item", "tags": []any{r.Kind}, "summary": "Retry the failed execution of a " + r.Kind,
+			"parameters": []any{Object{"name": "team", "in": "path", "required": true, "schema": Object{"type": "string"}, "description": "Team namespace authorized by the bearer token."},
+				Object{"name": "name", "in": "path", "required": true, "schema": name}},
+			"security": []any{Object{"TeamToken": []any{}}}, "responses": responses}}
 	}
 	return Object{"openapi": "3.1.0", "info": Object{"title": "Panko infrastructure API", "version": "1.0.0",
 		"description": "Generated from exposed Kubernetes CRDs. The API server evaluates schema and CEL rules."}, "paths": paths,

@@ -294,3 +294,54 @@ func TestDocsAndMetrics(t *testing.T) {
 		}
 	}
 }
+func TestRetryActionSetsOneTokenForFailedExecutions(t *testing.T) {
+	var f struct{ CRDs []any }
+	fixture(t, "openapi.json", &f)
+	current := Object{}
+	var patched Object
+	api := fakeAPI(func(ctx context.Context, m, p string, b any, ct string) (Object, error) {
+		switch {
+		case p == discoveryPath:
+			return Object{"items": f.CRDs}, nil
+		case m == "GET":
+			return current, nil
+		case m == "PATCH":
+			patched = jsonx.Obj(b)
+			return Object{"metadata": Object{"name": "orders", "namespace": "team-a"}, "spec": Object{}, "status": current["status"]}, nil
+		}
+		return nil, &kube.Error{Code: 500}
+	})
+	d, _ := NewDiscovery(api, 5)
+	s := &Server{API: api, Discovery: d, TokensFile: tokenFile(t)}
+	retry := func(token string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "/v1/teams/team-a/databases/orders/retry", nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		s.Handler().ServeHTTP(w, r)
+		return w
+	}
+	current = Object{"metadata": Object{"name": "orders", "resourceVersion": "7"}, "status": Object{"phase": "Ready"}}
+	if w := retry("token-a"); w.Code != 409 || patched != nil {
+		t.Fatal("retry of a healthy resource accepted", w.Code)
+	}
+	if w := retry("token-b"); w.Code != 403 {
+		t.Fatal("foreign team allowed to retry", w.Code)
+	}
+	current = Object{"metadata": Object{"name": "orders", "resourceVersion": "7"}, "status": Object{"phase": "Failed"}}
+	if w := retry("token-a"); w.Code != 202 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	meta := jsonx.Obj(patched["metadata"])
+	first := jsonx.Str(jsonx.Obj(meta["annotations"])["platform.example.com/retry-apply"])
+	if len(first) != 16 || meta["resourceVersion"] != "7" || len(patched) != 1 {
+		t.Fatal("retry patch must set only a fresh token, guarded by resourceVersion", patched)
+	}
+	retry("token-a")
+	if jsonx.Str(jsonx.Obj(jsonx.Obj(patched["metadata"])["annotations"])["platform.example.com/retry-apply"]) == first {
+		t.Fatal("retry token reused")
+	}
+	current = Object{"metadata": Object{"name": "orders", "resourceVersion": "8", "deletionTimestamp": "now"}, "status": Object{"phase": "Deleting", "destroy": Object{"result": "Failed"}}}
+	if w := retry("token-a"); w.Code != 202 || jsonx.Obj(jsonx.Obj(patched["metadata"])["annotations"])["platform.example.com/retry-destroy"] == nil {
+		t.Fatal("failed destroy not retried")
+	}
+}

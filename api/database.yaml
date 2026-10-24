@@ -125,6 +125,31 @@ spec:
                 stateBackendError:
                   type: string
                   description: Why no state backend could be bound yet.
+                lastExecution:
+                  type: object
+                  description: Outcome of the most recent finished Job; kept after the Job expires.
+                  properties:
+                    action: {type: string, description: apply or destroy.}
+                    job: {type: string, description: Name of the Job.}
+                    attempt: {type: integer, format: int64, description: Attempt number for this generation.}
+                    generation: {type: integer, format: int64, description: Generation the Job applied.}
+                    moduleRevision: {type: string, description: Module commit the Job used.}
+                    retryToken: {type: string, description: Retry token that started this attempt, if any.}
+                    startedAt: {type: string, description: Job start time.}
+                    finishedAt: {type: string, description: Job completion or failure time.}
+                    result:
+                      type: string
+                      enum: [Succeeded, Failed]
+                      description: Outcome of the Job.
+                    code: {type: string, description: Stable failure code, e.g. provider, checkpoint, module_fetch.}
+                    message: {type: string, maxLength: 300, description: Safe failure description without secrets.}
+                    changes:
+                      type: object
+                      description: Resource changes OpenTofu reported.
+                      properties:
+                        add: {type: integer, format: int64}
+                        change: {type: integer, format: int64}
+                        remove: {type: integer, format: int64}
                 message:
                   type: string
                   description: Human-readable reconciliation result or failure.

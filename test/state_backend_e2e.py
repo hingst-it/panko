@@ -51,6 +51,7 @@ def failed_with(name, generation, text):
         status = get('db', name).get('status', {})
         return status.get('phase') == 'Failed' and status.get('observedGeneration') == generation
     wait(check, f'{name} Failed at generation {generation}')
+    assert get('db', name)['status']['lastExecution']['code'] == 'checkpoint', get('db', name)['status']
     jobs = json.loads(kube('get', 'jobs', '-n', 'team-a', '-l', 'platform.example.com/uid=' + get('db', name)['metadata']['uid'],
                            '-o', 'json').stdout)['items']
     logs = ''.join(kube('logs', 'job/' + j['metadata']['name'], '-n', 'team-a', '-c', 'tofu', check=False).stdout for j in jobs)

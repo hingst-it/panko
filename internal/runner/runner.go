@@ -26,8 +26,10 @@ type Runner struct {
 	API     kube.API
 	Backend Object
 	// Target and Migration are set only for administrator state migrations.
-	Target                   Object
-	Migration                string
+	Target    Object
+	Migration string
+	// ResultFile receives the reported Result, normally the container's termination message path.
+	ResultFile               string
 	Credentials              func() (string, []byte, error)
 	ModuleDir, WorkDir, Tofu string
 	Output, ErrorOutput, Log io.Writer
@@ -53,7 +55,9 @@ func (r *Runner) Run(ctx context.Context, action string, snapshot resource.Snaps
 	m := snapshot.Metadata
 	e := Event{Event: "execution_started", UID: m.UID, Namespace: m.Namespace, Name: m.Name, Generation: m.Generation, Action: action, Job: job}
 	r.emit(e)
+	var changes *Changes
 	defer func() {
+		WriteResult(r.ResultFile, outcome(err, changes))
 		duration := time.Since(started).Seconds()
 		e.DurationSeconds = &duration
 		if err != nil {
@@ -65,48 +69,49 @@ func (r *Runner) Run(ctx context.Context, action string, snapshot resource.Snaps
 		r.emit(e)
 	}()
 	if action == "migrate" {
-		return r.migrate(ctx, snapshot)
+		return stage("migration", r.migrate(ctx, snapshot))
 	}
-	return r.execute(ctx, action, snapshot)
+	changes, err = r.execute(ctx, action, snapshot)
+	return err
 }
 func (r *Runner) emit(event Event) {
 	if r.Log != nil {
 		_, _ = fmt.Fprintln(r.Log, string(jsonx.Encode(event)))
 	}
 }
-func (r *Runner) execute(ctx context.Context, action string, snapshot resource.Snapshot) error {
+func (r *Runner) execute(ctx context.Context, action string, snapshot resource.Snapshot) (*Changes, error) {
 	m := snapshot.Metadata
 	stateNamespace := "panko-state-" + m.Namespace
 	if err := statebackend.Validate(r.Backend, m.Namespace, m.Name, m.UID); err != nil {
-		return err
+		return nil, stage("binding", err)
 	}
 	admin, err := r.API.Request(ctx, "GET", "/api/v1/namespaces/infra-backends/secrets/postgres-admin", nil, "")
 	if err != nil {
-		return err
+		return nil, stage("credentials", err)
 	}
 	password, err := base64.StdEncoding.DecodeString(jsonx.Str(jsonx.Obj(admin["data"])["password"]))
 	if err != nil {
-		return fmt.Errorf("invalid administrator credential encoding")
+		return nil, stage("credentials", fmt.Errorf("invalid administrator credential encoding"))
 	}
 	token, ca, err := r.Credentials()
 	if err != nil {
-		return fmt.Errorf("cannot load Kubernetes credentials")
+		return nil, stage("credentials", fmt.Errorf("cannot load Kubernetes credentials"))
 	}
 	values := map[string]string{"PGPASSWORD": string(password), "KUBE_HOST": "https://kubernetes.default.svc", "KUBE_TOKEN": token, "KUBE_CLUSTER_CA_CERT_DATA": string(ca), "TF_VAR_namespace": m.Namespace, "TF_VAR_name": m.Name, "TF_IN_AUTOMATION": "1", "TF_INPUT": "0"}
 	if err := r.backendCredentials(ctx, m.Namespace, r.Backend, values); err != nil {
-		return err
+		return nil, stage("credentials", err)
 	}
 	env := environment(os.Environ(), values)
 	if err := copyModule(r.ModuleDir, r.WorkDir); err != nil {
-		return err
+		return nil, stage("module", err)
 	}
 	if err := os.WriteFile(filepath.Join(r.WorkDir, "resource.auto.tfvars.json"), jsonx.Encode(map[string]any{"resource": snapshot}), 0600); err != nil {
-		return err
+		return nil, stage("module", err)
 	}
 	// Panko owns the backend: the override replaces any backend the module declares, or supplies one if it has none.
 	override := Object{"terraform": Object{"backend": Object{jsonx.Str(r.Backend["type"]): r.Backend["config"]}}}
 	if err := os.WriteFile(filepath.Join(r.WorkDir, backendOverride), jsonx.Encode(override), 0600); err != nil {
-		return err
+		return nil, stage("module", err)
 	}
 	process := r.Process
 	if process == nil {
@@ -118,10 +123,10 @@ func (r *Runner) execute(ctx context.Context, action string, snapshot resource.S
 	}
 	invoke := func(args ...string) error { return process(ctx, binary, args, r.WorkDir, env, r.Output, r.ErrorOutput) }
 	if err := invoke("init", "-input=false", "-lockfile=readonly"); err != nil {
-		return err
+		return nil, stage("backend_init", err)
 	}
 	if err := verifyBackend(r.WorkDir, r.Backend); err != nil {
-		return err
+		return nil, stage("backend_mismatch", err)
 	}
 	pull := func() (state, error) {
 		var out bytes.Buffer
@@ -133,43 +138,45 @@ func (r *Runner) execute(ctx context.Context, action string, snapshot resource.S
 	}
 	current, err := pull()
 	if err != nil {
-		return err
+		return nil, stage("checkpoint", err)
 	}
 	checkpoint, err := r.loadCheckpoint(ctx, stateNamespace, m.UID)
 	if err != nil {
-		return err
+		return nil, stage("checkpoint", err)
 	}
 	if err := checkpoint.allows(current); err != nil {
-		return err
+		return nil, stage("checkpoint", err)
 	}
-	actionErr := invoke(action, "-auto-approve", "-input=false", "-lock-timeout=120s", "-no-color")
+	// JSON output lets the runner report change counts; it still goes to the Job log unchanged.
+	counter := &summary{out: r.Output}
+	actionErr := stage("provider", process(ctx, binary, []string{action, "-auto-approve", "-input=false", "-lock-timeout=120s", "-no-color", "-json"}, r.WorkDir, env, counter, r.ErrorOutput))
 	// Record what the backend holds now, also after a failed command that may have written partial state.
 	after, pullErr := pull()
 	if pullErr == nil && after.present {
 		pullErr = r.saveCheckpoint(ctx, stateNamespace, m.UID, after)
 	}
-	if err := errors.Join(actionErr, pullErr); err != nil {
-		return err
+	if err := errors.Join(actionErr, stage("state_record", pullErr)); err != nil {
+		return counter.changes, err
 	}
 	if action == "apply" {
-		return nil
+		return counter.changes, nil
 	}
 	if r.Backend["type"] == "kubernetes" {
 		stateName := "tfstate-default-" + m.Namespace + "-" + m.Name
 		for _, path := range []string{"/api/v1/namespaces/" + stateNamespace + "/secrets/" + stateName, "/apis/coordination.k8s.io/v1/namespaces/" + stateNamespace + "/leases/lock-" + stateName} {
 			if err := r.deleteIgnoringMissing(ctx, path); err != nil {
-				return err
+				return counter.changes, stage("cleanup", err)
 			}
 		}
 	}
 	// External backends keep the empty state for audit and recovery; the checkpoint goes last.
 	if err := r.deleteIgnoringMissing(ctx, checkpointPath(stateNamespace, m.UID)); err != nil {
-		return err
+		return counter.changes, stage("cleanup", err)
 	}
 	if r.Output != nil {
 		_, _ = fmt.Fprintln(r.Output, "Destroy complete; state and lock removed.")
 	}
-	return nil
+	return counter.changes, nil
 }
 func (r *Runner) deleteIgnoringMissing(ctx context.Context, path string) error {
 	_, err := r.API.Request(ctx, "DELETE", path, nil, "")
