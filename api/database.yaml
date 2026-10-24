@@ -42,6 +42,8 @@ spec:
               x-kubernetes-validations:
                 - rule: self.owner == oldSelf.owner
                   message: owner is immutable
+                - rule: has(self.stateBackendRef) == has(oldSelf.stateBackendRef) && (!has(self.stateBackendRef) || self.stateBackendRef.name == oldSelf.stateBackendRef.name)
+                  message: stateBackendRef is immutable; moving state requires an administrator migration
               properties:
                 owner:
                   type: string
@@ -65,13 +67,24 @@ spec:
                   minimum: 1
                   maximum: 100
                   description: Maximum concurrent connections for both the database and its login role.
+                stateBackendRef:
+                  type: object
+                  description: StateBackend in this namespace that stores the OpenTofu state. Without it, the namespace's "default" StateBackend or the built-in Kubernetes backend is used. Bound once at creation.
+                  required: [name]
+                  properties:
+                    name:
+                      type: string
+                      minLength: 1
+                      maxLength: 63
+                      pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                      description: Name of the StateBackend.
             status:
               type: object
               description: Last observed reconciliation result.
               properties:
                 phase:
                   type: string
-                  enum: [Pending, Applying, Ready, Failed, Deleting]
+                  enum: [Pending, Applying, Ready, Failed, Deleting, Maintenance]
                   description: Current lifecycle phase.
                 observedGeneration:
                   type: integer
@@ -87,6 +100,31 @@ spec:
                 observedRevision:
                   type: string
                   description: Module commit the current phase refers to.
+                stateBackend:
+                  type: object
+                  description: State backend bound before the first job; only an administrator migration changes it.
+                  required: [type, config]
+                  properties:
+                    type:
+                      type: string
+                      enum: [kubernetes, s3]
+                      description: OpenTofu backend type.
+                    config:
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                      description: Non-secret backend settings, including the state location derived by Panko.
+                    stateBackend:
+                      type: string
+                      description: Selected StateBackend, if any.
+                    profile:
+                      type: string
+                      description: BackendProfile that approved the destination.
+                    credentialsSecret:
+                      type: string
+                      description: Secret in this namespace with the backend credentials.
+                stateBackendError:
+                  type: string
+                  description: Why no state backend could be bound yet.
                 message:
                   type: string
                   description: Human-readable reconciliation result or failure.

@@ -91,6 +91,8 @@ baut für die lokale Docker-Architektur (ARM64 oder AMD64) und importiert nach k
 Jobs laufen im Namespace ihrer CR; ihre ServiceAccounts dürfen dort Database-CRs
 lesen und Secrets verwalten. Zusätzlich dürfen sie State-Secrets und Lock-Leases
 im jeweiligen Namespace `panko-state-team-a` bzw. `panko-state-team-b` verwalten.
+State liegt standardmäßig dort; Teams können per `StateBackend` einen freigegebenen
+S3-Bucket wählen, siehe [State-Backends](state-backends.de.md).
 In `infra-backends` dürfen sie ausschließlich `postgres-admin` lesen. Der Kubernetes-Provider braucht außerdem lesenden Cluster-Zugriff auf die
 CRD-Schemas. Der Hook bekommt keinen API-Token.
 

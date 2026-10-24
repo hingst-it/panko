@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/hingst-it/panko/internal/jsonx"
+	"github.com/hingst-it/panko/internal/statebackend"
 )
 
 const testRevision = "1111111111111111111111111111111111111111"
@@ -25,7 +27,7 @@ func normalize(v any) {
 				x["lastTransitionTime"] = "TIME"
 			}
 		}
-		if x["name"] == "PANKO_RESOURCE" {
+		if x["name"] == "PANKO_RESOURCE" || x["name"] == "PANKO_BACKEND" {
 			if value, ok := x["value"].(string); ok {
 				var resource any
 				if err := jsonx.Decode(bytes.NewBufferString(value), &resource); err == nil {
@@ -77,7 +79,12 @@ func TestPythonReconcileGolden(t *testing.T) {
 	}
 }
 func parent() Object {
-	return Object{"metadata": Object{"name": "orders", "namespace": "team-a", "uid": "abc", "generation": int64(1)}, "spec": Object{"owner": "team-a", "extensions": []any{}, "connectionLimit": 20}}
+	return Object{"metadata": Object{"name": "orders", "namespace": "team-a", "uid": "abc", "generation": int64(1)}, "spec": Object{"owner": "team-a", "extensions": []any{}, "connectionLimit": 20},
+		"status": Object{"stateBackend": statebackend.Fallback("team-a", "orders")}}
+}
+func status(fields Object) Object {
+	fields["stateBackend"] = statebackend.Fallback("team-a", "orders")
+	return fields
 }
 func TestUIDIdentitySnapshotAndRetention(t *testing.T) {
 	p := parent()
@@ -157,7 +164,7 @@ func TestModuleRevisionChangeAppliesOnce(t *testing.T) {
 func TestUntrackedRevisionAppliesOnce(t *testing.T) {
 	p := parent()
 	hash, _ := jsonx.Digest(p["spec"], int64(1))
-	p["status"] = Object{"phase": "Ready", "lastAppliedHash": hash, "observedGeneration": int64(1)}
+	p["status"] = status(Object{"phase": "Ready", "lastAppliedHash": hash, "observedGeneration": int64(1)})
 	r, _ := Reconcile(Request{Parent: p})
 	if r.Status["phase"] != "Pending" || revisionOf(r.Children[0]) != testRevision {
 		t.Fatal(r.Status)
@@ -165,7 +172,7 @@ func TestUntrackedRevisionAppliesOnce(t *testing.T) {
 }
 func TestFailedRetriesWithNewRevision(t *testing.T) {
 	p := parent()
-	p["status"] = Object{"phase": "Failed", "message": "Apply failed", "observedGeneration": int64(1), "observedRevision": testRevision}
+	p["status"] = status(Object{"phase": "Failed", "message": "Apply failed", "observedGeneration": int64(1), "observedRevision": testRevision})
 	if r, _ := Reconcile(Request{Parent: p}); r.Status["phase"] != "Failed" || len(r.Children) != 0 {
 		t.Fatal("failed revision retried without change")
 	}
@@ -176,12 +183,12 @@ func TestFailedRetriesWithNewRevision(t *testing.T) {
 }
 func TestDestroyUsesAppliedRevision(t *testing.T) {
 	p := parent()
-	p["status"] = Object{"phase": "Ready", "lastAppliedRevision": "3333333333333333333333333333333333333333"}
+	p["status"] = status(Object{"phase": "Ready", "lastAppliedRevision": "3333333333333333333333333333333333333333"})
 	r, _ := Reconcile(Request{Parent: p, Finalizing: true})
 	if revisionOf(r.Children[0]) != "3333333333333333333333333333333333333333" {
 		t.Fatal("destroy did not use the applied module revision")
 	}
-	delete(p, "status")
+	p["status"] = status(Object{"phase": "Ready"})
 	r, _ = Reconcile(Request{Parent: p, Finalizing: true})
 	if revisionOf(r.Children[0]) != testRevision {
 		t.Fatal("untracked destroy did not use the configured revision")
@@ -202,5 +209,123 @@ func TestJobConfigRequiresPinnedModule(t *testing.T) {
 	c.EngineImage = ""
 	if c.Validate() == nil {
 		t.Fatal("accepted missing engine image")
+	}
+}
+func catalog() map[string]map[string]Object {
+	return map[string]map[string]Object{
+		statebackend.BackendKey: {"minio": {"metadata": Object{"name": "minio"}, "spec": Object{"profileRef": Object{"name": "lab"}, "credentialsSecretRef": Object{"name": "creds"}}}},
+		statebackend.ProfileKey: {"lab": {"metadata": Object{"name": "lab"}, "spec": Object{"type": "s3", "s3": Object{"bucket": "state", "region": "eu-central-1"}}}},
+	}
+}
+func unbound(ref string) Object {
+	p := parent()
+	delete(p, "status")
+	if ref != "" {
+		jsonx.Obj(p["spec"])["stateBackendRef"] = Object{"name": ref}
+	}
+	return p
+}
+func envValue(job Object, key string) string {
+	container := jsonx.Obj(jsonx.Array(jsonx.Obj(jsonx.Obj(jsonx.Obj(job["spec"])["template"])["spec"])["containers"])[0])
+	for _, item := range jsonx.Array(container["env"]) {
+		if jsonx.Obj(item)["name"] == key {
+			return jsonx.Str(jsonx.Obj(item)["value"])
+		}
+	}
+	return ""
+}
+func external(t *testing.T) {
+	t.Setenv("EXTERNAL_STATE_BACKENDS", "enabled")
+	t.Setenv("INSTALLATION_ID", "install-1")
+}
+func TestBindingPersistsBeforeFirstJob(t *testing.T) {
+	p := unbound("")
+	first, _ := Reconcile(Request{Parent: p})
+	if len(first.Children) != 0 || first.Status["phase"] != "Pending" {
+		t.Fatal("Job scheduled before the binding was persisted")
+	}
+	if jsonx.Obj(first.Status["stateBackend"])["type"] != "kubernetes" {
+		t.Fatal(first.Status)
+	}
+	p["status"] = first.Status
+	second, _ := Reconcile(Request{Parent: p})
+	if len(second.Children) != 1 || !strings.Contains(envValue(second.Children[0], "PANKO_BACKEND"), `"secret_suffix":"team-a-orders"`) {
+		t.Fatal("bound Job does not carry its backend")
+	}
+}
+func TestExplicitBackendResolvesThroughCatalog(t *testing.T) {
+	external(t)
+	r, _ := Reconcile(Request{Parent: unbound("minio"), Related: catalog()})
+	binding := jsonx.Obj(r.Status["stateBackend"])
+	if binding["type"] != "s3" || jsonx.Obj(binding["config"])["key"] != "install-1/abc/terraform.tfstate" {
+		t.Fatal(r.Status)
+	}
+}
+func TestMissingBackendFailsWithoutFallback(t *testing.T) {
+	external(t)
+	p := unbound("minio")
+	r, _ := Reconcile(Request{Parent: p})
+	if r.Status["phase"] != "Failed" || r.Status["stateBackend"] != nil || len(r.Children) != 0 {
+		t.Fatal(r.Status)
+	}
+	p["status"] = r.Status
+	again, _ := Reconcile(Request{Parent: p})
+	if again.Status["stateBackend"] != nil {
+		t.Fatal("resolution failure fell back to the Kubernetes backend")
+	}
+	p["status"] = again.Status
+	fixed, _ := Reconcile(Request{Parent: p, Related: catalog()})
+	if jsonx.Obj(fixed.Status["stateBackend"])["type"] != "s3" || fixed.Status["stateBackendError"] != nil {
+		t.Fatal("binding not created once the StateBackend exists")
+	}
+	if finalized, _ := Reconcile(Request{Parent: p, Finalizing: true}); finalized.Finalized == nil || !*finalized.Finalized {
+		t.Fatal("never-provisioned resource not finalized")
+	}
+}
+func TestExistingResourcesKeepFallbackAndBindingsNeverMove(t *testing.T) {
+	external(t)
+	related := catalog()
+	related[statebackend.BackendKey]["default"] = Object{"metadata": Object{"name": "default"}, "spec": Object{"profileRef": Object{"name": "lab"}, "credentialsSecretRef": Object{"name": "creds"}}}
+	legacy := unbound("")
+	legacy["status"] = Object{"phase": "Ready", "lastAppliedHash": "old", "observedGeneration": int64(1)}
+	r, _ := Reconcile(Request{Parent: legacy, Related: related})
+	if jsonx.Obj(r.Status["stateBackend"])["type"] != "kubernetes" {
+		t.Fatal("existing resource redirected to the namespace default")
+	}
+	bound := parent()
+	r, _ = Reconcile(Request{Parent: bound, Related: related})
+	if !strings.Contains(envValue(r.Children[0], "PANKO_BACKEND"), `"type":"kubernetes"`) {
+		t.Fatal("bound resource re-resolved its backend")
+	}
+}
+func TestMaintenanceFreezesJobsAndKeepsChildren(t *testing.T) {
+	p := parent()
+	jsonx.Obj(p["metadata"])["annotations"] = Object{Prefix + "state-maintenance": "m1"}
+	done := complete(Object{"apiVersion": "batch/v1", "kind": "Job", "metadata": Object{"name": "done", "annotations": Object{}}, "spec": Object{}})
+	r, _ := Reconcile(Request{Parent: p, Children: map[string]map[string]Object{"Job.batch/v1": {"done": done}}})
+	if r.Status["phase"] != "Maintenance" || len(r.Children) != 1 {
+		t.Fatal(r.Status, r.Children)
+	}
+	running := Object{"apiVersion": "batch/v1", "kind": "Job", "metadata": Object{"name": "run", "annotations": Object{Prefix + "generation": "1"}}, "spec": Object{}}
+	if r, _ := Reconcile(Request{Parent: p, Children: map[string]map[string]Object{"Job.batch/v1": {"run": running}}}); r.Status["phase"] != "Applying" || len(r.Children) != 1 {
+		t.Fatal("running Job dropped during maintenance")
+	}
+	if r, _ := Reconcile(Request{Parent: p, Finalizing: true}); len(r.Children) != 0 || r.Finalized == nil || *r.Finalized {
+		t.Fatal("teardown started during maintenance")
+	}
+}
+func TestCustomizeSelectsOnlyOwnNamespace(t *testing.T) {
+	rules := jsonx.Array(Customize(unbound("minio"))["relatedResources"])
+	if len(rules) != 2 {
+		t.Fatal(rules)
+	}
+	for _, item := range rules {
+		rule := jsonx.Obj(item)
+		if rule["namespace"] != "team-a" || rule["resource"] == "secrets" {
+			t.Fatal(rule)
+		}
+	}
+	if names := jsonx.Array(jsonx.Obj(rules[0])["names"]); len(names) != 1 || names[0] != "minio" {
+		t.Fatal(rules[0])
 	}
 }

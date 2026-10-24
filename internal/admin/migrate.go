@@ -66,8 +66,10 @@ func (m *Migrator) Preflight(ctx context.Context) error {
 	return nil
 }
 func (m *Migrator) pause(ctx context.Context) error {
-	for _, name := range []string{"database-hook", "platform-gateway"} {
-		path := "/apis/apps/v1/namespaces/infra-runners/deployments/" + name
+	// The gateway moved to infra-gateway; a legacy installation may still run it in infra-runners.
+	for _, target := range [][2]string{{"infra-runners", "database-hook"}, {"infra-runners", "platform-gateway"}, {"infra-gateway", "platform-gateway"}} {
+		namespace, name := target[0], target[1]
+		path := "/apis/apps/v1/namespaces/" + namespace + "/deployments/" + name
 		deployment, err := m.get(ctx, path)
 		if err != nil {
 			return err
@@ -79,7 +81,7 @@ func (m *Migrator) pause(ctx context.Context) error {
 			return err
 		}
 		waitCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
-		err = m.waitPods(waitCtx, "/api/v1/namespaces/infra-runners/pods?labelSelector=app%3D"+name)
+		err = m.waitPods(waitCtx, "/api/v1/namespaces/"+namespace+"/pods?labelSelector=app%3D"+name)
 		cancel()
 		if err != nil {
 			return err

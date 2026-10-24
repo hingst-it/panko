@@ -2,6 +2,7 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -16,11 +17,17 @@ import (
 	"github.com/hingst-it/panko/internal/jsonx"
 	"github.com/hingst-it/panko/internal/kube"
 	"github.com/hingst-it/panko/internal/resource"
+	"github.com/hingst-it/panko/internal/statebackend"
 )
 
 type ProcessFunc func(context.Context, string, []string, string, []string, io.Writer, io.Writer) error
+type Object = jsonx.Object
 type Runner struct {
-	API                      kube.API
+	API     kube.API
+	Backend Object
+	// Target and Migration are set only for administrator state migrations.
+	Target                   Object
+	Migration                string
 	Credentials              func() (string, []byte, error)
 	ModuleDir, WorkDir, Tofu string
 	Output, ErrorOutput, Log io.Writer
@@ -39,7 +46,7 @@ type Event struct {
 }
 
 func (r *Runner) Run(ctx context.Context, action string, snapshot resource.Snapshot, job string) (err error) {
-	if action != "apply" && action != "destroy" {
+	if action != "apply" && action != "destroy" && action != "migrate" {
 		return fmt.Errorf("invalid runner action")
 	}
 	started := time.Now()
@@ -57,6 +64,9 @@ func (r *Runner) Run(ctx context.Context, action string, snapshot resource.Snaps
 		}
 		r.emit(e)
 	}()
+	if action == "migrate" {
+		return r.migrate(ctx, snapshot)
+	}
 	return r.execute(ctx, action, snapshot)
 }
 func (r *Runner) emit(event Event) {
@@ -67,6 +77,9 @@ func (r *Runner) emit(event Event) {
 func (r *Runner) execute(ctx context.Context, action string, snapshot resource.Snapshot) error {
 	m := snapshot.Metadata
 	stateNamespace := "panko-state-" + m.Namespace
+	if err := statebackend.Validate(r.Backend, m.Namespace, m.Name, m.UID); err != nil {
+		return err
+	}
 	admin, err := r.API.Request(ctx, "GET", "/api/v1/namespaces/infra-backends/secrets/postgres-admin", nil, "")
 	if err != nil {
 		return err
@@ -79,11 +92,20 @@ func (r *Runner) execute(ctx context.Context, action string, snapshot resource.S
 	if err != nil {
 		return fmt.Errorf("cannot load Kubernetes credentials")
 	}
-	env := environment(os.Environ(), map[string]string{"PGPASSWORD": string(password), "KUBE_HOST": "https://kubernetes.default.svc", "KUBE_TOKEN": token, "KUBE_CLUSTER_CA_CERT_DATA": string(ca), "TF_VAR_namespace": m.Namespace, "TF_VAR_name": m.Name, "TF_IN_AUTOMATION": "1", "TF_INPUT": "0"})
+	values := map[string]string{"PGPASSWORD": string(password), "KUBE_HOST": "https://kubernetes.default.svc", "KUBE_TOKEN": token, "KUBE_CLUSTER_CA_CERT_DATA": string(ca), "TF_VAR_namespace": m.Namespace, "TF_VAR_name": m.Name, "TF_IN_AUTOMATION": "1", "TF_INPUT": "0"}
+	if err := r.backendCredentials(ctx, m.Namespace, r.Backend, values); err != nil {
+		return err
+	}
+	env := environment(os.Environ(), values)
 	if err := copyModule(r.ModuleDir, r.WorkDir); err != nil {
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(r.WorkDir, "resource.auto.tfvars.json"), jsonx.Encode(map[string]any{"resource": snapshot}), 0600); err != nil {
+		return err
+	}
+	// Panko owns the backend: the override replaces any backend the module declares, or supplies one if it has none.
+	override := Object{"terraform": Object{"backend": Object{jsonx.Str(r.Backend["type"]): r.Backend["config"]}}}
+	if err := os.WriteFile(filepath.Join(r.WorkDir, backendOverride), jsonx.Encode(override), 0600); err != nil {
 		return err
 	}
 	process := r.Process
@@ -95,33 +117,103 @@ func (r *Runner) execute(ctx context.Context, action string, snapshot resource.S
 		binary = "tofu"
 	}
 	invoke := func(args ...string) error { return process(ctx, binary, args, r.WorkDir, env, r.Output, r.ErrorOutput) }
-	if err := invoke("init", "-input=false", "-lockfile=readonly", "-backend-config=in_cluster_config=true", "-backend-config=namespace="+stateNamespace, "-backend-config=secret_suffix="+m.Namespace+"-"+m.Name); err != nil {
+	if err := invoke("init", "-input=false", "-lockfile=readonly"); err != nil {
 		return err
 	}
-	if err := invoke(action, "-auto-approve", "-input=false", "-lock-timeout=120s", "-no-color"); err != nil {
+	if err := verifyBackend(r.WorkDir, r.Backend); err != nil {
+		return err
+	}
+	pull := func() (state, error) {
+		var out bytes.Buffer
+		// State holds credentials; it is parsed in memory and never written to logs.
+		if err := process(ctx, binary, []string{"state", "pull"}, r.WorkDir, env, &out, r.ErrorOutput); err != nil {
+			return state{}, err
+		}
+		return parseState(out.Bytes())
+	}
+	current, err := pull()
+	if err != nil {
+		return err
+	}
+	checkpoint, err := r.loadCheckpoint(ctx, stateNamespace, m.UID)
+	if err != nil {
+		return err
+	}
+	if err := checkpoint.allows(current); err != nil {
+		return err
+	}
+	actionErr := invoke(action, "-auto-approve", "-input=false", "-lock-timeout=120s", "-no-color")
+	// Record what the backend holds now, also after a failed command that may have written partial state.
+	after, pullErr := pull()
+	if pullErr == nil && after.present {
+		pullErr = r.saveCheckpoint(ctx, stateNamespace, m.UID, after)
+	}
+	if err := errors.Join(actionErr, pullErr); err != nil {
 		return err
 	}
 	if action == "apply" {
-		return invoke("output", "-json")
+		return nil
 	}
-	stateName := "tfstate-default-" + m.Namespace + "-" + m.Name
-	for _, path := range []string{"/api/v1/namespaces/" + stateNamespace + "/secrets/" + stateName, "/apis/coordination.k8s.io/v1/namespaces/" + stateNamespace + "/leases/lock-" + stateName} {
-		_, err := r.API.Request(ctx, "DELETE", path, nil, "")
-		var api *kube.Error
-		if err != nil && !(errors.As(err, &api) && api.Code == 404) {
-			return err
+	if r.Backend["type"] == "kubernetes" {
+		stateName := "tfstate-default-" + m.Namespace + "-" + m.Name
+		for _, path := range []string{"/api/v1/namespaces/" + stateNamespace + "/secrets/" + stateName, "/apis/coordination.k8s.io/v1/namespaces/" + stateNamespace + "/leases/lock-" + stateName} {
+			if err := r.deleteIgnoringMissing(ctx, path); err != nil {
+				return err
+			}
 		}
+	}
+	// External backends keep the empty state for audit and recovery; the checkpoint goes last.
+	if err := r.deleteIgnoringMissing(ctx, checkpointPath(stateNamespace, m.UID)); err != nil {
+		return err
 	}
 	if r.Output != nil {
 		_, _ = fmt.Fprintln(r.Output, "Destroy complete; state and lock removed.")
 	}
 	return nil
 }
+func (r *Runner) deleteIgnoringMissing(ctx context.Context, path string) error {
+	_, err := r.API.Request(ctx, "DELETE", path, nil, "")
+	var api *kube.Error
+	if err != nil && !(errors.As(err, &api) && api.Code == 404) {
+		return err
+	}
+	return nil
+}
+
+// backendCredentials adds only the fixed variables a backend type reads; nothing ambient reaches OpenTofu.
+func (r *Runner) backendCredentials(ctx context.Context, namespace string, binding Object, values map[string]string) error {
+	if binding["type"] != "s3" {
+		return nil
+	}
+	secret, err := r.API.Request(ctx, "GET", "/api/v1/namespaces/"+namespace+"/secrets/"+jsonx.Str(binding["credentialsSecret"]), nil, "")
+	if err != nil {
+		return fmt.Errorf("cannot load state backend credentials")
+	}
+	data := jsonx.Obj(secret["data"])
+	for key, variable := range map[string]string{"access_key_id": "AWS_ACCESS_KEY_ID", "secret_access_key": "AWS_SECRET_ACCESS_KEY", "session_token": "AWS_SESSION_TOKEN"} {
+		value, err := base64.StdEncoding.DecodeString(jsonx.Str(data[key]))
+		if err != nil {
+			return fmt.Errorf("invalid state backend credential encoding")
+		}
+		if len(value) > 0 {
+			values[variable] = string(value)
+		}
+	}
+	if values["AWS_ACCESS_KEY_ID"] == "" || values["AWS_SECRET_ACCESS_KEY"] == "" {
+		return fmt.Errorf("state backend credentials require access_key_id and secret_access_key")
+	}
+	values["AWS_EC2_METADATA_DISABLED"] = "true"
+	return nil
+}
+
+// environment keeps only process basics and the pod's in-cluster API address; credentials and OpenTofu settings are explicit.
 func environment(base []string, values map[string]string) []string {
-	result := make([]string, 0, len(base)+len(values))
+	keep := map[string]bool{"PATH": true, "HOME": true, "TMPDIR": true, "LANG": true, "LC_ALL": true, "TZ": true, "SSL_CERT_FILE": true, "SSL_CERT_DIR": true,
+		"KUBERNETES_SERVICE_HOST": true, "KUBERNETES_SERVICE_PORT": true}
+	result := make([]string, 0, len(keep)+len(values))
 	for _, item := range base {
 		key, _, _ := strings.Cut(item, "=")
-		if _, ok := values[key]; !ok {
+		if _, ok := values[key]; !ok && keep[key] {
 			result = append(result, item)
 		}
 	}
@@ -143,6 +235,9 @@ func copyModule(source, destination string) error {
 		relative, err := filepath.Rel(source, path)
 		if err != nil {
 			return err
+		}
+		if !entry.IsDir() && !strings.Contains(relative, string(filepath.Separator)) && isOverride(relative) {
+			return fmt.Errorf("module must not contain override files: %s", relative)
 		}
 		if relative == ".git" {
 			if entry.IsDir() {

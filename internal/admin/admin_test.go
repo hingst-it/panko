@@ -230,3 +230,72 @@ func TestModuleSecretsPerTeam(t *testing.T) {
 		}
 	}
 }
+func TestPauseStopsGatewayInItsOwnNamespace(t *testing.T) {
+	scaled := []string{}
+	m := &Migrator{API: fakeAPI(func(ctx context.Context, method, path string, b any, ct string) (Object, error) {
+		switch {
+		case strings.HasSuffix(path, "/scale"):
+			scaled = append(scaled, path)
+			return Object{}, nil
+		case strings.Contains(path, "infra-runners/deployments/platform-gateway"):
+			return nil, &kube.Error{Code: 404}
+		case strings.Contains(path, "/pods?"):
+			return Object{"items": []any{}}, nil
+		}
+		return Object{}, nil
+	})}
+	if err := m.pause(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(scaled) != 2 || !strings.Contains(scaled[1], "infra-gateway/deployments/platform-gateway") {
+		t.Fatal(scaled)
+	}
+}
+func TestS3TeamsKeepExistingKeysAndProfilesIsolateBuckets(t *testing.T) {
+	secrets := map[string]Object{"/api/v1/namespaces/team-a/secrets/panko-state-s3": {"data": Object{"access_key_id": "a2V5", "secret_access_key": "ZXhpc3Rpbmc="}}}
+	m := &Migrator{API: fakeAPI(func(ctx context.Context, method, path string, b any, ct string) (Object, error) {
+		switch method {
+		case "GET":
+			if s, ok := secrets[path]; ok {
+				return s, nil
+			}
+			return nil, &kube.Error{Code: 404}
+		case "POST", "PUT":
+			body := jsonx.Obj(b)
+			meta := jsonx.Obj(body["metadata"])
+			secrets[secretsPath(jsonx.Str(meta["namespace"]))+"/"+jsonx.Str(meta["name"])] = body
+		}
+		return Object{}, nil
+	})}
+	if err := m.EnsureS3Teams(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	aggregate := jsonx.Obj(secrets["/api/v1/namespaces/infra-backends/secrets/s3-teams"]["data"])
+	if aggregate["team-a"] != "ZXhpc3Rpbmc=" || aggregate["team-b"] == "" || aggregate["team-b"] == aggregate["team-a"] {
+		t.Fatal("team keys not kept or not distinct")
+	}
+	for i, item := range jsonx.Array(S3Profiles()["items"]) {
+		profile := jsonx.Obj(item)
+		if jsonx.Obj(profile["metadata"])["namespace"] != Teams[i] || jsonx.Obj(jsonx.Obj(profile["spec"])["s3"])["bucket"] != "panko-state-"+Teams[i] {
+			t.Fatal(profile)
+		}
+	}
+}
+func TestUnfinishedMigrationBlocksAnother(t *testing.T) {
+	record := Object{"data": Object{"id": base64.StdEncoding.EncodeToString([]byte("first")), "phase": base64.StdEncoding.EncodeToString([]byte("Copied")),
+		"source": base64.StdEncoding.EncodeToString([]byte("{}")), "target": base64.StdEncoding.EncodeToString([]byte("{}"))}}
+	m := &Migrator{API: fakeAPI(func(ctx context.Context, method, path string, b any, ct string) (Object, error) {
+		if strings.Contains(path, "/databases/") {
+			return Object{"metadata": Object{"uid": "abc", "namespace": "team-a", "name": "orders"}, "status": Object{"stateBackend": Object{"type": "kubernetes"}}}, nil
+		}
+		if strings.HasSuffix(path, "panko-migration-abc") {
+			return record, nil
+		}
+		t.Fatalf("unexpected %s %s", method, path)
+		return nil, nil
+	})}
+	err := m.MigrateBackend(context.Background(), BackendMigration{Namespace: "team-a", Name: "orders", StateBackend: "lab", ID: "second"})
+	if err == nil || !strings.Contains(err.Error(), "first") {
+		t.Fatal(err)
+	}
+}

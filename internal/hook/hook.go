@@ -15,6 +15,7 @@ import (
 
 	"github.com/hingst-it/panko/internal/jsonx"
 	"github.com/hingst-it/panko/internal/resource"
+	"github.com/hingst-it/panko/internal/statebackend"
 )
 
 type Object = jsonx.Object
@@ -25,6 +26,7 @@ type Identity = resource.Identity
 type Request struct {
 	Parent     Object                       `json:"parent"`
 	Children   map[string]map[string]Object `json:"children"`
+	Related    map[string]map[string]Object `json:"related"`
 	Finalizing bool                         `json:"finalizing"`
 }
 type Response struct {
@@ -63,19 +65,25 @@ func Children(r Request) []Object {
 // JobConfig selects the engine image and the pinned module revision each Job assembles at start.
 type JobConfig struct {
 	RunnerImage, EngineImage, EngineBinary, GitSyncImage, ModuleRepo, ModuleRevision, ModuleSecret string
+	// Backends gates team-defined state backends; the Kubernetes fallback is always available.
+	Backends statebackend.Settings
 }
 
 var revisionPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
-func LoadJobConfig() JobConfig {
+func LoadJobConfig() JobConfig { return JobConfigFrom(os.Getenv) }
+
+// JobConfigFrom reads the configuration from any source, e.g. the deployed hook's environment for admin Jobs.
+func JobConfigFrom(lookup func(string) string) JobConfig {
 	value := func(key, fallback string) string {
-		if v := os.Getenv(key); v != "" {
+		if v := lookup(key); v != "" {
 			return v
 		}
 		return fallback
 	}
-	return JobConfig{RunnerImage: value("RUNNER_IMAGE", "panko-runner:dev"), EngineImage: os.Getenv("ENGINE_IMAGE"), EngineBinary: value("ENGINE_BINARY", "/usr/local/bin/tofu"),
-		GitSyncImage: os.Getenv("GIT_SYNC_IMAGE"), ModuleRepo: os.Getenv("MODULE_REPO"), ModuleRevision: os.Getenv("MODULE_REVISION"), ModuleSecret: value("MODULE_SECRET", "panko-module-git")}
+	return JobConfig{RunnerImage: value("RUNNER_IMAGE", "panko-runner:dev"), EngineImage: lookup("ENGINE_IMAGE"), EngineBinary: value("ENGINE_BINARY", "/usr/local/bin/tofu"),
+		GitSyncImage: lookup("GIT_SYNC_IMAGE"), ModuleRepo: lookup("MODULE_REPO"), ModuleRevision: lookup("MODULE_REVISION"), ModuleSecret: value("MODULE_SECRET", "panko-module-git"),
+		Backends: statebackend.Settings{External: lookup("EXTERNAL_STATE_BACKENDS") == "enabled", Installation: lookup("INSTALLATION_ID")}}
 }
 func (c JobConfig) Validate() error {
 	if c.EngineImage == "" || c.GitSyncImage == "" || c.ModuleRepo == "" {
@@ -88,14 +96,19 @@ func (c JobConfig) Validate() error {
 	if !strings.HasPrefix(c.EngineBinary, "/") {
 		return fmt.Errorf("ENGINE_BINARY must be an absolute path")
 	}
+	if c.Backends.External && c.Backends.Installation == "" {
+		return fmt.Errorf("INSTALLATION_ID is required for team-defined state backends")
+	}
 	return nil
 }
-func CreateJob(parent Object, action, hash, revision string, generation, attempt int64, retry string) (Object, error) {
+func CreateJob(parent Object, action, hash, revision string, backend Object, generation, attempt int64, retry string) (Object, error) {
+	return CreateJobWith(LoadJobConfig(), parent, action, hash, revision, backend, generation, attempt, retry)
+}
+func CreateJobWith(config JobConfig, parent Object, action, hash, revision string, backend Object, generation, attempt int64, retry string) (Object, error) {
 	meta, err := Metadata(parent)
 	if err != nil {
 		return nil, err
 	}
-	config := LoadJobConfig()
 	d := sha256.Sum256([]byte(fmt.Sprintf("%s:%s:%s:%d:%s:%s", meta.UID, hash, action, attempt, retry, revision)))
 	prefix := meta.Name
 	if len(prefix) > 20 {
@@ -121,7 +134,7 @@ func CreateJob(parent Object, action, hash, revision string, generation, attempt
 					"securityContext": gitUser, "resources": small,
 					"volumeMounts": []any{Object{"name": "module", "mountPath": "/module"}, Object{"name": "git-secret", "mountPath": "/etc/git-secret", "readOnly": true}, Object{"name": "git-tmp", "mountPath": "/tmp"}}}},
 			"containers": []any{Object{"name": "tofu", "image": config.RunnerImage, "imagePullPolicy": "Never", "args": []any{action, meta.Namespace, meta.Name},
-				"env":             []any{Object{"name": "PANKO_RESOURCE", "value": string(jsonx.Encode(snapshot))}, Object{"name": "PANKO_HASH", "value": hash}, Object{"name": "PANKO_JOB", "value": name}, Object{"name": "PANKO_ENGINE", "value": engine}, Object{"name": "PANKO_MODULE", "value": "/module/current"}},
+				"env":             []any{Object{"name": "PANKO_RESOURCE", "value": string(jsonx.Encode(snapshot))}, Object{"name": "PANKO_HASH", "value": hash}, Object{"name": "PANKO_JOB", "value": name}, Object{"name": "PANKO_ENGINE", "value": engine}, Object{"name": "PANKO_MODULE", "value": "/module/current"}, Object{"name": "PANKO_BACKEND", "value": string(jsonx.Encode(backend))}},
 				"securityContext": restricted,
 				"resources":       Object{"requests": Object{"cpu": "100m", "memory": "128Mi"}, "limits": Object{"memory": "512Mi"}},
 				"volumeMounts":    []any{Object{"name": "work", "mountPath": "/work"}, Object{"name": "tmp", "mountPath": "/tmp"}, Object{"name": "engine", "mountPath": "/engine", "readOnly": true}, Object{"name": "module", "mountPath": "/module", "readOnly": true}}}},
@@ -201,7 +214,49 @@ func withRevision(r Response, observed, applied string) Response {
 	}
 	return r
 }
-func finalize(parent Object, children []Object, generation int64, hash string) (Response, error) {
+
+// Maintenance names an administrator migration that freezes all new Jobs of a resource.
+func Maintenance(parent Object) string {
+	return jsonx.Str(jsonx.Obj(jsonx.Obj(parent["metadata"])["annotations"])[Prefix+"state-maintenance"])
+}
+
+// Customize asks Metacontroller for the selected StateBackend and the namespace's BackendProfiles, never Secrets.
+func Customize(parent Object) Object {
+	namespace := jsonx.Str(jsonx.Obj(parent["metadata"])["namespace"])
+	name, _ := statebackend.Reference(parent)
+	return Object{"relatedResources": []any{
+		Object{"apiVersion": statebackend.Group, "resource": "statebackends", "namespace": namespace, "names": []any{name}},
+		Object{"apiVersion": statebackend.Group, "resource": "backendprofiles", "namespace": namespace, "labelSelector": Object{}}}}
+}
+
+// bind returns the persisted state backend, or a response that persists one before any Job can start.
+func bind(r Request, children []Object, phase string, generation int64, finalized *bool) (Object, *Response) {
+	p := r.Parent
+	status := jsonx.Obj(p["status"])
+	if bound := jsonx.Obj(status["stateBackend"]); bound != nil {
+		return bound, nil
+	}
+	meta := jsonx.Obj(p["metadata"])
+	var bound Object
+	if statebackend.Executed(p, len(children)) {
+		// Resources that ran before bindings existed keep the location they already use.
+		bound = statebackend.Fallback(jsonx.Str(meta["namespace"]), jsonx.Str(meta["name"]))
+	} else {
+		var err error
+		bound, err = statebackend.Resolve(p, r.Related[statebackend.BackendKey], r.Related[statebackend.ProfileKey], LoadJobConfig().Backends)
+		if err != nil {
+			response := result(p, "Failed", generation, "State backend: "+err.Error(), retainAll(children), "", finalized, nil)
+			response.Status["stateBackendError"] = err.Error()
+			return nil, &response
+		}
+	}
+	response := result(p, phase, generation, "State backend bound; execution follows", retainAll(children), "", finalized, nil)
+	delete(response.Status, "stateBackendError")
+	response.Status["stateBackend"] = bound
+	return nil, &response
+}
+func finalize(r Request, children []Object, generation int64, hash string) (Response, error) {
+	parent := r.Parent
 	no, yes := false, true
 	running := []Object{}
 	for _, c := range children {
@@ -215,6 +270,16 @@ func finalize(parent Object, children []Object, generation int64, hash string) (
 			state = DestroyState(running[0], "Running")
 		}
 		return result(parent, "Deleting", generation, "Waiting for running job before teardown", retainAll(running), "", &no, state), nil
+	}
+	if id := Maintenance(parent); id != "" {
+		return result(parent, "Deleting", generation, "State backend maintenance "+id+"; teardown waits", retainAll(children), "", &no, nil), nil
+	}
+	if jsonx.Obj(jsonx.Obj(parent["status"])["stateBackend"]) == nil && !statebackend.Executed(parent, len(children)) {
+		return result(parent, "Deleting", generation, "Nothing was provisioned", nil, "", &yes, nil), nil
+	}
+	backend, pending := bind(r, children, "Deleting", generation, &no)
+	if pending != nil {
+		return *pending, nil
 	}
 	previous := jsonx.Obj(jsonx.Obj(parent["status"])["destroy"])
 	state := previous
@@ -252,7 +317,7 @@ func finalize(parent Object, children []Object, generation int64, hash string) (
 	if revision == "" {
 		revision = LoadJobConfig().ModuleRevision
 	}
-	child, err := CreateJob(parent, "destroy", hash, revision, generation, a, token)
+	child, err := CreateJob(parent, "destroy", hash, revision, backend, generation, a, token)
 	if err != nil {
 		return Response{}, err
 	}
@@ -270,7 +335,7 @@ func Reconcile(r Request) (Response, error) {
 	}
 	children := Children(r)
 	if r.Finalizing {
-		return finalize(p, children, meta.Generation, hash)
+		return finalize(r, children, meta.Generation, hash)
 	}
 	running := []Object{}
 	for _, c := range children {
@@ -284,6 +349,13 @@ func Reconcile(r Request) (Response, error) {
 			return Response{}, fmt.Errorf("invalid Job generation")
 		}
 		return withRevision(result(p, "Applying", generation, "OpenTofu apply is running", retainAll(running), "", nil, nil), revisionOf(running[0]), ""), nil
+	}
+	if id := Maintenance(p); id != "" {
+		return result(p, "Maintenance", meta.Generation, "State backend maintenance "+id+"; no jobs start", retainAll(children), "", nil, nil), nil
+	}
+	backend, pending := bind(r, children, "Pending", meta.Generation, nil)
+	if pending != nil {
+		return *pending, nil
 	}
 	revision := LoadJobConfig().ModuleRevision
 	for _, c := range children {
@@ -302,7 +374,7 @@ func Reconcile(r Request) (Response, error) {
 	if old["phase"] == "Failed" && jsonx.Int(old["observedGeneration"]) == meta.Generation && old["observedRevision"] == revision {
 		return withRevision(result(p, "Failed", meta.Generation, jsonx.Str(old["message"]), nil, "", nil, nil), revision, ""), nil
 	}
-	child, err := CreateJob(p, "apply", hash, revision, meta.Generation, 1, "")
+	child, err := CreateJob(p, "apply", hash, revision, backend, meta.Generation, 1, "")
 	if err != nil {
 		return Response{}, err
 	}

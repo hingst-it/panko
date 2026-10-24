@@ -42,7 +42,10 @@ def main():
             container = child['spec']['template']['spec']['containers'][0]
             container['image'] = os.environ.get('RUNNER_IMAGE', 'panko-runner:dev')
             container['args'] = [action, 'team-a', name]
-            values = {'PANKO_RESOURCE': json.dumps(snapshot), 'PANKO_HASH': digest, 'PANKO_JOB': job_name}
+            backend = {'type': 'kubernetes', 'config': {'in_cluster_config': True, 'namespace': 'panko-state-team-a',
+                                                        'secret_suffix': 'team-a-' + name}}
+            values = {'PANKO_RESOURCE': json.dumps(snapshot), 'PANKO_HASH': digest, 'PANKO_JOB': job_name,
+                      'PANKO_BACKEND': json.dumps(backend)}
             container['env'] = [item for item in container['env'] if item['name'] not in values] + [
                 {'name': key, 'value': value} for key, value in values.items()]
             kube('create', '-f', '-', obj=child)

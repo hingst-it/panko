@@ -14,6 +14,18 @@ func Handler(telemetry *Telemetry) http.Handler {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 		_, _ = io.WriteString(w, telemetry.Render())
 	})
+	m.HandleFunc("POST /customize", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Parent Object `json:"parent"`
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := jsonx.Decode(r.Body, &req); err != nil {
+			w.WriteHeader(500)
+			_, _ = io.WriteString(w, `{"error":"hook failed"}`)
+			return
+		}
+		_, _ = w.Write(jsonx.Encode(Customize(req.Parent)))
+	})
 	for _, path := range []string{"/sync", "/finalize"} {
 		m.HandleFunc("POST "+path, func(w http.ResponseWriter, r *http.Request) {
 			var req Request

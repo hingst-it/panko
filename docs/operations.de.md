@@ -27,6 +27,8 @@ Events und Dienstlogs; Secrets und States werden nicht als CI-Artefakte exportie
 Der Testcluster wird auch bei Fehlern entfernt.
 
 Go-Aufbau, gesicherte Python-Images und geprüfter Rückwechsel: [Go-Portierung](go-porting.de.md).
+Team-definierte State-Backends, Sicherungen und Migration: [State-Backends](state-backends.de.md).
+Ein bestehendes Lab braucht für den S3-Gateway dieser Funktion einmalig `make bootstrap deploy`.
 
 ## Engine und Modul
 

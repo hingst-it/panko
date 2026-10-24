@@ -14,6 +14,11 @@ spec:
       updateStrategy:
         method: OnDelete
   hooks:
+    # Selects the StateBackend and BackendProfiles a Database needs; the hook itself has no API access.
+    customize:
+      webhook:
+        url: http://database-hook.infra-runners.svc:8080/customize
+        timeout: 10s
     sync:
       webhook:
         url: http://database-hook.infra-runners.svc:8080/sync

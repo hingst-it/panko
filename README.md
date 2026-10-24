@@ -51,6 +51,7 @@ flowchart LR
 - **Jobs for execution.** The controller starts OpenTofu jobs for changed generations or module revisions, serializes changes per resource, and reports their outcome. Each job copies the engine from the official OpenTofu image and fetches the module at a pinned commit with git-sync.
 - **An explicit lifecycle.** A finalizer keeps a resource in `Deleting` until its destroy job and state cleanup succeed. Credentials are delivered through a connection Secret.
 - **Team-scoped access.** Local bearer tokens map requests to team namespaces, backed by explicit Kubernetes RBAC.
+- **Team-selected state.** Teams choose an operator-approved state destination (S3) through a `StateBackend`; the built-in Kubernetes backend stays the default. Each resource binds once, and the runner refuses to run when the backend or established state does not match. See [state backends](docs/state-backends.de.md).
 
 “Thin” describes Panko's own layer. It still relies on Kubernetes, Metacontroller, and OpenTofu. This approach is aimed at teams that want to use those building blocks to expose infrastructure code as a service.
 
@@ -127,7 +128,7 @@ Explore the API at [Swagger UI](http://127.0.0.1:8081/docs) or retrieve the [Ope
 
 | Path | Responsibility |
 | --- | --- |
-| [api/](api/) | Database CRD, validation, and an example resource. |
+| [api/](api/) | Database, StateBackend and BackendProfile CRDs, validation, and an example resource. |
 | [cmd/](cmd/) / [internal/](internal/) | Go gateway, reconciliation hook, runner, administrator commands and shared packages. |
 | [controller/](controller/) | Metacontroller configuration and hook deployment, including the pinned engine image and module revision. |
 | [runner/](runner/) | Image build script for runner, hook and gateway. |
@@ -135,6 +136,7 @@ Explore the API at [Swagger UI](http://127.0.0.1:8081/docs) or retrieve the [Ope
 | [cluster/](cluster/) | Local cluster setup, PostgreSQL, and deployment scripts. |
 | [test/](test/) | Controller checks and cluster-backed lifecycle/API tests. |
 | [docs/local-lab.de.md](docs/local-lab.de.md) | Original German technical guide and implementation/verification notes. |
+| [docs/state-backends.de.md](docs/state-backends.de.md) | Team-defined state backends, safety checks, lab S3 and migration. |
 | [docs/brand/](docs/brand/) | Logos, wordmarks, monochrome variants, icons, and social artwork. |
 
 ## Scope and limitations

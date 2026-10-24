@@ -13,6 +13,16 @@
           "owner": "team-a",
           "extensions": [],
           "connectionLimit": 20
+        },
+        "status": {
+          "stateBackend": {
+            "type": "kubernetes",
+            "config": {
+              "in_cluster_config": true,
+              "namespace": "panko-state-team-a",
+              "secret_suffix": "team-a-orders"
+            }
+          }
         }
       },
       "children": {
@@ -35,7 +45,15 @@
             "lastTransitionTime": "TIME"
           }
         ],
-        "observedRevision": "1111111111111111111111111111111111111111"
+        "observedRevision": "1111111111111111111111111111111111111111",
+        "stateBackend": {
+          "type": "kubernetes",
+          "config": {
+            "in_cluster_config": true,
+            "namespace": "panko-state-team-a",
+            "secret_suffix": "team-a-orders"
+          }
+        }
       },
       "children": [
         {
@@ -99,6 +117,10 @@
                       {
                         "name": "PANKO_MODULE",
                         "value": "/module/current"
+                      },
+                      {
+                        "name": "PANKO_BACKEND",
+                        "value": "{\"config\":{\"in_cluster_config\":true,\"namespace\":\"panko-state-team-a\",\"secret_suffix\":\"team-a-orders\"},\"type\":\"kubernetes\"}"
                       }
                     ],
                     "securityContext": {
@@ -277,6 +299,16 @@
           "owner": "team-a",
           "extensions": [],
           "connectionLimit": 20
+        },
+        "status": {
+          "stateBackend": {
+            "type": "kubernetes",
+            "config": {
+              "in_cluster_config": true,
+              "namespace": "panko-state-team-a",
+              "secret_suffix": "team-a-orders"
+            }
+          }
         }
       },
       "children": {
@@ -399,7 +431,15 @@
             "lastTransitionTime": "TIME"
           }
         ],
-        "observedRevision": "1111111111111111111111111111111111111111"
+        "observedRevision": "1111111111111111111111111111111111111111",
+        "stateBackend": {
+          "type": "kubernetes",
+          "config": {
+            "in_cluster_config": true,
+            "namespace": "panko-state-team-a",
+            "secret_suffix": "team-a-orders"
+          }
+        }
       },
       "children": [
         {
@@ -519,6 +559,16 @@
           "owner": "team-a",
           "extensions": [],
           "connectionLimit": 20
+        },
+        "status": {
+          "stateBackend": {
+            "type": "kubernetes",
+            "config": {
+              "in_cluster_config": true,
+              "namespace": "panko-state-team-a",
+              "secret_suffix": "team-a-orders"
+            }
+          }
         }
       },
       "children": {
@@ -625,7 +675,15 @@
             "observedGeneration": 1,
             "lastTransitionTime": "TIME"
           }
-        ]
+        ],
+        "stateBackend": {
+          "type": "kubernetes",
+          "config": {
+            "in_cluster_config": true,
+            "namespace": "panko-state-team-a",
+            "secret_suffix": "team-a-orders"
+          }
+        }
       },
       "children": [
         {
@@ -730,6 +788,16 @@
           "owner": "team-a",
           "extensions": [],
           "connectionLimit": 30
+        },
+        "status": {
+          "stateBackend": {
+            "type": "kubernetes",
+            "config": {
+              "in_cluster_config": true,
+              "namespace": "panko-state-team-a",
+              "secret_suffix": "team-a-orders"
+            }
+          }
         }
       },
       "children": {
@@ -852,7 +920,15 @@
             "lastTransitionTime": "TIME"
           }
         ],
-        "observedRevision": "1111111111111111111111111111111111111111"
+        "observedRevision": "1111111111111111111111111111111111111111",
+        "stateBackend": {
+          "type": "kubernetes",
+          "config": {
+            "in_cluster_config": true,
+            "namespace": "panko-state-team-a",
+            "secret_suffix": "team-a-orders"
+          }
+        }
       },
       "children": [
         {
@@ -972,6 +1048,16 @@
           "owner": "team-a",
           "extensions": [],
           "connectionLimit": 30
+        },
+        "status": {
+          "stateBackend": {
+            "type": "kubernetes",
+            "config": {
+              "in_cluster_config": true,
+              "namespace": "panko-state-team-a",
+              "secret_suffix": "team-a-orders"
+            }
+          }
         }
       },
       "children": {
@@ -1093,7 +1179,15 @@
             "observedGeneration": 2,
             "lastTransitionTime": "TIME"
           }
-        ]
+        ],
+        "stateBackend": {
+          "type": "kubernetes",
+          "config": {
+            "in_cluster_config": true,
+            "namespace": "panko-state-team-a",
+            "secret_suffix": "team-a-orders"
+          }
+        }
       },
       "children": [
         {
@@ -1214,6 +1308,16 @@
           "owner": "team-a",
           "extensions": [],
           "connectionLimit": 20
+        },
+        "status": {
+          "stateBackend": {
+            "type": "kubernetes",
+            "config": {
+              "in_cluster_config": true,
+              "namespace": "panko-state-team-a",
+              "secret_suffix": "team-a-orders"
+            }
+          }
         }
       },
       "children": {
@@ -1349,7 +1453,15 @@
           }
         ],
         "observedRevision": "1111111111111111111111111111111111111111",
-        "lastAppliedRevision": "1111111111111111111111111111111111111111"
+        "lastAppliedRevision": "1111111111111111111111111111111111111111",
+        "stateBackend": {
+          "type": "kubernetes",
+          "config": {
+            "in_cluster_config": true,
+            "namespace": "panko-state-team-a",
+            "secret_suffix": "team-a-orders"
+          }
+        }
       },
       "children": [
         {
@@ -1488,7 +1600,15 @@
               "lastTransitionTime": "TIME"
             }
           ],
-          "lastAppliedRevision": "1111111111111111111111111111111111111111"
+          "lastAppliedRevision": "1111111111111111111111111111111111111111",
+          "stateBackend": {
+            "type": "kubernetes",
+            "config": {
+              "in_cluster_config": true,
+              "namespace": "panko-state-team-a",
+              "secret_suffix": "team-a-orders"
+            }
+          }
         }
       },
       "children": {
@@ -1516,7 +1636,15 @@
           }
         ],
         "lastAppliedRevision": "1111111111111111111111111111111111111111",
-        "observedRevision": "1111111111111111111111111111111111111111"
+        "observedRevision": "1111111111111111111111111111111111111111",
+        "stateBackend": {
+          "type": "kubernetes",
+          "config": {
+            "in_cluster_config": true,
+            "namespace": "panko-state-team-a",
+            "secret_suffix": "team-a-orders"
+          }
+        }
       },
       "children": [],
       "resyncAfterSeconds": 5
@@ -1536,6 +1664,16 @@
           "owner": "team-a",
           "extensions": [],
           "connectionLimit": 30
+        },
+        "status": {
+          "stateBackend": {
+            "type": "kubernetes",
+            "config": {
+              "in_cluster_config": true,
+              "namespace": "panko-state-team-a",
+              "secret_suffix": "team-a-orders"
+            }
+          }
         }
       },
       "children": {
@@ -1666,7 +1804,15 @@
             "lastTransitionTime": "TIME"
           }
         ],
-        "observedRevision": "1111111111111111111111111111111111111111"
+        "observedRevision": "1111111111111111111111111111111111111111",
+        "stateBackend": {
+          "type": "kubernetes",
+          "config": {
+            "in_cluster_config": true,
+            "namespace": "panko-state-team-a",
+            "secret_suffix": "team-a-orders"
+          }
+        }
       },
       "children": [
         {
@@ -1730,6 +1876,10 @@
                       {
                         "name": "PANKO_MODULE",
                         "value": "/module/current"
+                      },
+                      {
+                        "name": "PANKO_BACKEND",
+                        "value": "{\"config\":{\"in_cluster_config\":true,\"namespace\":\"panko-state-team-a\",\"secret_suffix\":\"team-a-orders\"},\"type\":\"kubernetes\"}"
                       }
                     ],
                     "securityContext": {
@@ -1908,6 +2058,16 @@
           "owner": "team-a",
           "extensions": [],
           "connectionLimit": 20
+        },
+        "status": {
+          "stateBackend": {
+            "type": "kubernetes",
+            "config": {
+              "in_cluster_config": true,
+              "namespace": "panko-state-team-a",
+              "secret_suffix": "team-a-orders"
+            }
+          }
         }
       },
       "children": {
@@ -2038,7 +2198,15 @@
             "lastTransitionTime": "TIME"
           }
         ],
-        "observedRevision": "1111111111111111111111111111111111111111"
+        "observedRevision": "1111111111111111111111111111111111111111",
+        "stateBackend": {
+          "type": "kubernetes",
+          "config": {
+            "in_cluster_config": true,
+            "namespace": "panko-state-team-a",
+            "secret_suffix": "team-a-orders"
+          }
+        }
       },
       "children": [
         {
@@ -2173,7 +2341,15 @@
               "lastTransitionTime": "TIME"
             }
           ],
-          "observedRevision": "1111111111111111111111111111111111111111"
+          "observedRevision": "1111111111111111111111111111111111111111",
+          "stateBackend": {
+            "type": "kubernetes",
+            "config": {
+              "in_cluster_config": true,
+              "namespace": "panko-state-team-a",
+              "secret_suffix": "team-a-orders"
+            }
+          }
         }
       },
       "children": {
@@ -2196,7 +2372,15 @@
             "lastTransitionTime": "TIME"
           }
         ],
-        "observedRevision": "1111111111111111111111111111111111111111"
+        "observedRevision": "1111111111111111111111111111111111111111",
+        "stateBackend": {
+          "type": "kubernetes",
+          "config": {
+            "in_cluster_config": true,
+            "namespace": "panko-state-team-a",
+            "secret_suffix": "team-a-orders"
+          }
+        }
       },
       "children": [],
       "resyncAfterSeconds": 5
@@ -2231,7 +2415,15 @@
               "lastTransitionTime": "TIME"
             }
           ],
-          "observedRevision": "1111111111111111111111111111111111111111"
+          "observedRevision": "1111111111111111111111111111111111111111",
+          "stateBackend": {
+            "type": "kubernetes",
+            "config": {
+              "in_cluster_config": true,
+              "namespace": "panko-state-team-a",
+              "secret_suffix": "team-a-orders"
+            }
+          }
         }
       },
       "children": {
@@ -2260,7 +2452,15 @@
           "jobName": "db-orders-fcf7edb1c9396cf8832b12fb-destroy",
           "result": "Pending"
         },
-        "observedRevision": "1111111111111111111111111111111111111111"
+        "observedRevision": "1111111111111111111111111111111111111111",
+        "stateBackend": {
+          "type": "kubernetes",
+          "config": {
+            "in_cluster_config": true,
+            "namespace": "panko-state-team-a",
+            "secret_suffix": "team-a-orders"
+          }
+        }
       },
       "children": [
         {
@@ -2324,6 +2524,10 @@
                       {
                         "name": "PANKO_MODULE",
                         "value": "/module/current"
+                      },
+                      {
+                        "name": "PANKO_BACKEND",
+                        "value": "{\"config\":{\"in_cluster_config\":true,\"namespace\":\"panko-state-team-a\",\"secret_suffix\":\"team-a-orders\"},\"type\":\"kubernetes\"}"
                       }
                     ],
                     "securityContext": {
@@ -2518,7 +2722,15 @@
               "lastTransitionTime": "TIME"
             }
           ],
-          "observedRevision": "1111111111111111111111111111111111111111"
+          "observedRevision": "1111111111111111111111111111111111111111",
+          "stateBackend": {
+            "type": "kubernetes",
+            "config": {
+              "in_cluster_config": true,
+              "namespace": "panko-state-team-a",
+              "secret_suffix": "team-a-orders"
+            }
+          }
         }
       },
       "children": {
@@ -2647,7 +2859,15 @@
           "jobName": "db-orders-734f853046fe4a36acea3eb0-destroy",
           "result": "Running"
         },
-        "observedRevision": "1111111111111111111111111111111111111111"
+        "observedRevision": "1111111111111111111111111111111111111111",
+        "stateBackend": {
+          "type": "kubernetes",
+          "config": {
+            "in_cluster_config": true,
+            "namespace": "panko-state-team-a",
+            "secret_suffix": "team-a-orders"
+          }
+        }
       },
       "children": [
         {
@@ -2783,7 +3003,15 @@
               "lastTransitionTime": "TIME"
             }
           ],
-          "observedRevision": "1111111111111111111111111111111111111111"
+          "observedRevision": "1111111111111111111111111111111111111111",
+          "stateBackend": {
+            "type": "kubernetes",
+            "config": {
+              "in_cluster_config": true,
+              "namespace": "panko-state-team-a",
+              "secret_suffix": "team-a-orders"
+            }
+          }
         }
       },
       "children": {
@@ -2920,7 +3148,15 @@
           "jobName": "db-orders-734f853046fe4a36acea3eb0-destroy",
           "result": "Failed"
         },
-        "observedRevision": "1111111111111111111111111111111111111111"
+        "observedRevision": "1111111111111111111111111111111111111111",
+        "stateBackend": {
+          "type": "kubernetes",
+          "config": {
+            "in_cluster_config": true,
+            "namespace": "panko-state-team-a",
+            "secret_suffix": "team-a-orders"
+          }
+        }
       },
       "children": [
         {
@@ -3061,6 +3297,14 @@
             "retryToken": "",
             "jobName": "db-orders-734f853046fe4a36acea3eb0-destroy",
             "result": "Failed"
+          },
+          "stateBackend": {
+            "type": "kubernetes",
+            "config": {
+              "in_cluster_config": true,
+              "namespace": "panko-state-team-a",
+              "secret_suffix": "team-a-orders"
+            }
           }
         }
       },
@@ -3089,6 +3333,14 @@
           "retryToken": "",
           "jobName": "db-orders-734f853046fe4a36acea3eb0-destroy",
           "result": "Failed"
+        },
+        "stateBackend": {
+          "type": "kubernetes",
+          "config": {
+            "in_cluster_config": true,
+            "namespace": "panko-state-team-a",
+            "secret_suffix": "team-a-orders"
+          }
         }
       },
       "children": [],
@@ -3133,6 +3385,14 @@
             "retryToken": "",
             "jobName": "db-orders-734f853046fe4a36acea3eb0-destroy",
             "result": "Failed"
+          },
+          "stateBackend": {
+            "type": "kubernetes",
+            "config": {
+              "in_cluster_config": true,
+              "namespace": "panko-state-team-a",
+              "secret_suffix": "team-a-orders"
+            }
           }
         }
       },
@@ -3269,6 +3529,14 @@
           "retryToken": "retry-1",
           "jobName": "db-orders-365c59168ab9bca538c77de8-destroy",
           "result": "Pending"
+        },
+        "stateBackend": {
+          "type": "kubernetes",
+          "config": {
+            "in_cluster_config": true,
+            "namespace": "panko-state-team-a",
+            "secret_suffix": "team-a-orders"
+          }
         }
       },
       "children": [
@@ -3333,6 +3601,10 @@
                       {
                         "name": "PANKO_MODULE",
                         "value": "/module/current"
+                      },
+                      {
+                        "name": "PANKO_BACKEND",
+                        "value": "{\"config\":{\"in_cluster_config\":true,\"namespace\":\"panko-state-team-a\",\"secret_suffix\":\"team-a-orders\"},\"type\":\"kubernetes\"}"
                       }
                     ],
                     "securityContext": {
@@ -3535,6 +3807,14 @@
             "retryToken": "retry-1",
             "jobName": "db-orders-331698018d43e8dfd8482c35-destroy",
             "result": "Pending"
+          },
+          "stateBackend": {
+            "type": "kubernetes",
+            "config": {
+              "in_cluster_config": true,
+              "namespace": "panko-state-team-a",
+              "secret_suffix": "team-a-orders"
+            }
           }
         }
       },
@@ -3563,6 +3843,14 @@
           "retryToken": "retry-1",
           "jobName": "db-orders-365c59168ab9bca538c77de8-destroy",
           "result": "Pending"
+        },
+        "stateBackend": {
+          "type": "kubernetes",
+          "config": {
+            "in_cluster_config": true,
+            "namespace": "panko-state-team-a",
+            "secret_suffix": "team-a-orders"
+          }
         }
       },
       "children": [
@@ -3627,6 +3915,10 @@
                       {
                         "name": "PANKO_MODULE",
                         "value": "/module/current"
+                      },
+                      {
+                        "name": "PANKO_BACKEND",
+                        "value": "{\"config\":{\"in_cluster_config\":true,\"namespace\":\"panko-state-team-a\",\"secret_suffix\":\"team-a-orders\"},\"type\":\"kubernetes\"}"
                       }
                     ],
                     "securityContext": {
@@ -3829,6 +4121,14 @@
             "retryToken": "retry-1",
             "jobName": "db-orders-331698018d43e8dfd8482c35-destroy",
             "result": "Pending"
+          },
+          "stateBackend": {
+            "type": "kubernetes",
+            "config": {
+              "in_cluster_config": true,
+              "namespace": "panko-state-team-a",
+              "secret_suffix": "team-a-orders"
+            }
           }
         }
       },
@@ -3965,6 +4265,14 @@
           "retryToken": "retry-1",
           "jobName": "db-orders-331698018d43e8dfd8482c35-destroy",
           "result": "Succeeded"
+        },
+        "stateBackend": {
+          "type": "kubernetes",
+          "config": {
+            "in_cluster_config": true,
+            "namespace": "panko-state-team-a",
+            "secret_suffix": "team-a-orders"
+          }
         }
       },
       "children": [],
@@ -4009,6 +4317,14 @@
             "retryToken": "retry-1",
             "jobName": "db-orders-331698018d43e8dfd8482c35-destroy",
             "result": "Succeeded"
+          },
+          "stateBackend": {
+            "type": "kubernetes",
+            "config": {
+              "in_cluster_config": true,
+              "namespace": "panko-state-team-a",
+              "secret_suffix": "team-a-orders"
+            }
           }
         }
       },
@@ -4037,6 +4353,14 @@
           "retryToken": "retry-1",
           "jobName": "db-orders-331698018d43e8dfd8482c35-destroy",
           "result": "Succeeded"
+        },
+        "stateBackend": {
+          "type": "kubernetes",
+          "config": {
+            "in_cluster_config": true,
+            "namespace": "panko-state-team-a",
+            "secret_suffix": "team-a-orders"
+          }
         }
       },
       "children": [],

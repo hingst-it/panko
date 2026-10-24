@@ -1,0 +1,46 @@
+# Creates one S3 user and one owned bucket per team. Users with role "user" can reach only their own bucket.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: s3-onboard
+  namespace: infra-backends
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 180
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000}
+      containers:
+        - name: onboard
+          image: versity/versitygw:v1.10.0@sha256:89cad13cc981986ee284cbafea4613f9533ce6fd5f37a2c96c4c4fb8adb3a316
+          command: [/bin/sh, -c]
+          args:
+            - |
+              set -eu
+              admin() { versitygw admin --endpoint-url http://s3.infra-backends.svc.cluster.local:7070 "$@"; }
+              for file in /teams/*; do
+                team=$(basename "$file")
+                users=$(admin list-users)
+                case "$users" in *"panko-$team"*) ;; *) admin create-user --access "panko-$team" --secret "$(cat "$file")" --role user ;; esac
+                buckets=$(admin list-buckets)
+                case "$buckets" in *"panko-state-$team"*) ;; *) admin create-bucket --bucket "panko-state-$team" --owner "panko-$team" ;; esac
+              done
+              admin list-buckets
+          env:
+            - name: ADMIN_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef: {name: s3-admin, key: access_key_id}
+            - name: ADMIN_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: {name: s3-admin, key: secret_access_key}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: teams, mountPath: /teams, readOnly: true}
+      volumes:
+        - name: teams
+          secret: {secretName: s3-teams, defaultMode: 0440}

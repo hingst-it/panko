@@ -8,3 +8,4 @@ bash test/gateway.sh
 python3 test/observability_e2e.py
 python3 test/runner-smoke.py
 python3 test/admin_e2e.py
+python3 test/state_backend_e2e.py

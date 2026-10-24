@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hingst-it/panko/internal/jsonx"
 	"github.com/hingst-it/panko/internal/kube"
 	"github.com/hingst-it/panko/internal/resource"
 	"github.com/hingst-it/panko/internal/runner"
@@ -21,8 +22,8 @@ func main() {
 	}
 }
 func run() error {
-	if len(os.Args) != 4 || (os.Args[1] != "apply" && os.Args[1] != "destroy") {
-		return fmt.Errorf("usage: runner apply|destroy NAMESPACE NAME")
+	if len(os.Args) != 4 || (os.Args[1] != "apply" && os.Args[1] != "destroy" && os.Args[1] != "migrate") {
+		return fmt.Errorf("usage: runner apply|destroy|migrate NAMESPACE NAME")
 	}
 	snapshot, err := resource.Validate(strings.NewReader(os.Getenv("PANKO_RESOURCE")), os.Args[2], os.Args[3], os.Getenv("PANKO_HASH"))
 	if err != nil {
@@ -44,7 +45,17 @@ func run() error {
 		case <-ctx.Done():
 		}
 	}()
-	r := &runner.Runner{API: api, Credentials: api.Credentials, ModuleDir: os.Getenv("PANKO_MODULE"), WorkDir: "/work/module", Tofu: os.Getenv("PANKO_ENGINE"), Output: os.Stdout, ErrorOutput: os.Stderr, Log: os.Stdout}
+	var backend jsonx.Object
+	if err := jsonx.Decode(strings.NewReader(os.Getenv("PANKO_BACKEND")), &backend); err != nil || backend == nil {
+		return fmt.Errorf("PANKO_BACKEND must describe the bound state backend")
+	}
+	r := &runner.Runner{API: api, Credentials: api.Credentials, Backend: backend, ModuleDir: os.Getenv("PANKO_MODULE"), WorkDir: "/work/module", Tofu: os.Getenv("PANKO_ENGINE"), Output: os.Stdout, ErrorOutput: os.Stderr, Log: os.Stdout}
+	if os.Args[1] == "migrate" {
+		r.Migration = os.Getenv("PANKO_MIGRATION")
+		if err := jsonx.Decode(strings.NewReader(os.Getenv("PANKO_TARGET_BACKEND")), &r.Target); err != nil || r.Target == nil {
+			return fmt.Errorf("PANKO_TARGET_BACKEND must describe the migration target")
+		}
+	}
 	if r.ModuleDir == "" || r.Tofu == "" {
 		return fmt.Errorf("PANKO_MODULE and PANKO_ENGINE are required")
 	}

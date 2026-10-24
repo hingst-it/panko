@@ -1,0 +1,63 @@
+# Lab S3 gateway for team-defined state backends (VersityGW, posix backend).
+# Each team gets its own user and bucket during deploy; the root key only onboards teams.
+apiVersion: v1
+kind: Service
+metadata:
+  name: s3
+  namespace: infra-backends
+spec:
+  selector: {app: s3}
+  ports:
+    - {name: s3, port: 7070, targetPort: 7070}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: s3
+  namespace: infra-backends
+spec:
+  serviceName: s3
+  replicas: 1
+  selector:
+    matchLabels: {app: s3}
+  template:
+    metadata:
+      labels: {app: s3}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000}
+      containers:
+        - name: s3
+          image: versity/versitygw:v1.10.0@sha256:89cad13cc981986ee284cbafea4613f9533ce6fd5f37a2c96c4c4fb8adb3a316
+          command: [/bin/sh, -c]
+          args:
+            - mkdir -p /data/iam /data/buckets && exec versitygw --port :7070 --iam-dir /data/iam --health /health posix /data/buckets
+          env:
+            - name: ROOT_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef: {name: s3-admin, key: access_key_id}
+            - name: ROOT_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: {name: s3-admin, key: secret_access_key}
+          ports: [{name: s3, containerPort: 7070}]
+          readinessProbe:
+            httpGet: {path: /health, port: 7070}
+            initialDelaySeconds: 2
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 256Mi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests: {storage: 1Gi}

@@ -5,12 +5,15 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"regexp"
 	"time"
 
 	"github.com/hingst-it/panko/internal/admin"
 	"github.com/hingst-it/panko/internal/jsonx"
 	"github.com/hingst-it/panko/internal/kube"
 )
+
+var migrationID = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,30}[a-z0-9])?$`)
 
 func main() {
 	if err := run(); err != nil {
@@ -25,11 +28,27 @@ func run() error {
 	tokens := flags.String("tokens-file", ".local/team-tokens.json", "Local team token file")
 	sshKey := flags.String("ssh-key-file", ".local/module-deploy-key", "Read-only deploy key of the module repository")
 	knownHosts := flags.String("known-hosts-file", "cluster/module-known-hosts", "SSH host keys of the module repository server")
+	namespace := flags.String("namespace", "", "Team namespace of the Database to migrate")
+	name := flags.String("name", "", "Database to migrate")
+	stateBackend := flags.String("state-backend", "", "Target StateBackend in the Database's namespace")
+	migration := flags.String("migration-id", "", "Migration identifier; rerun with the same ID to resume")
 	if err := flags.Parse(os.Args[1:]); err != nil {
 		return err
 	}
+	// Accept flags after the command as well, e.g. "migrate-backend --namespace team-a".
+	if flags.NArg() > 1 {
+		command := flags.Arg(0)
+		if err := flags.Parse(flags.Args()[1:]); err != nil {
+			return err
+		}
+		if flags.NArg() == 0 {
+			if err := flags.Parse([]string{command}); err != nil {
+				return err
+			}
+		}
+	}
 	if flags.NArg() != 1 {
-		return fmt.Errorf("usage: panko-admin [--kubeconfig PATH] runner-rbac|module-secret|gateway-rbac|preflight|migrate-state|ensure-postgres-auth|ensure-gateway-auth")
+		return fmt.Errorf("usage: panko-admin [--kubeconfig PATH] runner-rbac|module-secret|s3-profiles|gateway-rbac|preflight|migrate-state|migrate-backend|ensure-postgres-auth|ensure-gateway-auth|ensure-installation-id|ensure-s3-auth|ensure-s3-teams")
 	}
 	command := flags.Arg(0)
 	if command == "runner-rbac" {
@@ -51,7 +70,13 @@ func run() error {
 		fmt.Println(string(jsonx.Encode(admin.ModuleSecrets("panko-module-git", key, hosts))))
 		return nil
 	}
-	if command != "gateway-rbac" && command != "preflight" && command != "migrate-state" && command != "ensure-postgres-auth" && command != "ensure-gateway-auth" {
+	if command == "s3-profiles" {
+		fmt.Println(string(jsonx.Encode(admin.S3Profiles())))
+		return nil
+	}
+	clusterCommands := map[string]bool{"gateway-rbac": true, "preflight": true, "migrate-state": true, "migrate-backend": true, "ensure-postgres-auth": true,
+		"ensure-gateway-auth": true, "ensure-installation-id": true, "ensure-s3-auth": true, "ensure-s3-teams": true}
+	if !clusterCommands[command] {
 		return fmt.Errorf("unknown admin command")
 	}
 	if *config == "" {
@@ -83,6 +108,21 @@ func run() error {
 	}
 	if command == "preflight" {
 		return m.Preflight(ctx)
+	}
+	switch command {
+	case "ensure-installation-id":
+		return m.EnsureInstallationID(ctx)
+	case "ensure-s3-auth":
+		return m.EnsureS3Auth(ctx)
+	case "ensure-s3-teams":
+		return m.EnsureS3Teams(ctx)
+	case "migrate-backend":
+		if *namespace == "" || *name == "" || *stateBackend == "" || !migrationID.MatchString(*migration) {
+			return fmt.Errorf("migrate-backend requires --namespace, --name, --state-backend and a DNS-safe --migration-id")
+		}
+		ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+		defer cancel()
+		return m.MigrateBackend(ctx, admin.BackendMigration{Namespace: *namespace, Name: *name, StateBackend: *stateBackend, ID: *migration})
 	}
 	return m.Migrate(ctx)
 }
