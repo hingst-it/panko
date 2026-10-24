@@ -52,6 +52,7 @@ flowchart LR
 - **An explicit lifecycle.** A finalizer keeps a resource in `Deleting` until its destroy job and state cleanup succeed. Credentials are delivered through a connection Secret.
 - **A small inspector.** Open the gateway’s `/ui` with a team token to inspect status, retry executions, check drift, and view a sanitized resource graph from the last successful apply. Tokens stay in page memory. See [operations](docs/operations.de.md#inspektor-und-ressourcengraph).
 - **Team-scoped access.** Local bearer tokens map requests to team namespaces, backed by explicit Kubernetes RBAC.
+- **Remote runners.** A team can be assigned to a runner pool whose agents run outside the cluster, as a container, a systemd service or in another cluster, and reach only outbound to Panko's runner endpoint. Teams without a pool keep in-cluster Jobs. See [remote runners](docs/remote-runners.de.md).
 - **Team-selected state.** Teams choose an operator-approved state destination (S3) through a `StateBackend`; the built-in Kubernetes backend stays the default. Each resource binds once, and the runner refuses to run when the backend or established state does not match. See [state backends](docs/state-backends.de.md).
 
 “Thin” describes Panko's own layer. It still relies on Kubernetes, Metacontroller, and OpenTofu. This approach is aimed at teams that want to use those building blocks to expose infrastructure code as a service.
@@ -177,6 +178,7 @@ Explore the API at [Swagger UI](http://127.0.0.1:8081/docs) or retrieve the [Ope
 | [test/](test/) | Controller checks and cluster-backed lifecycle/API tests. |
 | [docs/local-lab.de.md](docs/local-lab.de.md) | Original German technical guide and implementation/verification notes. |
 | [docs/state-backends.de.md](docs/state-backends.de.md) | Team-defined state backends, safety checks, lab S3 and migration. |
+| [docs/remote-runners.de.md](docs/remote-runners.de.md) | Remote runner pools, agents, tokens, recovery and limits. |
 | [docs/roadmap.de.md](docs/roadmap.de.md) | Roadmap towards a first usable personal version and beyond. |
 | [docs/releases.md](docs/releases.md) | Tag releases, required CI checks, binary archives and GHCR images. |
 | [docs/quickstart.md](docs/quickstart.md) / [docs/agent-install.md](docs/agent-install.md) | Public installation and instructions for AI-assisted setup. |

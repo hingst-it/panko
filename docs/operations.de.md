@@ -93,29 +93,12 @@ asynchron, typischerweise wenige Sekunden nach dem Start. In diesem Fenster ist 
 Runner-Pod noch unbeschränkt; die Regeln sind eine Härtung, keine Garantie ab der
 ersten Sekunde.
 
-## Entfernte Runner-Pools (Roadmap 8, im Aufbau)
+## Entfernte Runner
 
-Ein Team kann einem Runner-Pool zugeordnet werden, dessen Agenten außerhalb des Clusters
-laufen. Teams ohne Pool behalten Jobs im Cluster; beides läuft nebeneinander.
-
-```json
-"runnerPools": [
-  {"name": "edge", "teams": ["home"],
-   "module": {"repository": "https://example.com/modules.git", "revision": "<commit>", "path": "modules/s3"}}
-]
-```
-
-`make deploy` schreibt daraus die ConfigMap `panko-runner-pools`, die der Hook liest, und
-verweigert eine Konfiguration, die einen Pool entfernt, an den noch Ressourcen gebunden
-sind (`admin check-pools`, über alle Namespaces). Ein Team in einen anderen Pool zu
-verschieben ist erlaubt; gebundene Ressourcen behalten ihren Pool samt Modul-Repository.
-`admin pause` lässt den Endpunkt keine neuen Runs mehr ausgeben und wartet, bis
-übernommene Runs abgeschlossen sind. Eine neue Ressource eines Pool-Teams bindet den Pool zusammen mit
-dem State-Backend (`status.runnerPool`); bestehende Ressourcen bleiben im Cluster. Pool-
-Ressourcen brauchen ein S3-State-Backend, weil Agenten das Kubernetes-Backend nicht
-erreichen. Ohne eigenes Modul verwendet der Pool `MODULE_REPO`; der Modul-Mirror im Cluster
-ist für Agenten nicht erreichbar. Statt eines Jobs entsteht ein `Run` (CRD `runs`), den ein
-Agent über den Runner-Endpunkt übernimmt. `migrate-backend` lehnt Pool-Ressourcen vorerst ab.
+Teams können einem Runner-Pool zugeordnet werden, dessen Agenten außerhalb des Clusters laufen;
+Teams ohne Pool behalten Jobs im Cluster. Einrichtung, Tokens, Betrieb als Container,
+Systemdienst oder in einem anderen Cluster, Lease, Wiederherstellung und Grenzen:
+[Entfernte Runner](remote-runners.de.md).
 
 ## Drift-Prüfung und Modul-Rollouts
 

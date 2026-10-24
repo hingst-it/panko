@@ -68,6 +68,12 @@ s3.put_bucket_tagging(Bucket=found[0], Tagging={{'TagSet': [{{'Key': k, 'Value':
 """)
 
 
+def state_locks():
+    return json.loads(moto("""
+print(json.dumps([o['Key'] for o in s3.list_objects_v2(Bucket='panko-state').get('Contents', []) if o['Key'].endswith('.tflock')]))
+"""))
+
+
 def remove_state_locks():
     """The documented recovery step after an agent died mid-run: drop the S3 state lock it left."""
     return json.loads(moto("""
@@ -257,14 +263,14 @@ def main():
         previous = status(name)['lastAppliedHash']
         write_profile(first, TF_VAR_pause='120')
         curl('PATCH', f'{path}/{name}', {'spec': {'tags': {'env': 'recovered'}}})
-        def claimed():
-            items = json.loads(kube('get', 'runs', '-n', TEAM, '-l', 'platform.example.com/uid=' + uid, '-o', 'json').stdout)['items']
-            return any((r.get('status') or {}).get('lease') and not (r.get('status') or {}).get('conditions') and r['spec']['action'] == 'apply' for r in items)
-        wait(claimed, 'apply claimed by the first agent', 300)
+        # Kill the agent while OpenTofu holds the state lock, in the middle of the paused apply.
+        wait(state_locks, 'state lock held by the first agent', 300)
         docker('kill', NAMES['agent'])
         interrupted = wait(lambda: (s := status(name)).get('phase') == 'Failed' and s, 'interrupted apply', 300)
         assert interrupted['lastExecution']['code'] == 'interrupted', interrupted['lastExecution']
         locks = remove_state_locks()
+        assert locks, 'the killed agent left no state lock, so recovery was not exercised'
+        assert not state_locks()
         second = agent_directory(root, 'second', config_path)
         start_agent(NAMES['second'], second)
         curl('POST', f'{path}/{name}/retry', {}, expected=202)
@@ -279,7 +285,11 @@ def main():
         print('All remote runner end-to-end tests passed', flush=True)
     except BaseException:
         for container in (NAMES['agent'], NAMES['second']):
-            print(docker('logs', '--tail', '60', container, check=False).stdout, flush=True)
+            logs = docker('logs', '--tail', '60', container, check=False)
+            print(f'--- {container}', logs.stdout, logs.stderr, sep='\n', flush=True)
+        print('--- bucket status', json.dumps(status(name), indent=1) if kube('get', 'crd', 'buckets.platform.example.com', check=False).returncode == 0 else 'no CRD', flush=True)
+        print('--- runs', kube('get', 'runs', '-n', TEAM, '-o', 'wide', check=False).stdout, flush=True)
+        print('--- endpoint', kube('-n', 'infra-runners', 'logs', 'deploy/runner-endpoint', '--tail=40', check=False).stdout, flush=True)
         raise
     finally:
         cleanup(name, root, forward)
