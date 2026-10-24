@@ -23,7 +23,7 @@ jobs; ARC deletes the worker and its PVC after use.
 
 To verify a changed runner image or template, dispatch `Hosting runner smoke`
 and require success before enabling routing. It checks tool availability,
-absence of a hosting API token, a nested Docker container, and a disposable k3d
+absence of a hosting API token, native and ARM64 Docker containers, and a disposable k3d
 cluster with Ready nodes. The normal Checks workflow then tests the complete
 Panko lifecycle on the self-hosted workers.
 
@@ -31,3 +31,7 @@ Controller/listener and runner metrics/events are collected by the hosting
 OneUptime Kubernetes agent. Runner pod logs are explicitly excluded, and resource
 spec collection remains disabled. A dedicated OneUptime monitor is deferred until
 project API credentials are available; no existing admin password was changed.
+
+The [hosting acceptance run](https://github.com/hingst-it/panko/actions/runs/40126440961)
+passed on 2026-10-24, including ARM64 emulation and Ready nested k3d nodes.
+The repository now selects `panko-hosting` for trusted jobs.
