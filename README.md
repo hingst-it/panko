@@ -181,6 +181,7 @@ Explore the API at [Swagger UI](http://127.0.0.1:8081/docs) or retrieve the [Ope
 | [docs/remote-runners.de.md](docs/remote-runners.de.md) | Remote runner pools, agents, tokens, recovery and limits. |
 | [docs/roadmap.de.md](docs/roadmap.de.md) | Roadmap towards a first usable personal version and beyond. |
 | [docs/releases.md](docs/releases.md) | Tag releases, required CI checks, binary archives and GHCR images. |
+| [docs/self-hosted-ci.md](docs/self-hosted-ci.md) | Flux-managed hosting workers, isolation, job routing and recovery. |
 | [docs/quickstart.md](docs/quickstart.md) / [docs/agent-install.md](docs/agent-install.md) | Public installation and instructions for AI-assisted setup. |
 | [docs/brand/](docs/brand/) | Logos, wordmarks, monochrome variants, icons, and social artwork. |
 

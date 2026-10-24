@@ -1,0 +1,49 @@
+name: Actions Docker sidecar image
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/runner/Dockerfile.dind
+      - .github/runner/dockerd-kata.sh
+      - .github/workflows/actions-dind-image.yaml
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    # Bootstrap/recovery build, independent of the cluster it supports.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: .github/runner/Dockerfile.dind
+          platforms: linux/amd64
+          load: true
+          tags: ghcr.io/hingst-it/panko-actions-runner:dind-29.9.2-3
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.licenses=Apache-2.0
+      - name: Verify guest filesystem tools
+        run: |
+          docker run --rm --entrypoint sh ghcr.io/hingst-it/panko-actions-runner:dind-29.9.2-3 -ec '
+            command -v mkfs.ext4
+            command -v losetup
+            test -x /usr/local/bin/dockerd-kata
+          '
+      - name: Publish verified image
+        run: docker push ghcr.io/hingst-it/panko-actions-runner:dind-29.9.2-3

@@ -11,8 +11,7 @@ permissions:
 
 jobs:
   unit:
-    # Self-hosted runner scale set in the owner's Kubernetes cluster (Docker in Docker for the lab).
-    runs-on: panko-hosting
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || vars.PANKO_CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -28,26 +27,17 @@ jobs:
 
   e2e:
     needs: unit
-    # Self-hosted runner scale set in the owner's Kubernetes cluster (Docker in Docker for the lab).
-    runs-on: panko-hosting
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || vars.PANKO_CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 45
     steps:
       # The lab images are imported, not pullable; near a full disk the kubelet garbage-collects them.
       - name: Free disk space
-        # Only GitHub's hosted images carry these preinstalled toolchains.
-        if: runner.environment == 'github-hosted'
+        if: runner.environment != 'self-hosted'
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
           sudo docker image prune --all --force > /dev/null
           df -h /
       - uses: actions/checkout@v4
-      - name: Make room for the k3d lab
-        run: |
-          # The hosted runner's unused SDKs share a disk with Docker and k3d.
-          # Disk pressure lets kubelet collect our imported :dev images;
-          # Jobs cannot pull them again because they use imagePullPolicy: Never.
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
-          df -h /
       - uses: jdx/mise-action@v2
       - name: Install test dependencies
         run: |

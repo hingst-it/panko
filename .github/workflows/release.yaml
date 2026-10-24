@@ -14,7 +14,7 @@ concurrency:
 jobs:
   verify:
     name: Verify tested main commit
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.PANKO_CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -45,7 +45,7 @@ jobs:
 
   binaries:
     needs: verify
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.PANKO_CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -89,7 +89,7 @@ jobs:
 
   images:
     needs: verify
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.PANKO_CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -143,7 +143,7 @@ jobs:
   publish:
     name: Publish GitHub release
     needs: [verify, binaries, images]
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.PANKO_CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
     permissions:
       contents: write

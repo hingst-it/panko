@@ -23,6 +23,11 @@ jobs:
           python3 --version
           docker info
           docker run --rm alpine:3.23 sh -ec 'echo "Nested Docker container works"'
+      - uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
+      - name: Verify ARM64 image execution for release builds
+        run: docker run --rm --platform linux/arm64 alpine:3.23 uname -m
       - uses: jdx/mise-action@v2
       - name: Create a nested disposable k3d cluster
         run: |
@@ -36,4 +41,7 @@ jobs:
           mise exec -- kubectl --kubeconfig .local/runner-smoke-kubeconfig get nodes
       - name: Delete only the nested smoke cluster
         if: always()
-        run: mise exec -- k3d cluster delete panko-ci-smoke
+        run: |
+          if command -v mise >/dev/null 2>&1; then
+            mise exec -- k3d cluster delete panko-ci-smoke
+          fi
