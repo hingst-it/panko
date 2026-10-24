@@ -10,7 +10,8 @@ metadata:
   name: runner-endpoint
   namespace: infra-runners
 spec:
-  replicas: 2
+  # One replica is enough for a personal installation; claims and commits are safe with more.
+  replicas: 1
   selector:
     matchLabels: {app: runner-endpoint}
   template:
@@ -21,7 +22,7 @@ spec:
       securityContext: {runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000}
       containers:
         - name: endpoint
-          image: panko-runner-endpoint:dev
+          image: panko-endpoint:dev
           imagePullPolicy: Never
           env:
             - {name: TLS_CERT_FILE, value: /etc/endpoint-tls/tls.crt}
@@ -42,7 +43,7 @@ spec:
             - {name: tls, mountPath: /etc/endpoint-tls, readOnly: true}
       volumes:
         - name: tls
-          secret: {secretName: panko-runner-endpoint-tls, defaultMode: 0440}
+          secret: {secretName: runner-endpoint-tls, defaultMode: 0440}
 ---
 apiVersion: v1
 kind: Service

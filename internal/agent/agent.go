@@ -125,7 +125,9 @@ func (a *Agent) Execute(ctx context.Context, claim runproto.Claim) {
 // whole OpenTofu process group through the context.
 func (a *Agent) heartbeat(ctx context.Context, claim runproto.Claim, cancel context.CancelCauseFunc) {
 	interval := time.Duration(claim.HeartbeatIntervalSeconds) * time.Second
-	lease := time.Duration(claim.LeaseDurationSeconds) * time.Second
+	// The endpoint counts the lease from when it handled the last heartbeat, the agent from when the
+	// answer arrived; stopping one interval early keeps the agent from outliving its lease.
+	lease := time.Duration(claim.LeaseDurationSeconds)*time.Second - interval
 	last := a.now()
 	for {
 		if a.pause(ctx, interval) != nil {

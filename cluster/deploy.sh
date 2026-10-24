@@ -62,6 +62,13 @@ else
   done
 fi
 kubectl apply -f controller/compositecontroller.yaml
+# Runner endpoint for remote agents; idle while no team uses a runner pool.
+.local/bin/admin endpoint-rbac | kubectl apply -f -
+.local/bin/admin --kubeconfig "$KUBECONFIG" ensure-endpoint-tls
+.local/bin/admin --kubeconfig "$KUBECONFIG" ensure-agent-registry
+kubectl apply -f cluster/runner-endpoint.yaml
+kubectl -n infra-runners rollout restart deploy/runner-endpoint
+kubectl -n infra-runners rollout status deploy/runner-endpoint --timeout=120s
 .local/bin/admin --kubeconfig "$KUBECONFIG" ensure-gateway-auth
 .local/bin/admin --kubeconfig "$KUBECONFIG" gateway-rbac | kubectl apply -f -
 kubectl apply -f gateway/deployment.yaml
