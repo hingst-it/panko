@@ -452,3 +452,29 @@ func TestRestoredIdentityAddressesCheckpointAndState(t *testing.T) {
 		t.Fatal("checkpoint not addressed by the original identity")
 	}
 }
+func TestPlanReportsChangesWithoutWritingState(t *testing.T) {
+	r, s, _ := setup(t)
+	r.ResultFile = filepath.Join(t.TempDir(), "termination-log")
+	f, c := &tofu{state: stateJSON("L1", 3)}, &cluster{checkpoint: Object{"data": Object{"lineage": base64.StdEncoding.EncodeToString([]byte("L1")), "serial": base64.StdEncoding.EncodeToString([]byte("3"))}}}
+	run := f.run
+	r.API, r.Process = fakeAPI(c.api), func(ctx context.Context, binary string, args []string, dir string, env []string, out, errOut io.Writer) error {
+		if args[0] == "apply" || args[0] == "destroy" {
+			t.Fatal("plan mutated infrastructure")
+		}
+		if args[0] == "plan" {
+			_, _ = io.WriteString(out, `{"@message":"Plan: 0 to add, 1 to change","type":"change_summary","changes":{"add":0,"change":1,"remove":0,"operation":"plan"}}`+"\n")
+		}
+		return run(ctx, binary, args, dir, env, out, errOut)
+	}
+	if err := r.Run(context.Background(), "plan", s, "job-1"); err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range c.calls {
+		if strings.HasPrefix(call, "PUT") || strings.HasPrefix(call, "POST") || strings.HasPrefix(call, "DELETE") {
+			t.Fatal("plan wrote to the cluster: " + call)
+		}
+	}
+	if result := readResult(t, r.ResultFile); result.Changes == nil || result.Changes.Change != 1 {
+		t.Fatal(result)
+	}
+}

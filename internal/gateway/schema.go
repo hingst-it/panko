@@ -186,6 +186,13 @@ func OpenAPI(discovered map[Route]Resource) Object {
 			"parameters": []any{Object{"name": "team", "in": "path", "required": true, "schema": Object{"type": "string"}, "description": "Team namespace authorized by the bearer token."},
 				Object{"name": "name", "in": "path", "required": true, "schema": name}},
 			"security": []any{Object{"TeamToken": []any{}}}, "responses": responses}}
+		planResponses := jsonx.Clone(responses)
+		planResponses["202"] = Object{"description": "Drift check requested", "content": content(ref(id))}
+		planResponses["409"] = Object{"description": "Resource not Ready or changed", "content": content(ref("Error"))}
+		paths[collection+"/{name}/plan"] = Object{"post": Object{"operationId": "plan_" + id + "_item", "tags": []any{r.Kind}, "summary": "Check a " + r.Kind + " for drift without changing it",
+			"parameters": []any{Object{"name": "team", "in": "path", "required": true, "schema": Object{"type": "string"}, "description": "Team namespace authorized by the bearer token."},
+				Object{"name": "name", "in": "path", "required": true, "schema": name}},
+			"security": []any{Object{"TeamToken": []any{}}}, "responses": planResponses}}
 	}
 	return Object{"openapi": "3.1.0", "info": Object{"title": "Panko infrastructure API", "version": "1.0.0",
 		"description": "Generated from exposed Kubernetes CRDs. The API server evaluates schema and CEL rules."}, "paths": paths,

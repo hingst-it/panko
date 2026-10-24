@@ -49,7 +49,7 @@ type Event struct {
 }
 
 func (r *Runner) Run(ctx context.Context, action string, snapshot resource.Snapshot, job string) (err error) {
-	if action != "apply" && action != "destroy" && action != "migrate" {
+	if action != "apply" && action != "destroy" && action != "migrate" && action != "plan" {
 		return fmt.Errorf("invalid runner action")
 	}
 	started := time.Now()
@@ -151,8 +151,13 @@ func (r *Runner) execute(ctx context.Context, action string, snapshot resource.S
 	if err := checkpoint.allows(current); err != nil {
 		return nil, stage("checkpoint", err)
 	}
-	// JSON output lets the runner report change counts; it still goes to the Job log unchanged.
+	// JSON output lets the runner report change counts; only messages reach the Job log.
 	counter := &summary{out: r.Output}
+	if action == "plan" {
+		// A drift check only reads: the plan is discarded and no checkpoint changes.
+		err := process(ctx, binary, []string{"plan", "-input=false", "-lock-timeout=120s", "-no-color", "-json"}, r.WorkDir, env, counter, r.ErrorOutput)
+		return counter.changes, stage("provider", err)
+	}
 	actionErr := stage("provider", process(ctx, binary, []string{action, "-auto-approve", "-input=false", "-lock-timeout=120s", "-no-color", "-json"}, r.WorkDir, env, counter, r.ErrorOutput))
 	// Record what the backend holds now, also after a failed command that may have written partial state.
 	after, pullErr := pull()

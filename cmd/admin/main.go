@@ -39,6 +39,7 @@ func run() error {
 	configPath := flags.String("config", defaultConfig, "Installation configuration with teams and optional lab parts (env PANKO_CONFIG)")
 	team := flags.String("team", "", "Team for add-team or rotate-token")
 	dir := flags.String("dir", "", "Backup directory for export and import")
+	all := flags.Bool("all", false, "upgrade-module: every Database of the configured teams")
 	if err := flags.Parse(os.Args[1:]); err != nil {
 		return err
 	}
@@ -55,7 +56,7 @@ func run() error {
 		}
 	}
 	if flags.NArg() != 1 {
-		return fmt.Errorf("usage: panko-admin [--config panko.json] [--kubeconfig PATH] teams|add-team|config-s3|pause|resume|export|import|runner-rbac|module-secret|module-mirror-secret|ensure-mirror-tls|mirror-ca|s3-profiles|gateway-rbac|preflight|migrate-state|migrate-backend|ensure-postgres-auth|ensure-gateway-auth|rotate-token|ensure-installation-id|ensure-s3-auth|ensure-s3-teams")
+		return fmt.Errorf("usage: panko-admin [--config panko.json] [--kubeconfig PATH] teams|add-team|config-s3|pause|resume|export|import|runner-rbac|module-secret|module-mirror-secret|ensure-mirror-tls|mirror-ca|s3-profiles|gateway-rbac|preflight|migrate-state|migrate-backend|ensure-postgres-auth|ensure-gateway-auth|rotate-token|ensure-installation-id|ensure-s3-auth|ensure-s3-teams|upgrade-module")
 	}
 	command := flags.Arg(0)
 	if command == "add-team" {
@@ -107,7 +108,7 @@ func run() error {
 		return nil
 	}
 	clusterCommands := map[string]bool{"ensure-mirror-tls": true, "mirror-ca": true, "gateway-rbac": true, "preflight": true, "migrate-state": true, "migrate-backend": true, "ensure-postgres-auth": true,
-		"ensure-gateway-auth": true, "rotate-token": true, "pause": true, "resume": true, "export": true, "import": true, "ensure-installation-id": true, "ensure-s3-auth": true, "ensure-s3-teams": true}
+		"ensure-gateway-auth": true, "rotate-token": true, "pause": true, "resume": true, "export": true, "import": true, "upgrade-module": true, "ensure-installation-id": true, "ensure-s3-auth": true, "ensure-s3-teams": true}
 	if !clusterCommands[command] {
 		return fmt.Errorf("unknown admin command")
 	}
@@ -145,6 +146,11 @@ func run() error {
 		return m.Preflight(ctx)
 	}
 	switch command {
+	case "upgrade-module":
+		if *all == (*namespace != "" || *name != "") || (!*all && (*namespace == "" || *name == "")) {
+			return fmt.Errorf("upgrade-module requires either --all or --namespace and --name")
+		}
+		return m.UpgradeModule(ctx, *namespace, *name, *all)
 	case "pause":
 		return m.Pause(ctx)
 	case "resume":

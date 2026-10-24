@@ -106,6 +106,7 @@ func (s *Server) Handler() http.Handler {
 		m.HandleFunc(method+" /{version}/teams/{team}/{plural}/{name}", s.handle)
 	}
 	m.HandleFunc("POST /{version}/teams/{team}/{plural}/{name}/retry", s.retry)
+	m.HandleFunc("POST /{version}/teams/{team}/{plural}/{name}/plan", s.plan)
 	return m
 }
 
@@ -345,9 +346,36 @@ func requestPayload(r *http.Request) (any, []any) {
 
 const swaggerHTML = `<!doctype html><html><head><title>Panko API</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css"></head><body><div id="swagger-ui"></div><script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script><script>SwaggerUIBundle({url:'/openapi.json',dom_id:'#swagger-ui',deepLinking:true,presets:[SwaggerUIBundle.presets.apis,SwaggerUIBundle.SwaggerUIStandalonePreset]});</script></body></html>`
 
-// retry asks the hook for one more attempt of a failed apply or destroy. It sets a fresh token
-// annotation instead of exposing annotations to teams; the hook starts at most one Job per token.
+// retry asks the hook for one more attempt of a failed apply or destroy.
 func (s *Server) retry(w http.ResponseWriter, r *http.Request) {
+	s.action(w, r, "RETRY", "Nothing to retry; only failed executions can be retried", func(current Object) string {
+		status := jsonx.Obj(current["status"])
+		if jsonx.Obj(current["metadata"])["deletionTimestamp"] != nil {
+			if jsonx.Obj(status["destroy"])["result"] == "Failed" {
+				return "retry-destroy"
+			}
+			return ""
+		}
+		if status["phase"] == "Failed" {
+			return "retry-apply"
+		}
+		return ""
+	})
+}
+
+// plan asks the hook for a read-only drift check of a Ready resource.
+func (s *Server) plan(w http.ResponseWriter, r *http.Request) {
+	s.action(w, r, "PLAN", "Only Ready resources can be checked for drift", func(current Object) string {
+		if jsonx.Obj(current["metadata"])["deletionTimestamp"] == nil && jsonx.Obj(current["status"])["phase"] == "Ready" {
+			return "plan-request"
+		}
+		return ""
+	})
+}
+
+// action sets a fresh token annotation chosen by pick instead of exposing annotations to teams;
+// the hook starts at most one Job per token. An empty choice answers 409.
+func (s *Server) action(w http.ResponseWriter, r *http.Request, audit, conflict string, pick func(Object) string) {
 	team, version, plural, name := r.PathValue("team"), r.PathValue("version"), r.PathValue("plural"), r.PathValue("name")
 	if !s.authorize(w, r, team) {
 		return
@@ -368,13 +396,9 @@ func (s *Server) retry(w http.ResponseWriter, r *http.Request) {
 		respondError(w, err)
 		return
 	}
-	status := jsonx.Obj(current["status"])
-	key, retryable := "retry-apply", status["phase"] == "Failed"
-	if jsonx.Obj(current["metadata"])["deletionTimestamp"] != nil {
-		key, retryable = "retry-destroy", jsonx.Obj(status["destroy"])["result"] == "Failed"
-	}
-	if !retryable {
-		fail(w, 409, "Nothing to retry; only failed executions can be retried", nil)
+	key := pick(current)
+	if key == "" {
+		fail(w, 409, conflict, nil)
 		return
 	}
 	token := make([]byte, 8)
@@ -388,6 +412,6 @@ func (s *Server) retry(w http.ResponseWriter, r *http.Request) {
 		respondError(w, err)
 		return
 	}
-	s.audit("RETRY", jsonx.Obj(result["metadata"]))
+	s.audit(audit, jsonx.Obj(result["metadata"]))
 	writeJSON(w, 202, view(result))
 }

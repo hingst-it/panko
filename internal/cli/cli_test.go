@@ -539,3 +539,25 @@ func TestRetryWaitIgnoresThePreviousFailure(t *testing.T) {
 		t.Fatal("did not wait for the newer attempt")
 	}
 }
+func TestPlanWaitReportsDrift(t *testing.T) {
+	gets := 0
+	a, base, out, errs := setup(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" {
+			if r.URL.Path != "/v1/teams/team-a/databases/orders/plan" {
+				t.Error(r.URL.Path)
+			}
+			w.WriteHeader(202)
+			writeJSON(w, jsonx.Object{})
+			return
+		}
+		gets++
+		plan := jsonx.Object{"job": "old", "result": "Succeeded", "drift": false}
+		if gets >= 3 {
+			plan = jsonx.Object{"job": "new", "result": "Succeeded", "drift": true, "changes": jsonx.Object{"change": 1}}
+		}
+		writeJSON(w, jsonx.Object{"name": "orders", "status": jsonx.Object{"phase": "Ready", "lastPlan": plan}})
+	})
+	if code := run(t, a, base, "plan", "orders", "--wait", "--timeout", "1s"); code != 3 || !strings.Contains(out.String(), "drift detected") {
+		t.Fatalf("got %d %s %s", code, out, errs)
+	}
+}

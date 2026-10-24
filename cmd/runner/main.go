@@ -22,8 +22,8 @@ func main() {
 	}
 }
 func run() error {
-	if len(os.Args) != 4 || (os.Args[1] != "apply" && os.Args[1] != "destroy" && os.Args[1] != "migrate") {
-		return fmt.Errorf("usage: runner apply|destroy|migrate NAMESPACE NAME")
+	if len(os.Args) != 4 || (os.Args[1] != "apply" && os.Args[1] != "destroy" && os.Args[1] != "migrate" && os.Args[1] != "plan") {
+		return fmt.Errorf("usage: runner apply|destroy|plan|migrate NAMESPACE NAME")
 	}
 	snapshot, err := resource.Validate(strings.NewReader(os.Getenv("PANKO_RESOURCE")), os.Args[2], os.Args[3], os.Getenv("PANKO_HASH"))
 	if err != nil {

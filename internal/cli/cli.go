@@ -76,8 +76,8 @@ func (a *App) Run(ctx context.Context, args []string) int {
 		if arg == "--help" || arg == "-h" {
 			fmt.Fprintln(a.Out, "usage: panko [--url URL] [--team TEAM] [--tokens-file PATH] [--kubeconfig PATH] [--config PATH] COMMAND")
 			fmt.Fprintln(a.Out, "list [--json] | get NAME [--json] | create NAME [-f spec.json | --owner TEAM --extensions a,b --connection-limit N --state-backend REF]")
-			fmt.Fprintln(a.Out, "wait NAME [--timeout 5m] | retry NAME [--wait] | delete NAME [--wait] [--timeout 5m] | connect NAME [--format uri|env|json] | doctor")
-			fmt.Fprintln(a.Out, "Environment: PANKO_URL, PANKO_TEAM, PANKO_TOKEN, KUBECONFIG. Exit codes: 0 success, 1 failure, 2 usage/timeout.")
+			fmt.Fprintln(a.Out, "wait NAME [--timeout 5m] | retry NAME [--wait] | plan NAME [--wait] | delete NAME [--wait] [--timeout 5m] | connect NAME [--format uri|env|json] | doctor")
+			fmt.Fprintln(a.Out, "Environment: PANKO_URL, PANKO_TEAM, PANKO_TOKEN, KUBECONFIG. Exit codes: 0 success, 1 failure, 2 usage/timeout, 3 drift (plan --wait).")
 			return 0
 		}
 	}
@@ -132,7 +132,7 @@ func (a *App) Run(ctx context.Context, args []string) int {
 		return 2
 	}
 	command := positional[0]
-	allowed := map[string]string{"list": "json", "get": "json", "create": "owner extensions connection-limit state-backend f", "wait": "timeout", "retry": "wait timeout", "delete": "wait timeout", "connect": "format", "doctor": ""}
+	allowed := map[string]string{"list": "json", "get": "json", "create": "owner extensions connection-limit state-backend f", "wait": "timeout", "retry": "wait timeout", "plan": "wait timeout", "delete": "wait timeout", "connect": "format", "doctor": ""}
 	local, known := allowed[command]
 	want := 2
 	if command == "list" || command == "doctor" {
@@ -276,6 +276,23 @@ func (a *App) Run(ctx context.Context, args []string) int {
 			fmt.Fprintln(a.Out, "retry requested")
 			return 0
 		}
+	case "plan":
+		var before any
+		before, err = a.request(ctx, o, "GET", resource, nil)
+		previous := jsonx.Str(jsonx.Obj(jsonx.Obj(jsonx.Obj(before)["status"])["lastPlan"])["job"])
+		if err == nil {
+			_, err = a.request(ctx, o, "POST", resource+"/plan", nil)
+		}
+		if statusCode(err) == 409 {
+			err = fmt.Errorf("only Ready resources can be checked for drift")
+		}
+		if err == nil && o.wait {
+			return a.waitPlan(ctx, o, resource, previous)
+		}
+		if err == nil {
+			fmt.Fprintln(a.Out, "drift check requested")
+			return 0
+		}
 	case "delete":
 		_, err = a.request(ctx, o, "DELETE", resource, nil)
 		if err == nil && o.wait {
@@ -378,6 +395,47 @@ func (a *App) summary(v jsonx.Object) {
 	fmt.Fprintf(a.Out, "%s: %s\n  message: %s\n", jsonx.Str(v["name"]), jsonx.Str(s["phase"]), jsonx.Str(s["message"]))
 	fmt.Fprintf(a.Out, "  lastExecution: code=%s attempt=%v finishedAt=%s\n", jsonx.Str(e["code"]), value(e["attempt"]), jsonx.Str(e["finishedAt"]))
 	fmt.Fprintf(a.Out, "  changes: %s\n  state backend: %s\n", jsonx.Encode(e["changes"]), jsonx.Str(jsonx.Obj(s["stateBackend"])["type"]))
+	if plan := jsonx.Obj(s["lastPlan"]); plan != nil {
+		fmt.Fprintf(a.Out, "  last drift check: %s drift=%v changes=%s\n", jsonx.Str(plan["finishedAt"]), plan["drift"], jsonx.Encode(plan["changes"]))
+	}
+}
+
+// waitPlan waits for a drift check newer than previous. Exit 0: no drift, 3: drift, 1: the check failed.
+func (a *App) waitPlan(ctx context.Context, o options, path, previous string) int {
+	ctx, cancel := context.WithTimeout(ctx, o.timeout)
+	defer cancel()
+	for {
+		v, err := a.request(ctx, o, "GET", path, nil)
+		if err != nil {
+			if ctx.Err() != nil {
+				fmt.Fprintln(a.Err, "wait timed out or canceled")
+				return 2
+			}
+			fmt.Fprintln(a.Err, err)
+			return 1
+		}
+		plan := jsonx.Obj(jsonx.Obj(jsonx.Obj(v)["status"])["lastPlan"])
+		if plan != nil && jsonx.Str(plan["job"]) != previous {
+			switch {
+			case plan["result"] != "Succeeded":
+				fmt.Fprintf(a.Err, "drift check failed (%s): %s\n", jsonx.Str(plan["code"]), jsonx.Str(plan["message"]))
+				return 1
+			case plan["drift"] == true:
+				fmt.Fprintf(a.Out, "drift detected: %s\n", jsonx.Encode(plan["changes"]))
+				return 3
+			}
+			fmt.Fprintln(a.Out, "no drift")
+			return 0
+		}
+		timer := time.NewTimer(a.PollInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			fmt.Fprintln(a.Err, "wait timed out or canceled")
+			return 2
+		case <-timer.C:
+		}
+	}
 }
 func value(v any) any {
 	if v == nil {

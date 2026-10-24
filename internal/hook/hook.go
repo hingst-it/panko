@@ -69,6 +69,10 @@ type JobConfig struct {
 	ProviderMirror, ModuleMirror                                                                   string
 	// Backends gates team-defined state backends; the Kubernetes fallback is always available.
 	Backends statebackend.Settings
+	// Rollout "manual" keeps applied resources on their revision until upgrade-module names the configured one.
+	Rollout string
+	// DriftInterval schedules a read-only plan for Ready resources; zero disables scheduled checks.
+	DriftInterval time.Duration
 }
 
 var revisionPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
@@ -85,7 +89,20 @@ func JobConfigFrom(lookup func(string) string) JobConfig {
 	}
 	return JobConfig{RunnerImage: value("RUNNER_IMAGE", "panko-runner:dev"), EngineImage: lookup("ENGINE_IMAGE"), EngineBinary: value("ENGINE_BINARY", "/usr/local/bin/tofu"),
 		GitSyncImage: lookup("GIT_SYNC_IMAGE"), ModuleRepo: lookup("MODULE_REPO"), ModuleRevision: lookup("MODULE_REVISION"), ModuleSecret: value("MODULE_SECRET", "panko-module-git"),
-		ProviderMirror: lookup("PROVIDER_MIRROR"), ModuleMirror: lookup("MODULE_MIRROR"), Backends: statebackend.Settings{External: lookup("EXTERNAL_STATE_BACKENDS") == "enabled", Installation: lookup("INSTALLATION_ID")}}
+		ProviderMirror: lookup("PROVIDER_MIRROR"), ModuleMirror: lookup("MODULE_MIRROR"), Backends: statebackend.Settings{External: lookup("EXTERNAL_STATE_BACKENDS") == "enabled", Installation: lookup("INSTALLATION_ID")},
+		Rollout: value("MODULE_ROLLOUT", "auto"), DriftInterval: duration(lookup("DRIFT_CHECK_INTERVAL"))}
+}
+
+// duration parses an optional duration; an invalid value becomes negative and fails validation.
+func duration(value string) time.Duration {
+	if value == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil || d < 0 {
+		return -1
+	}
+	return d
 }
 func (c JobConfig) Validate() error {
 	if c.ProviderMirror != "" {
@@ -109,6 +126,12 @@ func (c JobConfig) Validate() error {
 	}
 	if !strings.HasPrefix(c.EngineBinary, "/") {
 		return fmt.Errorf("ENGINE_BINARY must be an absolute path")
+	}
+	if c.Rollout != "auto" && c.Rollout != "manual" {
+		return fmt.Errorf("MODULE_ROLLOUT must be auto or manual")
+	}
+	if c.DriftInterval < 0 || (c.DriftInterval > 0 && c.DriftInterval < 10*time.Minute) {
+		return fmt.Errorf("DRIFT_CHECK_INTERVAL must be empty or a duration of at least 10m")
 	}
 	if c.Backends.External && c.Backends.Installation == "" {
 		return fmt.Errorf("INSTALLATION_ID is required for team-defined state backends")
@@ -301,7 +324,7 @@ func newestTerminal(parent Object, children []Object, pods map[string]Object) Ob
 	recorded := jsonx.Str(jsonx.Obj(jsonx.Obj(parent["status"])["lastExecution"])["job"])
 	var newest Object
 	for _, c := range children {
-		if Terminal(c) == "" || jsonx.Obj(c["metadata"])["name"] == recorded {
+		if Terminal(c) == "" || isPlan(c) || jsonx.Obj(c["metadata"])["name"] == recorded {
 			continue
 		}
 		e := Execution(c, pods)
@@ -310,6 +333,51 @@ func newestTerminal(parent Object, children []Object, pods map[string]Object) Ob
 		}
 	}
 	return newest
+}
+func isPlan(c Object) bool { return Ann(c)[Prefix+"action"] == "plan" }
+
+// revisionFor chooses the module revision of the next apply. In manual rollouts a resource keeps the
+// revision it was applied with until upgrade-module names the configured one.
+func revisionFor(parent Object, config JobConfig) string {
+	applied := jsonx.Str(jsonx.Obj(parent["status"])["lastAppliedRevision"])
+	if config.Rollout != "manual" || applied == "" || annotation(parent, "upgrade-module") == config.ModuleRevision {
+		return config.ModuleRevision
+	}
+	return applied
+}
+
+// planRecord summarizes a finished read-only plan; drift means OpenTofu would change something.
+func planRecord(c Object, pods map[string]Object) Object {
+	e := Execution(c, pods)
+	record := Object{"job": e["job"], "token": jsonx.Str(Ann(c)[Prefix+"retry-token"]), "moduleRevision": e["moduleRevision"], "result": e["result"]}
+	for _, key := range []string{"finishedAt", "code", "message", "changes"} {
+		if value, ok := e[key]; ok {
+			record[key] = value
+		}
+	}
+	changes := jsonx.Obj(e["changes"])
+	record["drift"] = jsonx.Int(changes["add"])+jsonx.Int(changes["change"])+jsonx.Int(changes["remove"]) > 0
+	return record
+}
+
+// planDue returns the token of a plan that should start now: an explicit request or a due scheduled check.
+func planDue(parent Object, config JobConfig, now time.Time) string {
+	last := jsonx.Obj(jsonx.Obj(parent["status"])["lastPlan"])
+	if token := annotation(parent, "plan-request"); token != "" && token != jsonx.Str(last["token"]) {
+		return token
+	}
+	if config.DriftInterval <= 0 {
+		return ""
+	}
+	// One scheduled check per interval bucket, so restarts and resyncs never start a second one.
+	token := "scheduled-" + strconv.FormatInt(now.Unix()/int64(config.DriftInterval.Seconds()), 10)
+	if token == jsonx.Str(last["token"]) {
+		return ""
+	}
+	if finished, err := time.Parse(time.RFC3339, jsonx.Str(last["finishedAt"])); err == nil && now.Sub(finished) < config.DriftInterval {
+		return ""
+	}
+	return token
 }
 func annotation(parent Object, key string) string {
 	return jsonx.Str(jsonx.Obj(jsonx.Obj(parent["metadata"])["annotations"])[Prefix+key])
@@ -447,6 +515,28 @@ func Reconcile(r Request) (Response, error) {
 	if r.Finalizing {
 		return finalize(r, children, meta.Generation, hash)
 	}
+	config := LoadJobConfig()
+	// Plan Jobs never change infrastructure; their outcome goes to lastPlan, not lastExecution.
+	var plan Object
+	applies := []Object{}
+	for _, c := range children {
+		if !isPlan(c) {
+			applies = append(applies, c)
+		} else if Terminal(c) == "" || plan == nil {
+			plan = c
+		}
+	}
+	if plan != nil && Terminal(plan) == "" {
+		// A running plan keeps the reported phase; changes wait until it finished.
+		old := jsonx.Obj(p["status"])
+		response := result(p, jsonx.Str(old["phase"]), jsonx.Int(old["observedGeneration"]), "Drift check running", retainAll(children), "", nil, nil)
+		return response, nil
+	}
+	finishedPlan := Object(nil)
+	if plan != nil && jsonx.Str(jsonx.Obj(jsonx.Obj(p["status"])["lastPlan"])["job"]) != jsonx.Str(jsonx.Obj(plan["metadata"])["name"]) {
+		finishedPlan = planRecord(plan, r.Related[PodKey])
+	}
+	children = applies
 	running := []Object{}
 	for _, c := range children {
 		if Terminal(c) == "" {
@@ -467,7 +557,7 @@ func Reconcile(r Request) (Response, error) {
 	if pending != nil {
 		return *pending, nil
 	}
-	revision := LoadJobConfig().ModuleRevision
+	revision := revisionFor(p, config)
 	retry := annotation(p, "retry-apply")
 	if c := latestApply(children, hash, revision); c != nil {
 		execution := Execution(c, r.Related[PodKey])
@@ -492,11 +582,26 @@ func Reconcile(r Request) (Response, error) {
 		if finished != nil {
 			response.Status["lastExecution"] = finished
 		}
+		if finishedPlan != nil {
+			response.Status["lastPlan"] = finishedPlan
+		}
 		return response
 	}
 	old := jsonx.Obj(p["status"])
 	// Resources applied before revisions were tracked are applied once with the configured module.
 	if old["lastAppliedHash"] == hash && old["lastAppliedRevision"] == revision {
+		probe := p
+		if finishedPlan != nil {
+			probe = jsonx.Clone(p)
+			jsonx.Obj(probe["status"])["lastPlan"] = finishedPlan
+		}
+		if token := planDue(probe, config, time.Now()); token != "" {
+			child, err := CreateJob(p, "plan", hash, revision, backend, meta.Generation, 1, token)
+			if err != nil {
+				return Response{}, err
+			}
+			return record(withRevision(result(p, "Ready", meta.Generation, "Database is ready; drift check scheduled", []Object{child}, hash, nil, nil), revision, revision)), nil
+		}
 		return record(withRevision(result(p, "Ready", meta.Generation, "Database is ready", nil, hash, nil, nil), revision, revision)), nil
 	}
 	// A new attempt takes the current token, so a token already used for an earlier retry stays consumed.

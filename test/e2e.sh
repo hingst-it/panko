@@ -15,3 +15,4 @@ fi
 python3 test/failures_e2e.py
 python3 test/mirror_e2e.py
 python3 test/cli_e2e.py
+python3 test/drift_e2e.py

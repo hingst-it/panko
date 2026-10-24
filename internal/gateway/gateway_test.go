@@ -345,3 +345,38 @@ func TestRetryActionSetsOneTokenForFailedExecutions(t *testing.T) {
 		t.Fatal("failed destroy not retried")
 	}
 }
+func TestPlanActionOnlyForReadyResources(t *testing.T) {
+	var f struct{ CRDs []any }
+	fixture(t, "openapi.json", &f)
+	current := Object{}
+	var patched Object
+	api := fakeAPI(func(ctx context.Context, m, p string, b any, ct string) (Object, error) {
+		switch {
+		case p == discoveryPath:
+			return Object{"items": f.CRDs}, nil
+		case m == "GET":
+			return current, nil
+		case m == "PATCH":
+			patched = jsonx.Obj(b)
+			return Object{"metadata": Object{"name": "orders"}, "spec": Object{}}, nil
+		}
+		return nil, &kube.Error{Code: 500}
+	})
+	d, _ := NewDiscovery(api, 5)
+	s := &Server{API: api, Discovery: d, TokensFile: tokenFile(t)}
+	plan := func() int {
+		r := httptest.NewRequest("POST", "/v1/teams/team-a/databases/orders/plan", nil)
+		r.Header.Set("Authorization", "Bearer token-a")
+		w := httptest.NewRecorder()
+		s.Handler().ServeHTTP(w, r)
+		return w.Code
+	}
+	current = Object{"metadata": Object{"name": "orders", "resourceVersion": "4"}, "status": Object{"phase": "Failed"}}
+	if plan() != 409 || patched != nil {
+		t.Fatal("drift check of a failed resource accepted")
+	}
+	current = Object{"metadata": Object{"name": "orders", "resourceVersion": "4"}, "status": Object{"phase": "Ready"}}
+	if plan() != 202 || jsonx.Str(jsonx.Obj(jsonx.Obj(patched["metadata"])["annotations"])["platform.example.com/plan-request"]) == "" {
+		t.Fatal("drift check not requested", patched)
+	}
+}

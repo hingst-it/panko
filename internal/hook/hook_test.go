@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hingst-it/panko/internal/jsonx"
 	"github.com/hingst-it/panko/internal/statebackend"
@@ -476,5 +477,82 @@ func TestRestoredIdentityReachesTheSnapshotOnly(t *testing.T) {
 	fresh := unbound("")
 	if b, _ := Reconcile(Request{Parent: fresh}); b.Status["identity"] != "abc" {
 		t.Fatal("binding did not record the identity", b.Status)
+	}
+}
+func readyParent() Object {
+	p := parent()
+	hash, _ := jsonx.Digest(p["spec"], int64(1))
+	p["status"] = status(Object{"phase": "Ready", "observedGeneration": int64(1), "lastAppliedHash": hash, "lastAppliedRevision": testRevision, "observedRevision": testRevision})
+	return p
+}
+func TestPlanRequestRunsOnceAndRecordsDrift(t *testing.T) {
+	p := readyParent()
+	if r, _ := Reconcile(Request{Parent: p}); len(r.Children) != 0 {
+		t.Fatal("plan started without a request")
+	}
+	jsonx.Obj(p["metadata"])["annotations"] = Object{Prefix + "plan-request": "p1"}
+	r, _ := Reconcile(Request{Parent: p})
+	if len(r.Children) != 1 || Ann(r.Children[0])[Prefix+"action"] != "plan" || r.Status["phase"] != "Ready" {
+		t.Fatal("plan not scheduled for a Ready resource", r.Status)
+	}
+	job := r.Children[0]
+	running := map[string]map[string]Object{"Job.batch/v1": {"plan": job}}
+	if r, _ := Reconcile(Request{Parent: p, Children: running}); r.Status["phase"] != "Ready" || len(r.Children) != 1 {
+		t.Fatal("running plan changed the phase or was dropped", r.Status)
+	}
+	done := jsonx.Clone(job)
+	done["status"] = Object{"conditions": []any{Object{"type": "Complete", "status": "True"}}}
+	pods := map[string]Object{"p": pod(jsonx.Str(jsonx.Obj(job["metadata"])["name"]), Object{"containerStatuses": []any{terminatedWith("tofu", Object{"exitCode": 0, "message": `{"message":"Completed","changes":{"add":0,"change":1,"remove":0}}`})}})}
+	r, _ = Reconcile(Request{Parent: p, Children: map[string]map[string]Object{"Job.batch/v1": {"plan": done}}, Related: map[string]map[string]Object{PodKey: pods}})
+	last := jsonx.Obj(r.Status["lastPlan"])
+	if last["drift"] != true || last["token"] != "p1" || r.Status["lastExecution"] != nil || len(r.Children) != 0 {
+		t.Fatal("plan outcome not recorded as drift in lastPlan only", r.Status)
+	}
+	p["status"] = r.Status
+	if again, _ := Reconcile(Request{Parent: p}); len(again.Children) != 0 {
+		t.Fatal("consumed plan token started another plan")
+	}
+}
+func TestScheduledDriftCheckOncePerInterval(t *testing.T) {
+	t.Setenv("DRIFT_CHECK_INTERVAL", "6h")
+	p := readyParent()
+	r, _ := Reconcile(Request{Parent: p})
+	if len(r.Children) != 1 || !strings.HasPrefix(jsonx.Str(Ann(r.Children[0])[Prefix+"retry-token"]), "scheduled-") {
+		t.Fatal("scheduled check not started")
+	}
+	jsonx.Obj(p["status"])["lastPlan"] = Object{"token": Ann(r.Children[0])[Prefix+"retry-token"], "finishedAt": time.Now().UTC().Format(time.RFC3339)}
+	if r, _ := Reconcile(Request{Parent: p}); len(r.Children) != 0 {
+		t.Fatal("second scheduled check within the interval")
+	}
+	failedP := parent()
+	failedP["status"] = status(Object{"phase": "Failed", "observedGeneration": int64(1), "observedRevision": testRevision})
+	if r, _ := Reconcile(Request{Parent: failedP}); len(r.Children) != 0 {
+		t.Fatal("drift check started for a failed resource")
+	}
+}
+func TestManualRolloutKeepsAppliedRevisionUntilUpgrade(t *testing.T) {
+	t.Setenv("MODULE_ROLLOUT", "manual")
+	t.Setenv("MODULE_REVISION", "2222222222222222222222222222222222222222")
+	p := readyParent()
+	if r, _ := Reconcile(Request{Parent: p}); len(r.Children) != 0 || r.Status["phase"] != "Ready" {
+		t.Fatal("manual rollout re-applied an existing resource", r.Status)
+	}
+	jsonx.Obj(p["metadata"])["annotations"] = Object{Prefix + "upgrade-module": "2222222222222222222222222222222222222222"}
+	r, _ := Reconcile(Request{Parent: p})
+	if len(r.Children) != 1 || revisionOf(r.Children[0]) != "2222222222222222222222222222222222222222" {
+		t.Fatal("upgrade-module did not move the resource to the configured revision")
+	}
+	if r, _ := Reconcile(Request{Parent: unbound("")}); r.Status["stateBackend"] == nil {
+		t.Fatal("new resource not bound")
+	}
+}
+func TestRolloutAndDriftSettingsValidated(t *testing.T) {
+	for key, value := range map[string]string{"MODULE_ROLLOUT": "sometimes", "DRIFT_CHECK_INTERVAL": "1m"} {
+		t.Run(key, func(t *testing.T) {
+			t.Setenv(key, value)
+			if LoadJobConfig().Validate() == nil {
+				t.Fatalf("accepted %s=%s", key, value)
+			}
+		})
 	}
 }

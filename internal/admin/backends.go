@@ -410,3 +410,42 @@ func (m *Migrator) logf(format string, args ...any) {
 		_, _ = fmt.Fprintf(m.Log, format+"\n", args...)
 	}
 }
+
+// UpgradeModule moves resources to the hook's configured module revision in manual rollouts:
+// one resource as a canary, or every resource of the configured teams with all.
+func (m *Migrator) UpgradeModule(ctx context.Context, namespace, name string, all bool) error {
+	deployment, err := m.get(ctx, "/apis/apps/v1/namespaces/infra-runners/deployments/database-hook")
+	if err != nil || deployment == nil {
+		return fmt.Errorf("cannot read the hook configuration")
+	}
+	revision := ""
+	for _, item := range jsonx.Array(jsonx.Obj(jsonx.Array(jsonx.Obj(jsonx.Obj(jsonx.Obj(deployment["spec"])["template"])["spec"])["containers"])[0])["env"]) {
+		if jsonx.Obj(item)["name"] == "MODULE_REVISION" {
+			revision = jsonx.Str(jsonx.Obj(item)["value"])
+		}
+	}
+	if revision == "" {
+		return fmt.Errorf("the hook has no MODULE_REVISION")
+	}
+	targets := [][2]string{}
+	if all {
+		for _, team := range Teams {
+			items, err := m.items(ctx, "/apis/platform.example.com/v1/namespaces/"+team+"/databases")
+			if err != nil {
+				return err
+			}
+			for _, item := range items {
+				targets = append(targets, [2]string{team, jsonx.Str(jsonx.Obj(jsonx.Obj(item)["metadata"])["name"])})
+			}
+		}
+	} else {
+		targets = append(targets, [2]string{namespace, name})
+	}
+	for _, target := range targets {
+		if err := m.patch(ctx, databasePath(target[0], target[1]), Object{"metadata": Object{"annotations": Object{hook.Prefix + "upgrade-module": revision}}}); err != nil {
+			return err
+		}
+		m.logf("%s/%s: upgrade to module %s requested", target[0], target[1], revision)
+	}
+	return nil
+}

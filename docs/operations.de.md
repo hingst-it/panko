@@ -66,6 +66,27 @@ Status und werden nicht erneut angewendet. Nur eine geänderte `MODULE_REVISION`
 jede Ressource einmal mit dem neuen Modul an. Neue Lab-Bestandteile wie der S3-Gateway
 erfordern zusätzlich `make bootstrap`.
 
+## Drift-Prüfung und Modul-Rollouts
+
+`panko plan NAME --wait` (oder `POST .../{name}/plan`) startet für eine Ressource im
+Zustand `Ready` eine lesende Prüfung: `init`, Backend- und Checkpoint-Prüfung, dann
+`tofu plan` ohne Speichern. Das Ergebnis steht in `status.lastPlan` mit `drift` und
+den Änderungszahlen; die Phase bleibt `Ready`, nichts wird repariert. Exit-Code 3
+meldet Drift. Mit `DRIFT_CHECK_INTERVAL` am Hook (mindestens `10m`, z. B. `6h`)
+prüft Panko jede Ressource in diesem Abstand selbst, höchstens einmal je Intervall.
+
+Standardmäßig (`MODULE_ROLLOUT=auto`) wendet eine neue `MODULE_REVISION` jede
+Ressource einmal an. Mit `MODULE_ROLLOUT=manual` bleiben bestehende Ressourcen auf
+ihrer angewendeten Revision; nur neue erhalten die konfigurierte. Umgestellt wird
+gezielt:
+
+```sh
+.local/bin/admin upgrade-module --namespace team-a --name orders   # Kanarienvogel
+.local/bin/admin upgrade-module --all                              # danach alle
+```
+
+Destroy verwendet weiterhin die zuletzt angewendete Revision.
+
 ## Sicherung und Wiederherstellung
 
 ```sh

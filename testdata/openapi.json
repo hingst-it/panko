@@ -1538,6 +1538,198 @@
             }
           }
         }
+      },
+      "/v1/teams/{team}/databases/{name}/plan": {
+        "post": {
+          "operationId": "plan_platform_example_com_v1_Database_item",
+          "tags": [
+            "Database"
+          ],
+          "summary": "Check a Database for drift without changing it",
+          "parameters": [
+            {
+              "name": "team",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "Team namespace authorized by the bearer token."
+            },
+            {
+              "name": "name",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "description": "Resource name, unique within this team."
+              }
+            }
+          ],
+          "security": [
+            {
+              "TeamToken": []
+            }
+          ],
+          "responses": {
+            "202": {
+              "description": "Drift check requested",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/platform_example_com_v1_Database"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Token required",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            },
+            "403": {
+              "description": "Forbidden",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            },
+            "404": {
+              "description": "Not found",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            },
+            "409": {
+              "description": "Resource not Ready or changed",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            },
+            "503": {
+              "description": "Kubernetes unavailable",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/v1/teams/{team}/widgets/{name}/plan": {
+        "post": {
+          "operationId": "plan_platform_example_com_v1_Widget_item",
+          "tags": [
+            "Widget"
+          ],
+          "summary": "Check a Widget for drift without changing it",
+          "parameters": [
+            {
+              "name": "team",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "Team namespace authorized by the bearer token."
+            },
+            {
+              "name": "name",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "description": "Resource name, unique within this team."
+              }
+            }
+          ],
+          "security": [
+            {
+              "TeamToken": []
+            }
+          ],
+          "responses": {
+            "202": {
+              "description": "Drift check requested",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/platform_example_com_v1_Widget"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Token required",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            },
+            "403": {
+              "description": "Forbidden",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            },
+            "404": {
+              "description": "Not found",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            },
+            "409": {
+              "description": "Resource not Ready or changed",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            },
+            "503": {
+              "description": "Kubernetes unavailable",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "components": {

@@ -128,6 +128,28 @@ spec:
                 identity:
                   type: string
                   description: Stable identity for names, state keys and checkpoints; the original UID after a restore.
+                lastPlan:
+                  type: object
+                  description: Outcome of the most recent read-only drift check.
+                  properties:
+                    job: {type: string, description: Name of the plan Job.}
+                    token: {type: string, description: Request or schedule token that started the check.}
+                    moduleRevision: {type: string, description: Module commit the check used.}
+                    finishedAt: {type: string, description: Completion time.}
+                    result:
+                      type: string
+                      enum: [Succeeded, Failed]
+                      description: Whether the check itself ran.
+                    drift: {type: boolean, description: "True if OpenTofu would add, change or remove something."}
+                    code: {type: string, description: Failure code if the check failed.}
+                    message: {type: string, maxLength: 300, description: Safe failure description.}
+                    changes:
+                      type: object
+                      description: Changes OpenTofu would make.
+                      properties:
+                        add: {type: integer, format: int64}
+                        change: {type: integer, format: int64}
+                        remove: {type: integer, format: int64}
                 lastExecution:
                   type: object
                   description: Outcome of the most recent finished Job; kept after the Job expires.
