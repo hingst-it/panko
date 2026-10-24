@@ -3,12 +3,18 @@
 set -euo pipefail
 export CLUSTER_NAME="${CLUSTER_NAME:-infra-lab-restore}"
 export KUBECONFIG="${KUBECONFIG:-$PWD/.local/restore-kubeconfig}"
+# The Makefile sets KUBECONFIG itself, so it only follows a make argument; never touch the default lab.
+if [ "$KUBECONFIG" = "$PWD/.local/kubeconfig" ]; then
+  echo "use a dedicated KUBECONFIG for the rehearsal" >&2
+  exit 1
+fi
+lab=(CLUSTER_NAME="$CLUSTER_NAME" KUBECONFIG="$KUBECONFIG")
 backup="${BACKUP_DIR:-.local/backup-rehearsal-$(date +%s)}"
-make cluster-up bootstrap build deploy
+make "${lab[@]}" cluster-up bootstrap build deploy
 python3 test/restore_e2e.py prepare
-make backup BACKUP_DIR="$backup"
+make "${lab[@]}" backup BACKUP_DIR="$backup"
 mise exec -- k3d cluster delete "$CLUSTER_NAME"
-make cluster-up bootstrap build deploy
-make restore BACKUP_DIR="$backup"
+make "${lab[@]}" cluster-up bootstrap build deploy
+make "${lab[@]}" restore BACKUP_DIR="$backup"
 python3 test/restore_e2e.py verify
 mise exec -- k3d cluster delete "$CLUSTER_NAME"
