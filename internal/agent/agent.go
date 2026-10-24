@@ -114,6 +114,12 @@ const stopGrace = 10 * time.Second
 // endpoint has already given up on this attempt and the commit would be refused.
 func (a *Agent) Execute(ctx context.Context, claim runproto.Claim) {
 	a.event("execution_claimed", &claim.Binding, nil)
+	// A lease too short for one more heartbeat and OpenTofu's stop could end while OpenTofu still
+	// runs; such a claim is left to expire instead.
+	if time.Duration(claim.LeaseDurationSeconds-claim.HeartbeatIntervalSeconds)*time.Second <= stopGrace {
+		a.event("claim_unsafe_timing", &claim.Binding, nil)
+		return
+	}
 	// A claim is a long poll, so when the endpoint started the lease is unknown. One renewal before
 	// anything runs gives the local lease a start that is never later than the endpoint's.
 	renewed := a.now()
@@ -161,11 +167,7 @@ func (a *Agent) heartbeat(ctx context.Context, claim runproto.Claim, cancel cont
 	// The local lease counts from when the last successful heartbeat was sent, never later than the
 	// endpoint renewed it, and ends early enough for one more interval and the ten seconds OpenTofu
 	// gets to stop; it expires on its own, also while a heartbeat request hangs.
-	full := time.Duration(claim.LeaseDurationSeconds) * time.Second
-	lease := full - interval - stopGrace
-	if lease <= 0 {
-		lease = full / 2
-	}
+	lease := time.Duration(claim.LeaseDurationSeconds)*time.Second - interval - stopGrace
 	expires := renewed.Add(lease)
 	for {
 		if a.pause(ctx, min(interval, expires.Sub(a.now()))) != nil {
@@ -190,7 +192,8 @@ func (a *Agent) heartbeat(ctx context.Context, claim runproto.Claim, cancel cont
 		if ctx.Err() != nil {
 			return
 		}
-		a.event("heartbeat_failed", &claim.Binding, err)
+		// Logged off the watchdog's path, so a stalled log cannot delay the lease cutoff.
+		go a.event("heartbeat_failed", &claim.Binding, err)
 	}
 }
 

@@ -360,7 +360,7 @@ func TestLocalLeaseExpiresWhileHeartbeatsHang(t *testing.T) {
 	a, _ := setup(t, &e.endpoint, f)
 	a.Endpoint = e
 	c := claim("apply")
-	c.LeaseDurationSeconds, c.HeartbeatIntervalSeconds = 2, 1
+	c.LeaseDurationSeconds, c.HeartbeatIntervalSeconds = 12, 1
 	done := make(chan struct{})
 	go func() { a.Execute(context.Background(), c); close(done) }()
 	select {
@@ -402,5 +402,16 @@ func TestNothingRunsWithoutAFirstRenewal(t *testing.T) {
 	a.Execute(context.Background(), claim("apply"))
 	if ran || len(e.commits) != 0 {
 		t.Fatal("execution started although the endpoint refused the first renewal")
+	}
+}
+func TestLeasesTooShortToStopOpenTofuAreRefused(t *testing.T) {
+	e := &endpoint{}
+	ran := false
+	a, logs := setup(t, e, &tofu{apply: func(context.Context) error { ran = true; return nil }})
+	c := claim("apply")
+	c.LeaseDurationSeconds, c.HeartbeatIntervalSeconds = 2, 1
+	a.Execute(context.Background(), c)
+	if ran || e.beats != 0 || len(e.commits) != 0 || !strings.Contains(logs.String(), "claim_unsafe_timing") {
+		t.Fatal("claim with a lease shorter than the stop grace was executed")
 	}
 }

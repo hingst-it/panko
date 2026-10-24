@@ -21,8 +21,21 @@ URL = 'http://127.0.0.1:18085'
 TOKENS = json.loads(Path('.local/team-tokens.json').read_text())
 
 
-def docker(*args, check=True):
-    result = subprocess.run(['docker', *args], capture_output=True, text=True)
+LOCK_PROBE = '''
+import botocore
+s3.put_object(Bucket='panko-state', Key='probe.tflock', Body=b'1', IfNoneMatch='*')
+try:
+    s3.put_object(Bucket='panko-state', Key='probe.tflock', Body=b'2', IfNoneMatch='*')
+    print('accepted')
+except botocore.exceptions.ClientError as e:
+    print(e.response['Error']['Code'])
+s3.delete_object(Bucket='panko-state', Key='probe.tflock')
+'''
+
+
+def docker(*args, check=True, timeout=600):
+    # Every call is bounded, so a stalled daemon cannot outlast the waits that poll through it.
+    result = subprocess.run(['docker', *args], capture_output=True, text=True, timeout=timeout)
     assert not check or result.returncode == 0, (args, result.stderr)
     return result
 
@@ -161,6 +174,8 @@ def setup(root):
     docker('run', '-d', '--name', NAMES['moto'], '--network', NETWORK, '--network-alias', 'moto', '-e', 'S3_IGNORE_SUBDOMAIN_BUCKETNAME=true', MOTO)
     wait(lambda: docker('exec', NAMES['moto'], 'python', '-c', 'import urllib.request; urllib.request.urlopen("http://localhost:5000")', check=False).returncode == 0, 'Moto', 60)
     moto("s3.create_bucket(Bucket='panko-state')")
+    # The S3 state lock relies on conditional writes; a second one must be refused.
+    assert moto(LOCK_PROBE) == 'PreconditionFailed', 'Moto does not refuse a competing conditional write, so state locking is untested'
     docker('build', '-q', '-t', 'panko-agent:dev', '-f', 'Dockerfile.agent', '.')
     revision = fixture_repository(root)
     # The module mirror image carries git-daemon; the agent image only has the git client.
@@ -215,7 +230,7 @@ def main():
     try:
         first, config_path = setup(root)
         forward = subprocess.Popen(K + ['-n', 'infra-gateway', 'port-forward', 'service/platform-gateway', '18085:8080'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        wait(lambda: subprocess.run(['curl', '--silent', '--fail', URL + '/openapi.json'], capture_output=True).stdout.find(b'/v1/teams/{team}/buckets') >= 0, 'gateway knows Buckets', 60)
+        wait(lambda: subprocess.run(['curl', '--silent', '--fail', '--max-time', '5', URL + '/openapi.json'], capture_output=True).stdout.find(b'/v1/teams/{team}/buckets') >= 0, 'gateway knows Buckets', 60)
 
         curl('POST', path, {'name': name, 'spec': {'tags': {'env': 'test'}, 'stateBackendRef': {'name': 'moto'}}}, expected=201)
         created = ready(name)
@@ -284,15 +299,24 @@ def main():
         print('8: deletion destroyed the bucket through the remote agent', flush=True)
         print('All remote runner end-to-end tests passed', flush=True)
     except BaseException:
-        for container in (NAMES['agent'], NAMES['second']):
-            logs = docker('logs', '--tail', '60', container, check=False)
-            print(f'--- {container}', logs.stdout, logs.stderr, sep='\n', flush=True)
-        print('--- bucket status', json.dumps(status(name), indent=1) if kube('get', 'crd', 'buckets.platform.example.com', check=False).returncode == 0 else 'no CRD', flush=True)
-        print('--- runs', kube('get', 'runs', '-n', TEAM, '-o', 'wide', check=False).stdout, flush=True)
-        print('--- endpoint', kube('-n', 'infra-runners', 'logs', 'deploy/runner-endpoint', '--tail=40', check=False).stdout, flush=True)
+        diagnostics(name)
         raise
     finally:
         cleanup(name, root, forward)
+
+
+def diagnostics(name):
+    """Best effort: each part is printed on its own, so one failing lookup hides nothing else."""
+    def show(title, produce):
+        try:
+            print('--- ' + title, produce(), sep='\n', flush=True)
+        except Exception as e:
+            print('--- ' + title, 'unavailable:', type(e).__name__, flush=True)
+    for container in (NAMES['agent'], NAMES['second']):
+        show(container, lambda container=container: (lambda r: r.stdout + r.stderr)(docker('logs', '--tail', '60', container, check=False, timeout=30)))
+    show('bucket status', lambda: json.dumps(status(name), indent=1))
+    show('runs', lambda: kube('get', 'runs', '-n', TEAM, '-o', 'wide', check=False).stdout)
+    show('endpoint', lambda: kube('-n', 'infra-runners', 'logs', 'deploy/runner-endpoint', '--tail=40', check=False).stdout)
 
 
 def cleanup(name, root, forward):

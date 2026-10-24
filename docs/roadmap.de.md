@@ -113,9 +113,9 @@ Jobs im Cluster. Gegen eine emulierte Cloud-API nachgewiesen.
 
 | Nr. | Thema | Größe | Stand |
 | --- | --- | --- | --- |
-| 8a | Runner-Protokoll, Runner-Pools und Agent als Container | XL, in prüfbaren Teilschritten | umgesetzt; der PostgreSQL-Fall mit erzeugten Zugangsdaten ist nur in Unit-Tests, nicht im E2E geprobt |
-| 8b | Paketierung als Systemdienst und für entfernte Cluster | M | umgesetzt (systemd-Unit, Manifest, `panko-agent check`), Betrieb nicht im CI geprobt |
-| 8c | Nachweis gegen eine emulierte Cloud-API (Moto) | M | umgesetzt (`test/remote_e2e.py`) |
+| 8a | Runner-Protokoll, Runner-Pools und Agent als Container | XL, in prüfbaren Teilschritten | umgesetzt; Abnahme teilweise offen: der PostgreSQL-Fall mit erzeugten Zugangsdaten ist nur in Unit-Tests geprobt, nicht im E2E |
+| 8b | Paketierung als Systemdienst und für entfernte Cluster | M | umgesetzt (systemd-Unit, Manifest, `panko-agent check`); Abnahme offen: Betrieb nicht im CI geprobt, `check` prüft Backend-, Modul- und Providerzugriff noch nicht |
+| 8c | Nachweis gegen eine emulierte Cloud-API (Moto) | M | umgesetzt (`test/remote_e2e.py`, über das Gateway; die CLI kennt nur Databases) |
 
 ### 8. Entfernte Runner nach dem Pull-Modell
 
