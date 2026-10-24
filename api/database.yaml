@@ -134,14 +134,14 @@ spec:
                     attempt: {type: integer, format: int64, description: Attempt number for this generation.}
                     generation: {type: integer, format: int64, description: Generation the Job applied.}
                     moduleRevision: {type: string, description: Module commit the Job used.}
-                    retryToken: {type: string, description: Retry token that started this attempt, if any.}
+                    retryToken: {type: string, description: "Retry token that started this attempt, if any."}
                     startedAt: {type: string, description: Job start time.}
                     finishedAt: {type: string, description: Job completion or failure time.}
                     result:
                       type: string
                       enum: [Succeeded, Failed]
                       description: Outcome of the Job.
-                    code: {type: string, description: Stable failure code, e.g. provider, checkpoint, module_fetch.}
+                    code: {type: string, description: "Stable failure code, e.g. provider, checkpoint or module_fetch."}
                     message: {type: string, maxLength: 300, description: Safe failure description without secrets.}
                     changes:
                       type: object
