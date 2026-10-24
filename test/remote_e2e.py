@@ -157,8 +157,9 @@ def setup(root):
     moto("s3.create_bucket(Bucket='panko-state')")
     docker('build', '-q', '-t', 'panko-agent:dev', '-f', 'Dockerfile.agent', '.')
     revision = fixture_repository(root)
+    # The module mirror image carries git-daemon; the agent image only has the git client.
     docker('run', '-d', '--name', NAMES['git'], '--network', NETWORK, '--network-alias', 'git', '-v', f'{root / "repos"}:/repos:ro',
-           '--entrypoint', 'git', 'panko-agent:dev', '-c', 'safe.directory=*', 'daemon', '--base-path=/repos', '--export-all', '--reuseaddr', '/repos')
+           '--entrypoint', 'git', 'panko-module-mirror:dev', '-c', 'safe.directory=*', 'daemon', '--base-path=/repos', '--export-all', '--reuseaddr', '/repos')
     # The pool, its module and its agents, configured exactly as an operator would.
     config = json.loads(Path(os.environ.get('PANKO_CONFIG', 'panko.json')).read_text())
     config['runnerPools'] = [{'name': 'cloud', 'teams': [TEAM], 'module': {'repository': 'git://git/modules.git', 'revision': revision, 'path': 'aws-s3'}}]
@@ -293,9 +294,16 @@ def cleanup(name, root, forward):
             traceback.print_exc()
 
     def delete_bucket():
-        if kube('get', 'crd', 'buckets.platform.example.com', check=False).returncode == 0:
-            kube('delete', 'bucket', name, '-n', TEAM, '--ignore-not-found', '--wait=false', check=False)
+        if kube('get', 'crd', 'buckets.platform.example.com', check=False).returncode != 0:
+            return
+        kube('delete', 'bucket', name, '-n', TEAM, '--ignore-not-found', '--wait=false', check=False)
+        try:
             wait(lambda: get('bucket', name, TEAM) is None, 'cleanup', 300)
+        except AssertionError:
+            # A test resource that cannot be destroyed must not block the lab; the bucket itself
+            # lived only in the emulator.
+            print('cleanup: removing the finalizer of a bucket that could not be destroyed', flush=True)
+            kube('patch', 'bucket', name, '-n', TEAM, '--type=merge', '-p', '{"metadata":{"finalizers":null}}', check=False)
 
     def restore_pools():
         kube('apply', '-f', '-', obj=json.loads(admin('runner-pools')))

@@ -227,7 +227,7 @@ func TestMissingProfileAndModuleFailuresAreCommitted(t *testing.T) {
 	}
 }
 func TestCancelledLeaseStopsTheRunAndSkipsTheCommit(t *testing.T) {
-	e := &endpoint{cancelAt: 1}
+	e := &endpoint{cancelAt: 2}
 	stopped := make(chan struct{})
 	f := &tofu{apply: func(ctx context.Context) error {
 		<-ctx.Done()
@@ -331,10 +331,21 @@ func TestGitFetchPinsTheRevision(t *testing.T) {
 	}
 }
 
-// hanging blocks heartbeats until their context ends, like an unreachable endpoint.
-type hanging struct{ endpoint }
+// hanging answers the first heartbeat and then blocks until the request's context ends, like an
+// endpoint that became unreachable.
+type hanging struct {
+	endpoint
+	answered bool
+}
 
 func (h *hanging) Heartbeat(ctx context.Context, _ runproto.Binding) (bool, error) {
+	h.mu.Lock()
+	first := !h.answered
+	h.answered = true
+	h.mu.Unlock()
+	if first {
+		return false, nil
+	}
 	<-ctx.Done()
 	return false, ctx.Err()
 }
@@ -382,5 +393,14 @@ func TestExecutionsGetAnIsolatedHomeAndNeedBackendCredentials(t *testing.T) {
 	a.Execute(context.Background(), claim("plan"))
 	if last := e.commits[len(e.commits)-1]; last.Code != "credentials" {
 		t.Fatal("profile without state backend credentials accepted", last.Code)
+	}
+}
+func TestNothingRunsWithoutAFirstRenewal(t *testing.T) {
+	e := &endpoint{cancelAt: 1}
+	ran := false
+	a, _ := setup(t, e, &tofu{apply: func(context.Context) error { ran = true; return nil }})
+	a.Execute(context.Background(), claim("apply"))
+	if ran || len(e.commits) != 0 {
+		t.Fatal("execution started although the endpoint refused the first renewal")
 	}
 }

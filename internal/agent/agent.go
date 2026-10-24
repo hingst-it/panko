@@ -55,6 +55,19 @@ type Agent struct {
 	// Now and retry pacing are replaceable in tests.
 	Now   func() time.Time
 	Pause func(context.Context, time.Duration) error
+
+	// logMu serializes the agent's events with the runner's output; heartbeats log concurrently.
+	logMu sync.Mutex
+}
+
+// Write sends one log line to Log; the agent passes itself to the runner as its output.
+func (a *Agent) Write(p []byte) (int, error) {
+	a.logMu.Lock()
+	defer a.logMu.Unlock()
+	if a.Log == nil {
+		return len(p), nil
+	}
+	return a.Log.Write(p)
 }
 
 // IDFromToken returns the agent id, the part of the token before the first dot.
@@ -71,9 +84,6 @@ func IDFromToken(token string) (string, error) {
 func (a *Agent) Serve(ctx context.Context) error {
 	backoff := time.Second
 	for ctx.Err() == nil {
-		// The endpoint starts the lease while it answers; anchoring the local lease before the
-		// request keeps it from ending later than the endpoint's.
-		sent := a.now()
 		claim, found, err := a.Endpoint.Claim(ctx, runproto.ClaimRequest{Version: runproto.Version, AgentID: a.AgentID, Pool: a.Pool, MaxRuns: 1})
 		if errors.Is(err, ErrRejected) {
 			return err
@@ -90,7 +100,7 @@ func (a *Agent) Serve(ctx context.Context) error {
 		if !found {
 			continue
 		}
-		a.ExecuteFrom(ctx, claim, sent)
+		a.Execute(ctx, claim)
 	}
 	return nil
 }
@@ -100,16 +110,20 @@ var errLeaseLost = errors.New("lease lost")
 // stopGrace is how long the runner's process handling waits after SIGTERM before SIGKILL.
 const stopGrace = 10 * time.Second
 
-// Execute runs one claimed Run whose claim was requested just now; see ExecuteFrom.
+// Execute runs one claimed Run and commits its outcome, unless the lease was lost: then the
+// endpoint has already given up on this attempt and the commit would be refused.
 func (a *Agent) Execute(ctx context.Context, claim runproto.Claim) {
-	a.ExecuteFrom(ctx, claim, a.now())
-}
-
-// ExecuteFrom runs one claimed Run and commits its outcome, unless the lease was lost: then the
-// endpoint has already given up on this attempt and the commit would be refused. claimed is when the
-// claim was requested; the local lease counts from then.
-func (a *Agent) ExecuteFrom(ctx context.Context, claim runproto.Claim, claimed time.Time) {
 	a.event("execution_claimed", &claim.Binding, nil)
+	// A claim is a long poll, so when the endpoint started the lease is unknown. One renewal before
+	// anything runs gives the local lease a start that is never later than the endpoint's.
+	renewed := a.now()
+	first, done := context.WithTimeout(ctx, time.Duration(claim.LeaseDurationSeconds)*time.Second/2)
+	stop, err := a.Endpoint.Heartbeat(first, claim.Binding)
+	done()
+	if err != nil || stop {
+		a.event("execution_abandoned", &claim.Binding, errLeaseLost)
+		return
+	}
 	deadline, err := time.Parse(time.RFC3339, claim.Deadline)
 	if err != nil {
 		a.event("claim_invalid", &claim.Binding, err)
@@ -126,7 +140,7 @@ func (a *Agent) ExecuteFrom(ctx context.Context, claim runproto.Claim, claimed t
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		a.heartbeat(beat, claim, cancel, claimed)
+		a.heartbeat(beat, claim, cancel, renewed)
 	}()
 	commit := a.run(runCtx, claim)
 	if errors.Is(context.Cause(runCtx), errLeaseLost) {
@@ -142,17 +156,17 @@ func (a *Agent) ExecuteFrom(ctx context.Context, claim runproto.Claim, claimed t
 
 // heartbeat keeps the lease; a cancel answer, a refusal or a lease that ran out locally stops the
 // whole OpenTofu process group through the context.
-func (a *Agent) heartbeat(ctx context.Context, claim runproto.Claim, cancel context.CancelCauseFunc, claimed time.Time) {
+func (a *Agent) heartbeat(ctx context.Context, claim runproto.Claim, cancel context.CancelCauseFunc, renewed time.Time) {
 	interval := time.Duration(claim.HeartbeatIntervalSeconds) * time.Second
-	// The local lease counts from when the claim or heartbeat was sent, never later than the endpoint
-	// started or renewed it, and ends early enough for one more interval and the ten seconds OpenTofu
+	// The local lease counts from when the last successful heartbeat was sent, never later than the
+	// endpoint renewed it, and ends early enough for one more interval and the ten seconds OpenTofu
 	// gets to stop; it expires on its own, also while a heartbeat request hangs.
 	full := time.Duration(claim.LeaseDurationSeconds) * time.Second
 	lease := full - interval - stopGrace
 	if lease <= 0 {
 		lease = full / 2
 	}
-	expires := claimed.Add(lease)
+	expires := renewed.Add(lease)
 	for {
 		if a.pause(ctx, min(interval, expires.Sub(a.now()))) != nil {
 			return
@@ -229,7 +243,7 @@ func (a *Agent) run(ctx context.Context, claim runproto.Claim) runproto.Commit {
 	platform := &Platform{Profile: profile, Expected: fromProto(claim.ExpectedCheckpoint)}
 	result := filepath.Join(work, "result.json")
 	r := &runner.Runner{Platform: platform, Backend: backend, ModuleDir: checkout, ModulePath: claim.ModulePath, WorkDir: filepath.Join(work, "module"),
-		Tofu: a.Tofu, ModuleRevision: claim.ModuleRevision, Output: a.Log, ErrorOutput: a.Log, Log: a.Log, Process: a.Process, ResultFile: result}
+		Tofu: a.Tofu, ModuleRevision: claim.ModuleRevision, Output: a, ErrorOutput: a, Log: a, Process: a.Process, ResultFile: result}
 	runErr := r.Run(ctx, claim.Action, snapshot, claim.RunName)
 	var reported runner.Result
 	if data, err := os.ReadFile(result); err != nil || json.Unmarshal(data, &reported) != nil {
@@ -401,5 +415,5 @@ func (a *Agent) event(name string, b *runproto.Binding, err error) {
 			e["error"] = err.Error()
 		}
 	}
-	_, _ = fmt.Fprintln(a.Log, string(jsonx.Encode(e)))
+	_, _ = fmt.Fprintln(a, string(jsonx.Encode(e)))
 }
