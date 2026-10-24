@@ -1,0 +1,33 @@
+# Test-only controller for Buckets; the same hook serves them like Databases.
+apiVersion: metacontroller.k8s.io/v1alpha1
+kind: CompositeController
+metadata:
+  name: bucket-controller
+spec:
+  generateSelector: true
+  resyncPeriodSeconds: 30
+  parentResource:
+    apiVersion: platform.example.com/v1
+    resource: buckets
+  childResources:
+    - apiVersion: batch/v1
+      resource: jobs
+      updateStrategy:
+        method: OnDelete
+    - apiVersion: platform.example.com/v1
+      resource: runs
+      updateStrategy:
+        method: OnDelete
+  hooks:
+    customize:
+      webhook:
+        url: http://database-hook.infra-runners.svc:8080/customize
+        timeout: 10s
+    sync:
+      webhook:
+        url: http://database-hook.infra-runners.svc:8080/sync
+        timeout: 10s
+    finalize:
+      webhook:
+        url: http://database-hook.infra-runners.svc:8080/finalize
+        timeout: 10s

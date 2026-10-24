@@ -201,6 +201,9 @@ func (a *Agent) run(ctx context.Context, claim runproto.Claim) runproto.Commit {
 	}
 	profile["HOME"], profile["AWS_SHARED_CREDENTIALS_FILE"], profile["AWS_CONFIG_FILE"] = home, os.DevNull, os.DevNull
 	if a.PluginCache != "" {
+		if err := os.MkdirAll(a.PluginCache, 0700); err != nil {
+			return fail("module", err)
+		}
 		profile["TF_PLUGIN_CACHE_DIR"] = a.PluginCache
 	}
 	checkout := filepath.Join(work, "checkout")
