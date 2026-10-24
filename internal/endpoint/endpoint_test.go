@@ -197,6 +197,8 @@ func TestAuthentication(t *testing.T) {
 }
 func TestClaimConflictPoolPauseAndTimeout(t *testing.T) {
 	s, f, token := fixture(t)
+	// The conflict forces a second listing within one long poll; leave a slow runner time for it.
+	s.wait = time.Second
 	f.conflict = 1
 	c := claimed(t, s, token)
 	if c.LeaseEpoch != 1 || c.Identity != "original-uid" || c.ModulePath != "db" {
@@ -429,7 +431,8 @@ func TestClaimCASConflictTriesNextRun(t *testing.T) {
 
 func TestConcurrentClaimsAndCommits(t *testing.T) {
 	s, f, token := fixture(t)
-	s.wait = 30 * time.Millisecond
+	// One claim wins within the long poll, the other times out; a slow runner needs the margin.
+	s.wait = time.Second
 	id, _, _ := strings.Cut(token, ".")
 	claims := make(chan *httptest.ResponseRecorder, 2)
 	var wg sync.WaitGroup
