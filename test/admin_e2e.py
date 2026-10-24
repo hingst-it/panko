@@ -39,6 +39,8 @@ def main():
     old_gateway = {'apiVersion': 'v1', 'kind': 'Secret', 'metadata': {'name': 'gateway-auth', 'namespace': 'infra-runners'},
                    'type': gateway['type'], 'data': gateway['data']}
     replicas = get('deployment', 'database-hook', 'infra-runners')['spec']['replicas']
+    # Migration also pauses the gateway in infra-gateway; later tests need it back.
+    gateway_replicas = get('deployment', 'platform-gateway', 'infra-gateway')['spec']['replicas']
     try:
         for name in NAMES:
             kube('create', '-f', '-', obj=secret(name, 'infra-runners', 'state-' + name))
@@ -71,6 +73,8 @@ def main():
         kube('delete', 'secret', 'gateway-auth', '-n', 'infra-runners', '--ignore-not-found', check=False)
         kube('scale', 'deploy/database-hook', '-n', 'infra-runners', '--replicas=' + str(replicas))
         kube('rollout', 'status', 'deploy/database-hook', '-n', 'infra-runners', '--timeout=120s')
+        kube('scale', 'deploy/platform-gateway', '-n', 'infra-gateway', '--replicas=' + str(gateway_replicas))
+        kube('rollout', 'status', 'deploy/platform-gateway', '-n', 'infra-gateway', '--timeout=120s')
 
 
 if __name__ == '__main__':
