@@ -30,6 +30,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
+      # The lab images are imported, not pullable; near a full disk the kubelet garbage-collects them.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force > /dev/null
+          df -h /
       - uses: actions/checkout@v4
       - name: Make room for the k3d lab
         run: |
