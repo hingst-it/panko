@@ -413,5 +413,7 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request, audit, conflict 
 		return
 	}
 	s.audit(audit, jsonx.Obj(result["metadata"]))
+	// Clients wait for the outcome of exactly this request.
+	w.Header().Set("Panko-Request-Token", hex.EncodeToString(token))
 	writeJSON(w, 202, view(result))
 }

@@ -546,14 +546,16 @@ func TestPlanWaitReportsDrift(t *testing.T) {
 			if r.URL.Path != "/v1/teams/team-a/databases/orders/plan" {
 				t.Error(r.URL.Path)
 			}
+			w.Header().Set("Panko-Request-Token", "mine")
 			w.WriteHeader(202)
 			writeJSON(w, jsonx.Object{})
 			return
 		}
 		gets++
-		plan := jsonx.Object{"job": "old", "result": "Succeeded", "drift": false}
+		// Another request's result arrives first and must be ignored.
+		plan := jsonx.Object{"job": "other", "token": "someone-else", "result": "Succeeded", "drift": false}
 		if gets >= 3 {
-			plan = jsonx.Object{"job": "new", "result": "Succeeded", "drift": true, "changes": jsonx.Object{"change": 1}}
+			plan = jsonx.Object{"job": "new", "token": "mine", "result": "Succeeded", "drift": true, "changes": jsonx.Object{"change": 1}}
 		}
 		writeJSON(w, jsonx.Object{"name": "orders", "status": jsonx.Object{"phase": "Ready", "lastPlan": plan}})
 	})

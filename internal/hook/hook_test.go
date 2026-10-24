@@ -496,6 +496,10 @@ func TestPlanRequestRunsOnceAndRecordsDrift(t *testing.T) {
 		t.Fatal("plan not scheduled for a Ready resource", r.Status)
 	}
 	job := r.Children[0]
+	if r.Status["planRequest"] != "p1" {
+		t.Fatal("explicit plan token not marked as consumed")
+	}
+	p["status"] = r.Status
 	running := map[string]map[string]Object{"Job.batch/v1": {"plan": job}}
 	if r, _ := Reconcile(Request{Parent: p, Children: running}); r.Status["phase"] != "Ready" || len(r.Children) != 1 {
 		t.Fatal("running plan changed the phase or was dropped", r.Status)
@@ -554,5 +558,80 @@ func TestRolloutAndDriftSettingsValidated(t *testing.T) {
 				t.Fatalf("accepted %s=%s", key, value)
 			}
 		})
+	}
+}
+func finishedPlan(p Object, token string, report string) (Object, map[string]Object) {
+	job, _ := CreateJob(p, "plan", mustHash(p), testRevision, statebackend.Fallback("team-a", "orders"), 1, 1, token)
+	job["status"] = Object{"conditions": []any{Object{"type": "Complete", "status": "True"}}}
+	pods := map[string]Object{}
+	if report != "" {
+		pods["p"] = pod(jsonx.Str(jsonx.Obj(job["metadata"])["name"]), Object{"containerStatuses": []any{terminatedWith("tofu", Object{"exitCode": 0, "message": report})}})
+	}
+	return job, pods
+}
+func TestPlanRightAfterProvisioning(t *testing.T) {
+	p := readyParent()
+	jsonx.Obj(p["metadata"])["annotations"] = Object{Prefix + "plan-request": "p1"}
+	apply := applyJob(p, 1, "", "Complete")
+	r, _ := Reconcile(Request{Parent: p, Children: map[string]map[string]Object{"Job.batch/v1": {"apply": apply}}})
+	plans := 0
+	for _, c := range r.Children {
+		if isPlan(c) {
+			plans++
+		}
+	}
+	if plans != 1 || len(r.Children) != 2 || r.Status["phase"] != "Ready" {
+		t.Fatal("plan request ignored while the completed apply Job is retained", r.Status)
+	}
+}
+func TestFailedManualUpgradeStaysOnItsRevision(t *testing.T) {
+	t.Setenv("MODULE_ROLLOUT", "manual")
+	t.Setenv("MODULE_REVISION", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+	p := readyParent()
+	jsonx.Obj(p["metadata"])["annotations"] = Object{Prefix + "upgrade-module": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+	r, _ := Reconcile(Request{Parent: p})
+	if revisionOf(r.Children[0]) != "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" || r.Status["rolloutRevision"] != "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" {
+		t.Fatal("upgrade not started or target not recorded", r.Status)
+	}
+	// The upgrade fails, then the configuration moves on to C without a new upgrade request.
+	p["status"] = r.Status
+	jsonx.Obj(p["status"])["phase"] = "Failed"
+	t.Setenv("MODULE_REVISION", "cccccccccccccccccccccccccccccccccccccccc")
+	r, _ = Reconcile(Request{Parent: p})
+	if r.Status["phase"] == "Ready" || (len(r.Children) > 0 && revisionOf(r.Children[0]) != "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") {
+		t.Fatal("failed upgrade fell back to the old revision", r.Status)
+	}
+}
+func TestManualTokenNotRevivedByScheduledChecks(t *testing.T) {
+	t.Setenv("DRIFT_CHECK_INTERVAL", "1h")
+	p := readyParent()
+	jsonx.Obj(p["metadata"])["annotations"] = Object{Prefix + "plan-request": "m1"}
+	jsonx.Obj(p["status"])["planRequest"] = "m1"
+	jsonx.Obj(p["status"])["lastPlan"] = Object{"token": "scheduled-1", "finishedAt": time.Now().UTC().Format(time.RFC3339)}
+	if r, _ := Reconcile(Request{Parent: p}); len(r.Children) != 0 {
+		t.Fatal("consumed manual token started another plan after a scheduled check")
+	}
+}
+func TestPlanOutcomeKeptDuringTeardownAndMaintenance(t *testing.T) {
+	p := readyParent()
+	job, pods := finishedPlan(p, "p1", `{"message":"Completed","changes":{"add":0,"change":0,"remove":0}}`)
+	children := map[string]map[string]Object{"Job.batch/v1": {"plan": job}}
+	d, _ := Reconcile(Request{Parent: p, Finalizing: true, Children: children, Related: map[string]map[string]Object{PodKey: pods}})
+	if jsonx.Obj(d.Status["lastPlan"])["token"] != "p1" {
+		t.Fatal("plan finished during teardown not recorded", d.Status)
+	}
+	jsonx.Obj(p["metadata"])["annotations"] = Object{Prefix + "state-maintenance": "m"}
+	mr, _ := Reconcile(Request{Parent: p, Children: children, Related: map[string]map[string]Object{PodKey: pods}})
+	if jsonx.Obj(mr.Status["lastPlan"])["token"] != "p1" {
+		t.Fatal("plan finished during maintenance not recorded", mr.Status)
+	}
+}
+func TestMissingPlanReportIsNotNoDrift(t *testing.T) {
+	p := readyParent()
+	job, _ := finishedPlan(p, "p1", "")
+	r, _ := Reconcile(Request{Parent: p, Children: map[string]map[string]Object{"Job.batch/v1": {"plan": job}}})
+	last := jsonx.Obj(r.Status["lastPlan"])
+	if last["result"] != "Failed" || last["code"] != "unknown" || last["drift"] != nil {
+		t.Fatal("missing report treated as a successful check", last)
 	}
 }

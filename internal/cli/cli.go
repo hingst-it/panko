@@ -277,17 +277,13 @@ func (a *App) Run(ctx context.Context, args []string) int {
 			return 0
 		}
 	case "plan":
-		var before any
-		before, err = a.request(ctx, o, "GET", resource, nil)
-		previous := jsonx.Str(jsonx.Obj(jsonx.Obj(jsonx.Obj(before)["status"])["lastPlan"])["job"])
-		if err == nil {
-			_, err = a.request(ctx, o, "POST", resource+"/plan", nil)
-		}
+		var headers http.Header
+		_, headers, err = a.requestHeaders(ctx, o, "POST", resource+"/plan", nil)
 		if statusCode(err) == 409 {
 			err = fmt.Errorf("only Ready resources can be checked for drift")
 		}
 		if err == nil && o.wait {
-			return a.waitPlan(ctx, o, resource, previous)
+			return a.waitPlan(ctx, o, resource, headers.Get("Panko-Request-Token"))
 		}
 		if err == nil {
 			fmt.Fprintln(a.Out, "drift check requested")
@@ -352,28 +348,32 @@ func (w *redactor) Write(b []byte) (int, error) {
 }
 
 func (a *App) request(ctx context.Context, o options, method, path string, body any) (any, error) {
+	result, _, err := a.requestHeaders(ctx, o, method, path, body)
+	return result, err
+}
+func (a *App) requestHeaders(ctx context.Context, o options, method, path string, body any) (any, http.Header, error) {
 	var b []byte
 	if body != nil {
 		b = jsonx.Encode(body)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(o.url, "/")+path, bytes.NewReader(b))
 	if err != nil {
-		return nil, fmt.Errorf("cannot construct gateway request")
+		return nil, nil, fmt.Errorf("cannot construct gateway request")
 	}
 	req.Header.Set("Authorization", "Bearer "+o.token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := a.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("gateway unavailable; check --url and make gateway-forward")
+		return nil, nil, fmt.Errorf("gateway unavailable; check --url and make gateway-forward")
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
-		return nil, fmt.Errorf("cannot read gateway response")
+		return nil, nil, fmt.Errorf("cannot read gateway response")
 	}
 	var result any
 	if len(bytes.TrimSpace(data)) > 0 && jsonx.Decode(bytes.NewReader(data), &result) != nil {
-		return nil, &apiError{resp.StatusCode, fmt.Sprintf("invalid gateway response (HTTP %d)", resp.StatusCode)}
+		return nil, nil, &apiError{resp.StatusCode, fmt.Sprintf("invalid gateway response (HTTP %d)", resp.StatusCode)}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		obj := jsonx.Obj(result)
@@ -385,9 +385,9 @@ func (a *App) request(ctx context.Context, o options, method, path string, body 
 				message += "\n" + fmt.Sprint(v)
 			}
 		}
-		return nil, &apiError{resp.StatusCode, message}
+		return nil, nil, &apiError{resp.StatusCode, message}
 	}
-	return result, nil
+	return result, resp.Header, nil
 }
 func (a *App) summary(v jsonx.Object) {
 	s := jsonx.Obj(v["status"])
@@ -400,8 +400,12 @@ func (a *App) summary(v jsonx.Object) {
 	}
 }
 
-// waitPlan waits for a drift check newer than previous. Exit 0: no drift, 3: drift, 1: the check failed.
-func (a *App) waitPlan(ctx context.Context, o options, path, previous string) int {
+// waitPlan waits for the result of the drift check started with token. Exit 0: no drift, 3: drift, 1: failed.
+func (a *App) waitPlan(ctx context.Context, o options, path, token string) int {
+	if token == "" {
+		fmt.Fprintln(a.Err, "gateway did not return a request token")
+		return 1
+	}
 	ctx, cancel := context.WithTimeout(ctx, o.timeout)
 	defer cancel()
 	for {
@@ -415,7 +419,7 @@ func (a *App) waitPlan(ctx context.Context, o options, path, previous string) in
 			return 1
 		}
 		plan := jsonx.Obj(jsonx.Obj(jsonx.Obj(v)["status"])["lastPlan"])
-		if plan != nil && jsonx.Str(plan["job"]) != previous {
+		if plan != nil && jsonx.Str(plan["token"]) == token {
 			switch {
 			case plan["result"] != "Succeeded":
 				fmt.Fprintf(a.Err, "drift check failed (%s): %s\n", jsonx.Str(plan["code"]), jsonx.Str(plan["message"]))

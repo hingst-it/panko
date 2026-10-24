@@ -337,13 +337,18 @@ func newestTerminal(parent Object, children []Object, pods map[string]Object) Ob
 func isPlan(c Object) bool { return Ann(c)[Prefix+"action"] == "plan" }
 
 // revisionFor chooses the module revision of the next apply. In manual rollouts a resource keeps the
-// revision it was applied with until upgrade-module names the configured one.
+// revision it was last moved to, even if that apply failed, until upgrade-module names the configured one.
 func revisionFor(parent Object, config JobConfig) string {
-	applied := jsonx.Str(jsonx.Obj(parent["status"])["lastAppliedRevision"])
-	if config.Rollout != "manual" || applied == "" || annotation(parent, "upgrade-module") == config.ModuleRevision {
+	status := jsonx.Obj(parent["status"])
+	if config.Rollout != "manual" || annotation(parent, "upgrade-module") == config.ModuleRevision {
 		return config.ModuleRevision
 	}
-	return applied
+	for _, key := range []string{"rolloutRevision", "lastAppliedRevision"} {
+		if revision := jsonx.Str(status[key]); revision != "" {
+			return revision
+		}
+	}
+	return config.ModuleRevision
 }
 
 // planRecord summarizes a finished read-only plan; drift means OpenTofu would change something.
@@ -356,14 +361,21 @@ func planRecord(c Object, pods map[string]Object) Object {
 		}
 	}
 	changes := jsonx.Obj(e["changes"])
+	if e["result"] == "Succeeded" && changes == nil {
+		// Without the runner's report the outcome is unknown, not "no drift".
+		record["result"], record["code"], record["message"] = "Failed", "unknown", failures["unknown"]
+		return record
+	}
 	record["drift"] = jsonx.Int(changes["add"])+jsonx.Int(changes["change"])+jsonx.Int(changes["remove"]) > 0
 	return record
 }
 
 // planDue returns the token of a plan that should start now: an explicit request or a due scheduled check.
 func planDue(parent Object, config JobConfig, now time.Time) string {
-	last := jsonx.Obj(jsonx.Obj(parent["status"])["lastPlan"])
-	if token := annotation(parent, "plan-request"); token != "" && token != jsonx.Str(last["token"]) {
+	status := jsonx.Obj(parent["status"])
+	last := jsonx.Obj(status["lastPlan"])
+	// Explicit requests are consumed separately, so later scheduled checks never revive one.
+	if token := annotation(parent, "plan-request"); token != "" && token != jsonx.Str(status["planRequest"]) {
 		return token
 	}
 	if config.DriftInterval <= 0 {
@@ -413,6 +425,20 @@ func bind(r Request, children []Object, phase string, generation int64, finalize
 	return nil, &response
 }
 func finalize(r Request, children []Object, generation int64, hash string) (Response, error) {
+	response, err := finalizeJobs(r, children, generation, hash)
+	if err != nil {
+		return response, err
+	}
+	// Plans finishing during teardown are omitted from the response, so their outcome is kept first.
+	recorded := jsonx.Str(jsonx.Obj(jsonx.Obj(r.Parent["status"])["lastPlan"])["job"])
+	for _, c := range children {
+		if isPlan(c) && Terminal(c) != "" && jsonx.Str(jsonx.Obj(c["metadata"])["name"]) != recorded {
+			response.Status["lastPlan"] = planRecord(c, r.Related[PodKey])
+		}
+	}
+	return response, nil
+}
+func finalizeJobs(r Request, children []Object, generation int64, hash string) (Response, error) {
 	parent := r.Parent
 	no, yes := false, true
 	running := []Object{}
@@ -550,8 +576,14 @@ func Reconcile(r Request) (Response, error) {
 		}
 		return withRevision(result(p, "Applying", generation, "OpenTofu apply is running", retainAll(running), "", nil, nil), revisionOf(running[0]), ""), nil
 	}
+	keepPlan := func(response Response) Response {
+		if finishedPlan != nil {
+			response.Status["lastPlan"] = finishedPlan
+		}
+		return response
+	}
 	if id := Maintenance(p); id != "" {
-		return result(p, "Maintenance", meta.Generation, "State backend maintenance "+id+"; no jobs start", retainAll(children), "", nil, nil), nil
+		return keepPlan(result(p, "Maintenance", meta.Generation, "State backend maintenance "+id+"; no jobs start", retainAll(children), "", nil, nil)), nil
 	}
 	backend, pending := bind(r, children, "Pending", meta.Generation, nil)
 	if pending != nil {
@@ -564,7 +596,24 @@ func Reconcile(r Request) (Response, error) {
 		var response Response
 		switch {
 		case Terminal(c) == "Complete":
-			response = withRevision(result(p, "Ready", meta.Generation, "Database is ready", []Object{Retain(c)}, hash, nil, nil), revision, revision)
+			kept := []Object{Retain(c)}
+			message := "Database is ready"
+			probe := jsonx.Clone(p)
+			if finishedPlan != nil {
+				jsonx.Obj(probe["status"])["lastPlan"] = finishedPlan
+			}
+			token := planDue(probe, config, time.Now())
+			if token != "" {
+				child, err := CreateJob(p, "plan", hash, revision, backend, meta.Generation, 1, token)
+				if err != nil {
+					return Response{}, err
+				}
+				kept, message = append(kept, child), "Database is ready; drift check scheduled"
+			}
+			response = withRevision(result(p, "Ready", meta.Generation, message, kept, hash, nil, nil), revision, revision)
+			if token != "" && !strings.HasPrefix(token, "scheduled-") {
+				response.Status["planRequest"] = token
+			}
 		case retry != "" && retry != jsonx.Str(Ann(c)[Prefix+"retry-token"]):
 			child, err := CreateJob(p, "apply", hash, revision, backend, meta.Generation, attempt(c)+1, retry)
 			if err != nil {
@@ -575,17 +624,21 @@ func Reconcile(r Request) (Response, error) {
 			response = withRevision(result(p, "Failed", meta.Generation, failure("Apply", execution, "Retry with the retry action or update the spec."), []Object{Retain(c)}, "", nil, nil), revision, "")
 		}
 		response.Status["lastExecution"] = execution
-		return response, nil
+		if config.Rollout == "manual" {
+			response.Status["rolloutRevision"] = revision
+		}
+		return keepPlan(response), nil
 	}
 	finished := newestTerminal(p, children, r.Related[PodKey])
 	record := func(response Response) Response {
 		if finished != nil {
 			response.Status["lastExecution"] = finished
 		}
-		if finishedPlan != nil {
-			response.Status["lastPlan"] = finishedPlan
+		// Manual rollouts remember the target revision, so a failed upgrade is never mistaken for the old one.
+		if config.Rollout == "manual" {
+			response.Status["rolloutRevision"] = revision
 		}
-		return response
+		return keepPlan(response)
 	}
 	old := jsonx.Obj(p["status"])
 	// Resources applied before revisions were tracked are applied once with the configured module.
@@ -600,7 +653,11 @@ func Reconcile(r Request) (Response, error) {
 			if err != nil {
 				return Response{}, err
 			}
-			return record(withRevision(result(p, "Ready", meta.Generation, "Database is ready; drift check scheduled", []Object{child}, hash, nil, nil), revision, revision)), nil
+			response := record(withRevision(result(p, "Ready", meta.Generation, "Database is ready; drift check scheduled", []Object{child}, hash, nil, nil), revision, revision))
+			if !strings.HasPrefix(token, "scheduled-") {
+				response.Status["planRequest"] = token
+			}
+			return response, nil
 		}
 		return record(withRevision(result(p, "Ready", meta.Generation, "Database is ready", nil, hash, nil, nil), revision, revision)), nil
 	}

@@ -128,6 +128,12 @@ spec:
                 identity:
                   type: string
                   description: Stable identity for names, state keys and checkpoints; the original UID after a restore.
+                planRequest:
+                  type: string
+                  description: Last explicit drift check request token that was started.
+                rolloutRevision:
+                  type: string
+                  description: Module commit a manual rollout moved this resource to, kept until the next explicit upgrade.
                 lastPlan:
                   type: object
                   description: Outcome of the most recent read-only drift check.
