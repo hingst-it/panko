@@ -25,17 +25,19 @@ func (m *Migrator) EnsureMirrorTLS(ctx context.Context) error {
 	return m.ensureTLS(ctx, "provider-mirror-tls", "Panko provider mirror CA", []string{"provider-mirror.infra-runners.svc", "provider-mirror.infra-runners.svc.cluster.local"})
 }
 
-// ensureTLS keeps the certificate in infra-runners/<secret> unless it expires within 30 days or no
-// longer covers the names; otherwise it issues a new CA and server certificate.
+// ensureTLS keeps the certificate in infra-runners/<secret> unless it expires within 30 days or names
+// other hosts than configured; otherwise it issues a new CA and server certificate. Clients that
+// trust the old CA must get the new one.
 func (m *Migrator) ensureTLS(ctx context.Context, secret, caName string, names []string) error {
 	path := "/api/v1/namespaces/infra-runners/secrets/" + secret
 	existing, err := m.get(ctx, path)
 	if err != nil {
 		return err
 	}
-	if existing != nil && !expiring(jsonx.Str(jsonx.Obj(existing["data"])["tls.crt"]), 30*24*time.Hour) && covers(jsonx.Str(jsonx.Obj(existing["data"])["tls.crt"]), names) {
+	if existing != nil && !expiring(jsonx.Str(jsonx.Obj(existing["data"])["tls.crt"]), 30*24*time.Hour) && sameNames(jsonx.Str(jsonx.Obj(existing["data"])["tls.crt"]), names) {
 		return nil
 	}
+	m.logf("Issuing a new CA and certificate for %s; clients must trust the new CA", secret)
 	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return err
@@ -88,8 +90,8 @@ func (m *Migrator) ensureTLS(ctx context.Context, secret, caName string, names [
 	return err
 }
 
-// covers reports whether a base64 PEM certificate names every host or IP.
-func covers(encoded string, names []string) bool {
+// sameNames reports whether a base64 PEM certificate names exactly these hosts and IPs.
+func sameNames(encoded string, names []string) bool {
 	data, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
 		return false
@@ -102,8 +104,22 @@ func covers(encoded string, names []string) bool {
 	if err != nil {
 		return false
 	}
+	want := map[string]bool{}
 	for _, name := range names {
-		if cert.VerifyHostname(name) != nil {
+		want[name] = true
+	}
+	have := map[string]bool{}
+	for _, name := range cert.DNSNames {
+		have[name] = true
+	}
+	for _, ip := range cert.IPAddresses {
+		have[ip.String()] = true
+	}
+	if len(have) != len(want) {
+		return false
+	}
+	for name := range want {
+		if !have[name] {
 			return false
 		}
 	}

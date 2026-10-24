@@ -97,6 +97,12 @@ func decode(reply any, body io.Reader) (bool, error) {
 			return false, err
 		}
 		*v = claim
+	case *runproto.Identity:
+		identity, err := runproto.Decode[runproto.Identity](body, 1<<12)
+		if err != nil {
+			return false, err
+		}
+		*v = identity
 	case *runproto.HeartbeatResponse:
 		answer, err := runproto.Decode[runproto.HeartbeatResponse](body, 1<<12)
 		if err != nil {
@@ -107,6 +113,13 @@ func decode(reply any, body io.Reader) (bool, error) {
 		return false, fmt.Errorf("unsupported reply type")
 	}
 	return true, nil
+}
+
+// Identity returns the agent id and pool the endpoint associates with the token.
+func (c *Client) Identity(ctx context.Context) (runproto.Identity, error) {
+	var identity runproto.Identity
+	_, err := c.post(ctx, "/v1/identity", struct{}{}, &identity)
+	return identity, err
 }
 
 // Claim long-polls for one Run; no Run pending returns false.

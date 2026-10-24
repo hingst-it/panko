@@ -330,3 +330,57 @@ func TestGitFetchPinsTheRevision(t *testing.T) {
 		t.Fatal("claim fixture not encodable")
 	}
 }
+
+// hanging blocks heartbeats until their context ends, like an unreachable endpoint.
+type hanging struct{ endpoint }
+
+func (h *hanging) Heartbeat(ctx context.Context, _ runproto.Binding) (bool, error) {
+	<-ctx.Done()
+	return false, ctx.Err()
+}
+func TestLocalLeaseExpiresWhileHeartbeatsHang(t *testing.T) {
+	e := &hanging{}
+	stopped := make(chan struct{})
+	f := &tofu{apply: func(ctx context.Context) error {
+		<-ctx.Done()
+		close(stopped)
+		return context.Cause(ctx)
+	}}
+	a, _ := setup(t, &e.endpoint, f)
+	a.Endpoint = e
+	c := claim("apply")
+	c.LeaseDurationSeconds, c.HeartbeatIntervalSeconds = 2, 1
+	done := make(chan struct{})
+	go func() { a.Execute(context.Background(), c); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("hanging heartbeats kept OpenTofu running past the lease")
+	}
+	select {
+	case <-stopped:
+	default:
+		t.Fatal("OpenTofu was not cancelled")
+	}
+	if len(e.commits) != 0 {
+		t.Fatal("execution without a lease was committed")
+	}
+}
+func TestExecutionsGetAnIsolatedHomeAndNeedBackendCredentials(t *testing.T) {
+	e := &endpoint{}
+	f := &tofu{}
+	a, _ := setup(t, e, f)
+	a.Execute(context.Background(), claim("plan"))
+	home := f.env["HOME"]
+	if home == "" || !strings.HasPrefix(home, a.WorkRoot) || f.env["AWS_SHARED_CREDENTIALS_FILE"] != os.DevNull || f.env["AWS_CONFIG_FILE"] != os.DevNull {
+		t.Fatal("execution can read the agent account's home or AWS files", f.env["HOME"])
+	}
+	if _, err := os.Stat(home); !os.IsNotExist(err) {
+		t.Fatal("execution home not removed")
+	}
+	_ = os.WriteFile(filepath.Join(a.Profiles, "lab.env"), []byte("TF_VAR_endpoint=http://moto:5000\n"), 0600)
+	a.Execute(context.Background(), claim("plan"))
+	if last := e.commits[len(e.commits)-1]; last.Code != "credentials" {
+		t.Fatal("profile without state backend credentials accepted", last.Code)
+	}
+}

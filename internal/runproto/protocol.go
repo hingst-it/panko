@@ -29,6 +29,13 @@ type Binding struct {
 	LeaseEpoch     int64  `json:"leaseEpoch"`
 }
 
+// Identity is the endpoint's answer to an authenticated preflight.
+type Identity struct {
+	Version int    `json:"version"`
+	AgentID string `json:"agentId"`
+	Pool    string `json:"pool"`
+}
+
 // ClaimRequest names the agent and pool it claims for. The endpoint takes the agent's identity
 // from its authenticated token and rejects a request whose AgentID or Pool differ from it.
 type ClaimRequest struct {

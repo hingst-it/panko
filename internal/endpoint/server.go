@@ -41,7 +41,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reply(w, 200, Object{"ok": true})
 		return
 	}
-	if r.URL.Path != "/v1/claim" && r.URL.Path != "/v1/heartbeat" && r.URL.Path != "/v1/commit" {
+	if r.URL.Path != "/v1/claim" && r.URL.Path != "/v1/heartbeat" && r.URL.Path != "/v1/commit" && r.URL.Path != "/v1/identity" {
 		failure(w, 404)
 		return
 	}
@@ -57,6 +57,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
+	case "/v1/identity":
+		// Lets an agent's preflight confirm its token and pool without claiming anything.
+		reply(w, 200, runproto.Identity{Version: runproto.Version, AgentID: id, Pool: pool})
 	case "/v1/claim":
 		s.claim(w, r, id, pool)
 	case "/v1/heartbeat":

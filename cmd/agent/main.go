@@ -6,13 +6,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/hingst-it/panko/internal/agent"
 )
@@ -53,7 +53,7 @@ func run() error {
 		return err
 	}
 	if flag.Arg(0) == "check" {
-		return check(client, *profiles, *work, *tofu, *git)
+		return check(client, id, *pool, *profiles, *work, *tofu, *git)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -61,9 +61,10 @@ func run() error {
 	return a.Serve(ctx)
 }
 
-// check verifies what the agent needs before it claims anything: tools, profiles, a writable
-// workspace and a TLS connection to the endpoint.
-func check(client *agent.Client, profiles, work, tofu, git string) error {
+// check verifies what the agent needs before it claims anything: tools, profiles with state backend
+// credentials, a writable workspace, and that the endpoint accepts the token for this pool. Module
+// and provider access are only known per Run and show up as failure codes there.
+func check(client *agent.Client, id, pool, profiles, work, tofu, git string) error {
 	failed := false
 	report := func(name string, err error) {
 		status := "ok"
@@ -81,7 +82,11 @@ func check(client *agent.Client, profiles, work, tofu, git string) error {
 		err = fmt.Errorf("no <team>.env profiles in %s", profiles)
 	}
 	for _, entry := range entries {
-		if _, perr := agent.LoadProfile(entry); perr != nil {
+		values, perr := agent.LoadProfile(entry)
+		if perr == nil && (values["AWS_ACCESS_KEY_ID"] == "" || values["AWS_SECRET_ACCESS_KEY"] == "") {
+			perr = fmt.Errorf("%s lacks AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY", filepath.Base(entry))
+		}
+		if perr != nil {
 			err = perr
 		}
 	}
@@ -91,12 +96,11 @@ func check(client *agent.Client, profiles, work, tofu, git string) error {
 		err = os.RemoveAll(probe)
 	}
 	report("workspace", err)
-	response, err := client.HTTP.Get(client.Endpoint + "/healthz")
-	if err == nil {
-		response.Body.Close()
-		if response.StatusCode != http.StatusOK {
-			err = fmt.Errorf("health check answered %d", response.StatusCode)
-		}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	identity, err := client.Identity(ctx)
+	if err == nil && (identity.AgentID != id || identity.Pool != pool) {
+		err = fmt.Errorf("the endpoint knows this token for pool %q, not %q", identity.Pool, pool)
 	}
 	report("endpoint", err)
 	if failed {

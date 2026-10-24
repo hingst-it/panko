@@ -51,6 +51,10 @@ func TestEndpointTLSCoversTheConfiguredNamesAndReissuesOnChange(t *testing.T) {
 	if err := m.EnsureEndpointTLS(context.Background(), c); err != nil || writes != 2 {
 		t.Fatal("new endpoint name did not reissue the certificate", err, writes)
 	}
+	c.RunnerEndpoint.Names = c.RunnerEndpoint.Names[1:]
+	if err := m.EnsureEndpointTLS(context.Background(), c); err != nil || writes != 3 {
+		t.Fatal("removed endpoint name did not reissue the certificate", err, writes)
+	}
 	if _, err := m.EndpointCA(context.Background()); err != nil {
 		t.Fatal(err)
 	}

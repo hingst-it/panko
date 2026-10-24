@@ -617,3 +617,17 @@ func TestClaimAndHeartbeatStrictJSON(t *testing.T) {
 		}
 	}
 }
+func TestIdentityConfirmsTokenAndPoolWithoutClaiming(t *testing.T) {
+	s, f, token := fixture(t)
+	w := request(s, "/v1/identity", token, Object{})
+	var identity runproto.Identity
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &identity) != nil || identity.Pool != "remote" || !strings.HasPrefix(token, identity.AgentID+".") {
+		t.Fatal("identity not confirmed", w.Code, w.Body.String())
+	}
+	if object(object(f.objects[runPath("team-a", "run-1")])["status"])["lease"] != nil {
+		t.Fatal("identity check claimed a Run")
+	}
+	if w := request(s, "/v1/identity", "agent-0000000000000000.wrong", Object{}); w.Code != 401 {
+		t.Fatal("unknown token confirmed", w.Code)
+	}
+}

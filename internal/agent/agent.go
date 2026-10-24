@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -105,38 +104,51 @@ func (a *Agent) Execute(ctx context.Context, claim runproto.Claim) {
 	defer cancel(nil)
 	runCtx, stopDeadline := context.WithDeadline(runCtx, deadline)
 	defer stopDeadline()
+	// Heartbeats continue until the commit is accepted: an expired lease before the endpoint
+	// recorded the commit would turn a finished execution into a refused one.
+	beat, stopBeat := context.WithCancel(runCtx)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		a.heartbeat(runCtx, claim, cancel)
+		a.heartbeat(beat, claim, cancel)
 	}()
 	commit := a.run(runCtx, claim)
-	cancel(nil)
-	wg.Wait()
 	if errors.Is(context.Cause(runCtx), errLeaseLost) {
+		stopBeat()
+		wg.Wait()
 		a.event("execution_abandoned", &claim.Binding, errLeaseLost)
 		return
 	}
 	a.commit(ctx, claim, commit, deadline)
+	stopBeat()
+	wg.Wait()
 }
 
 // heartbeat keeps the lease; a cancel answer, a refusal or a lease that ran out locally stops the
 // whole OpenTofu process group through the context.
 func (a *Agent) heartbeat(ctx context.Context, claim runproto.Claim, cancel context.CancelCauseFunc) {
 	interval := time.Duration(claim.HeartbeatIntervalSeconds) * time.Second
-	// The endpoint counts the lease from when it handled the last heartbeat, the agent from when the
-	// answer arrived; stopping one interval early keeps the agent from outliving its lease.
+	// The local lease ends one interval before the endpoint's and is renewed from when a heartbeat
+	// was sent, never later than the endpoint renewed it; it expires on its own, also while a
+	// heartbeat request hangs.
 	lease := time.Duration(claim.LeaseDurationSeconds)*time.Second - interval
-	last := a.now()
+	expires := a.now().Add(lease)
 	for {
-		if a.pause(ctx, interval) != nil {
+		if a.pause(ctx, min(interval, expires.Sub(a.now()))) != nil {
 			return
 		}
-		stop, err := a.Endpoint.Heartbeat(ctx, claim.Binding)
+		if !a.now().Before(expires) {
+			cancel(errLeaseLost)
+			return
+		}
+		sent := a.now()
+		request, done := context.WithDeadline(ctx, expires)
+		stop, err := a.Endpoint.Heartbeat(request, claim.Binding)
+		done()
 		switch {
 		case err == nil && !stop:
-			last = a.now()
+			expires = sent.Add(lease)
 			continue
 		case stop, errors.Is(err, ErrRejected):
 			cancel(errLeaseLost)
@@ -146,10 +158,6 @@ func (a *Agent) heartbeat(ctx context.Context, claim runproto.Claim, cancel cont
 			return
 		}
 		a.event("heartbeat_failed", &claim.Binding, err)
-		if a.now().Sub(last) >= lease {
-			cancel(errLeaseLost)
-			return
-		}
 	}
 }
 
@@ -173,11 +181,22 @@ func (a *Agent) run(ctx context.Context, claim runproto.Claim) runproto.Commit {
 	if err != nil {
 		return fail("credentials", err)
 	}
+	// The S3 backend must use the team's credentials, never ones it would find on the agent host.
+	if profile["AWS_ACCESS_KEY_ID"] == "" || profile["AWS_SECRET_ACCESS_KEY"] == "" {
+		return fail("credentials", fmt.Errorf("the team profile needs AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY for its state backend"))
+	}
 	work, err := os.MkdirTemp(a.WorkRoot, "run-")
 	if err != nil {
 		return fail("module", err)
 	}
 	defer os.RemoveAll(work)
+	// Each execution gets its own empty home, so no shared credential or configuration file of the
+	// agent's account reaches OpenTofu or its providers.
+	home := filepath.Join(work, "home")
+	if err := os.Mkdir(home, 0700); err != nil {
+		return fail("module", err)
+	}
+	profile["HOME"], profile["AWS_SHARED_CREDENTIALS_FILE"], profile["AWS_CONFIG_FILE"] = home, os.DevNull, os.DevNull
 	checkout := filepath.Join(work, "checkout")
 	if err := a.fetch(ctx, claim.ModuleRepository, claim.ModuleRevision, checkout); err != nil {
 		return fail("module", err)
@@ -243,16 +262,18 @@ func (a *Agent) fetch(ctx context.Context, repository, revision, dir string) err
 	return GitFetch(ctx, a.Git, repository, revision, dir)
 }
 
-// GitFetch clones the repository and checks out exactly the pinned commit.
+// GitFetch clones the repository and checks out exactly the pinned commit. Git and its SSH or
+// credential helpers run as one process group, which cancellation stops as a whole.
 func GitFetch(ctx context.Context, git, repository, revision, dir string) error {
 	if git == "" {
 		git = "git"
 	}
+	// No prompts and no system configuration; an SSH key comes from GIT_SSH_COMMAND if set.
+	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1")
 	run := func(args ...string) ([]byte, error) {
-		cmd := exec.CommandContext(ctx, git, args...)
-		// No prompts and no ambient configuration; an SSH key comes from GIT_SSH_COMMAND if set.
-		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1")
-		return cmd.Output()
+		var out bytes.Buffer
+		err := runner.RunProcess(ctx, git, args, "", env, &out, io.Discard)
+		return out.Bytes(), err
 	}
 	if _, err := run("clone", "--quiet", "--no-checkout", "--", repository, dir); err != nil {
 		return fmt.Errorf("cannot clone the module repository")
