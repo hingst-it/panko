@@ -81,7 +81,30 @@ Start the local gateway in a separate terminal:
 make gateway-forward
 ```
 
-Then load the local `team-a` token and create a database:
+Build the CLI (also built by bootstrap/deploy), then run the database lifecycle:
+
+```sh
+make build-go
+.local/bin/panko --team team-a create orders --extensions pgcrypto --connection-limit 20
+.local/bin/panko --team team-a wait orders --timeout 5m
+.local/bin/panko --team team-a list
+.local/bin/panko --team team-a get orders
+.local/bin/panko --team team-a connect orders
+# After fixing a failed execution:
+.local/bin/panko --team team-a retry orders
+.local/bin/panko --team team-a delete orders --wait
+```
+
+`connect` prints the connection URI and deliberately reads the connection Secret with
+`.local/kubeconfig`; keep that output private. The gateway has no Secret access.
+For diagnostics, run `.local/bin/panko doctor`. Tokens are read from `PANKO_TOKEN` or
+`.local/team-tokens.json` without putting them in command arguments. `--team` defaults
+to `PANKO_TEAM`, or the only team in `panko.json`. `--url` / `PANKO_URL` defaults to
+`http://127.0.0.1:8081`. See the [CLI operations guide](docs/operations.de.md#cli-für-den-alltag)
+for spec files, connection formats, exit codes, and token rotation.
+
+For reference, the same HTTP API can be called with curl. Load the local `team-a`
+token and create a database:
 
 ```sh
 TOKEN="$(mise exec -- python -c 'import json; print(json.load(open(".local/team-tokens.json"))["team-a"])')"
@@ -146,7 +169,7 @@ Gateway, Metacontroller hook, runner and administrator commands are implemented 
 
 The local example demonstrates the full request-to-resource lifecycle. It currently uses one PostgreSQL instance with a PVC, two configured team namespaces, local development images, and static team tokens. High availability, backups, PostgreSQL TLS, OIDC authentication, and production-grade tenant isolation are outside the implemented scope.
 
-Applies run on spec/generation changes. There is no periodic drift reconciliation or automatic retry of a failed apply for the same generation. Failed destroys retain the finalizer and persist their outcome after Job TTL expiry. An administrator explicitly changes the `platform.example.com/retry-destroy` annotation to request another attempt.
+Applies run on spec/generation changes. There is no periodic drift reconciliation or automatic retry of a failed apply for the same generation. Failed destroys retain the finalizer and persist their outcome after Job TTL expiry. Use `panko retry NAME` to explicitly request another attempt of a failed apply or destroy.
 
 OpenTofu state lives in team-specific Kubernetes namespaces and includes credentials. Runner RBAC separates team states and blocks access to gateway tokens, while both runners still share privileged PostgreSQL credentials. The gateway enforces the HTTP team boundary using a shared service account. See the [operations guide](docs/operations.de.md) for upgrades from the shared backend, explicit retries, execution snapshots, discovery caching, JSON logs and Prometheus metrics. GitHub Actions runs unit checks and a separate cluster-backed E2E job. The [technical guide](docs/local-lab.de.md#bekannte-grenzen) covers other local-lab limitations.
 

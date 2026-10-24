@@ -37,7 +37,7 @@ func run() error {
 		defaultConfig = "panko.json"
 	}
 	configPath := flags.String("config", defaultConfig, "Installation configuration with teams and optional lab parts (env PANKO_CONFIG)")
-	team := flags.String("team", "", "Team to add with add-team")
+	team := flags.String("team", "", "Team for add-team or rotate-token")
 	if err := flags.Parse(os.Args[1:]); err != nil {
 		return err
 	}
@@ -54,7 +54,7 @@ func run() error {
 		}
 	}
 	if flags.NArg() != 1 {
-		return fmt.Errorf("usage: panko-admin [--config panko.json] [--kubeconfig PATH] teams|add-team|config-s3|runner-rbac|module-secret|ensure-mirror-tls|mirror-ca|s3-profiles|gateway-rbac|preflight|migrate-state|migrate-backend|ensure-postgres-auth|ensure-gateway-auth|ensure-installation-id|ensure-s3-auth|ensure-s3-teams")
+		return fmt.Errorf("usage: panko-admin [--config panko.json] [--kubeconfig PATH] teams|add-team|config-s3|runner-rbac|module-secret|ensure-mirror-tls|mirror-ca|s3-profiles|gateway-rbac|preflight|migrate-state|migrate-backend|ensure-postgres-auth|ensure-gateway-auth|rotate-token|ensure-installation-id|ensure-s3-auth|ensure-s3-teams")
 	}
 	command := flags.Arg(0)
 	if command == "add-team" {
@@ -102,7 +102,7 @@ func run() error {
 		return nil
 	}
 	clusterCommands := map[string]bool{"ensure-mirror-tls": true, "mirror-ca": true, "gateway-rbac": true, "preflight": true, "migrate-state": true, "migrate-backend": true, "ensure-postgres-auth": true,
-		"ensure-gateway-auth": true, "ensure-installation-id": true, "ensure-s3-auth": true, "ensure-s3-teams": true}
+		"ensure-gateway-auth": true, "rotate-token": true, "ensure-installation-id": true, "ensure-s3-auth": true, "ensure-s3-teams": true}
 	if !clusterCommands[command] {
 		return fmt.Errorf("unknown admin command")
 	}
@@ -129,6 +129,9 @@ func run() error {
 	m := &admin.Migrator{API: api, BackupDir: *backup, Log: os.Stdout}
 	if command == "ensure-postgres-auth" {
 		return m.EnsurePostgresAuth(ctx)
+	}
+	if command == "rotate-token" {
+		return m.RotateToken(ctx, *tokens, *team)
 	}
 	if command == "ensure-gateway-auth" {
 		return m.EnsureGatewayAuth(ctx, *tokens)

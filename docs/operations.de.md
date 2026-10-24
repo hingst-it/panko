@@ -220,12 +220,14 @@ kubectl --kubeconfig .local/kubeconfig -n team-a logs job/JOB_NAME
 ```
 
 Ein fehlgeschlagener Apply derselben Generation wird nicht automatisch wiederholt.
-Die Ursache beheben und die Spec ändern, um einen neuen Apply anzufordern.
+Die Ursache beheben und mit `.local/bin/panko --team team-a retry orders` einen
+neuen Apply anfordern; alternativ löst eine Spec-Änderung einen neuen Apply aus.
 
 Bei blockiertem Delete beschreibt `status.destroy` den letzten Versuch mit
 `attempt`, `jobName`, `retryToken` und `result`. Ein fehlgeschlagener Versuch bleibt
-auch nach Job-TTL und Hook-Neustart gesperrt. Nach Behebung der Ursache explizit
-einen neuen Token setzen, zum Beispiel:
+auch nach Job-TTL und Hook-Neustart gesperrt. Nach Behebung der Ursache fordert
+`.local/bin/panko --team team-a retry orders` einen neuen Destroy-Versuch an.
+Administratoren können alternativ explizit einen neuen Token setzen, zum Beispiel:
 
 ```sh
 kubectl --kubeconfig .local/kubeconfig -n team-a annotate db orders \
@@ -234,7 +236,8 @@ kubectl --kubeconfig .local/kubeconfig -n team-a annotate db orders \
 
 Jeder weitere Versuch benötigt einen anderen Annotation-Wert. Das Löschen eines
 fehlgeschlagenen Jobs allein startet keinen Retry. Annotationen ändern Administratoren
-über Kubernetes; die Team-REST-API erlaubt weiterhin ausschließlich Spec-Patches.
+über Kubernetes; die Team-REST-API erlaubt Spec-Patches und die gezielte Retry-Aktion,
+aber keine beliebigen Annotationen.
 Den Finalizer nicht umgehen: Er gibt die CR erst nach erfolgreichem Destroy und
 State-Cleanup frei. Jobs werden nach einer Stunde entfernt; Logs vorher sichern.
 Wird ein terminaler Job während einer längeren Controller-Ausfallzeit entfernt,
@@ -274,3 +277,81 @@ oder Alertmanager wird durch dieses Projekt nicht installiert.
 Technische Grundlagen: [Kubernetes Jobs](https://kubernetes.io/docs/concepts/workloads/controllers/job/),
 [OpenTofu Kubernetes-Backend](https://opentofu.org/docs/language/settings/backends/kubernetes/)
 und [mise GitHub Action](https://github.com/jdx/mise-action/tree/v2).
+
+
+## CLI für den Alltag
+
+`make build-go` baut auch `.local/bin/panko`. Alle Befehle aus dem Repository-Root
+aufrufen; in einem zweiten Terminal `make gateway-forward` starten. Die CLI spricht
+für Datenbankbefehle mit dem Gateway unter `http://127.0.0.1:8081`.
+`--url` oder `PANKO_URL` überschreibt die Adresse. Globale Flags dürfen vor oder
+nach dem Befehl stehen.
+
+```sh
+.local/bin/panko --team team-a create orders --extensions pgcrypto,citext --connection-limit 20
+.local/bin/panko --team team-a wait orders --timeout 5m
+.local/bin/panko --team team-a list
+.local/bin/panko --team team-a get orders
+.local/bin/panko --team team-a get orders --json
+.local/bin/panko --team team-a connect orders
+.local/bin/panko --team team-a delete orders --wait --timeout 5m
+```
+
+`--team` hat Vorrang vor `PANKO_TEAM`. Ohne beides wird genau ein Team aus
+`panko.json` übernommen; bei mehreren Teams ist die Auswahl erforderlich.
+`--config` kann eine andere Konfigurationsdatei wählen. Der Token kommt aus
+`PANKO_TOKEN`, sonst aus `.local/team-tokens.json` (`--tokens-file`). Tokens werden
+nicht ausgegeben und nicht an Unterprozesse übergeben.
+
+`create` setzt `owner` standardmäßig auf das Team. Optional sind `--owner TEAM`,
+`--extensions a,b`, `--connection-limit N` und `--state-backend REF`. Alternativ
+liest `create orders -f spec.json` ein reines Spec-Objekt ohne `name`/`spec`-Hülle;
+fehlender `owner` wird auch dort ergänzt. Datei und Spec-Flags sind nicht kombinierbar.
+Die Schema-Prüfung und die übrigen Defaults bleiben beim Gateway/Kubernetes.
+Es gibt kein implizites Patchen bestehender Ressourcen.
+
+`get` und `list` zeigen Phase, Meldung, letzte Ausführung mit Code, Versuch und
+Endzeit, Änderungszahlen und den gebundenen State-Backend-Typ. `--json` liefert die
+API-Sicht. Fehlerantworten zeigen auch `message` und die einzelnen `errors`.
+`wait` endet bei Ready mit 0, bei Failed mit Code/Meldung und Exitcode 1, bei
+Zeitüberschreitung mit 2. Standard sind fünf Minuten. Auch ungültige Aufrufe enden
+mit 2; andere Betriebsfehler mit 1. `delete --wait` wartet auf das Verschwinden der
+Ressource und bricht bei einem fehlgeschlagenen Destroy mit 1 ab.
+
+Nach Behebung eines Fehlers fordert `.local/bin/panko --team team-a retry orders`
+über die gezielte Gateway-Aktion einen neuen Apply- oder Destroy-Versuch an.
+HTTP 409 wird als „nothing to retry“ gemeldet. Ein Retry wartet nicht selbst auf
+Abschluss: danach `wait` beziehungsweise bei einem Destroy `delete --wait` verwenden.
+
+`connect` liest ausschließlich das in `status.connectionSecretRef` benannte Secret
+im Team-Namespace über den lokalen Kubernetes-Zugang. `--kubeconfig` hat Vorrang
+vor `KUBECONFIG`, Standard ist `.local/kubeconfig`; es gibt keinen impliziten
+In-Cluster-Zugang. Der Gateway bekommt dafür keine zusätzlichen Secret-Rechte.
+Standardausgabe ist nur die PostgreSQL-URI. `--format env` liefert shell-quotierte
+`export PGHOST/PGPORT/PGDATABASE/PGUSER/PGPASSWORD`-Zeilen, `--format json` die
+dekodierten Secret-Felder. Alle Formate enthalten bewusst Zugangsdaten; nicht in
+Logs oder Tickets übernehmen.
+
+`.local/bin/panko doctor` zeigt pro Prüfung `ok` oder `fail` mit Hinweis und endet
+bei Fehlern mit 1. Geprüft werden Konfiguration, Kubernetes-Erreichbarkeit,
+Hook-/Gateway-/Metacontroller-Rollouts, Modul-Secrets in allen Team-Namespaces,
+Gateway-Tokens für alle Teams, eine gültige lokale Token-Datei mit Modus 0600 und
+bei aktiviertem S3 dessen StatefulSet. Dies prüft vorhandene Modul-Secrets, keinen
+Git-Zugriff aus einem Runner. Ein nicht erreichbares `/healthz` am lokalen Gateway
+ist nur `warn`, damit ein fehlendes Port-Forwarding nicht die Clusterdiagnose scheitern lässt.
+`doctor` benötigt einen Owner-Kubernetes-Zugang mit Leserechten für diese Objekte.
+
+Einen einzelnen Team-Token rotieren:
+
+```sh
+.local/bin/admin --kubeconfig .local/kubeconfig rotate-token --team team-a
+```
+
+Der Befehl ersetzt genau diesen Token in `infra-gateway/gateway-auth` und in der
+lokalen Datei (Modus 0600); andere Team-Tokens bleiben jeweils unverändert.
+`--tokens-file` und `--config` werden auch hier unterstützt. Vorhandenes Secret und
+lokale Datei sind erforderlich. Der Gateway liest die Datei je Request; die
+Secret-Volume-Aktualisierung durch Kubernetes kann kurz dauern. Ein gesetztes
+`PANKO_TOKEN` muss anschließend lokal aktualisiert oder entfernt werden. Falls das
+Cluster-Update erfolgreich war, die lokale Ersetzung aber scheitert, stellt
+`admin ... ensure-gateway-auth` die lokale Datei aus dem Secret wieder her.
