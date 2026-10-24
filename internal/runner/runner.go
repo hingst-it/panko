@@ -55,6 +55,9 @@ func (r *Runner) Run(ctx context.Context, action string, snapshot resource.Snaps
 	if action != "apply" && action != "destroy" && action != "migrate" && action != "plan" {
 		return fmt.Errorf("invalid runner action")
 	}
+	if r.Platform == nil && action != "migrate" {
+		return fmt.Errorf("runner needs a platform")
+	}
 	started := time.Now()
 	m := snapshot.Metadata
 	e := Event{Event: "execution_started", UID: m.UID, Namespace: m.Namespace, Name: m.Name, Generation: m.Generation, Action: action, Job: job}

@@ -51,6 +51,11 @@ func name(s string) bool {
 	return true
 }
 
+// CredentialKey reports whether a connection credential name can be stored as a Secret key.
+func CredentialKey(key string) bool {
+	return secretKey.MatchString(key) && key != "." && !strings.HasPrefix(key, "..")
+}
+
 func validateBinding(b Binding) error {
 	for _, f := range []struct {
 		field string
@@ -221,7 +226,7 @@ func ValidateCommit(c Commit, expected Binding) error {
 		return invalid("credentials")
 	}
 	for key, value := range c.Credentials {
-		if !secretKey.MatchString(key) || key == "." || strings.HasPrefix(key, "..") || len(value) > MaxCredentialValueBytes || !utf8.ValidString(value) {
+		if !CredentialKey(key) || len(value) > MaxCredentialValueBytes || !utf8.ValidString(value) {
 			return invalid("credentials")
 		}
 	}

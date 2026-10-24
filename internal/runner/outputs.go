@@ -5,14 +5,11 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"regexp"
 
 	"github.com/hingst-it/panko/internal/jsonx"
 	"github.com/hingst-it/panko/internal/resource"
 	"github.com/hingst-it/panko/internal/runproto"
 )
-
-var connectionKey = regexp.MustCompile(`^[-._a-zA-Z0-9]{1,64}$`)
 
 func (r *Runner) publishOutputs(ctx context.Context, snapshot resource.Snapshot, process ProcessFunc, binary string, env []string) error {
 	var out bytes.Buffer
@@ -54,7 +51,7 @@ func connectionOutputs(data []byte) (map[string]string, error) {
 	connection := make(map[string]string, len(values))
 	for key, raw := range values {
 		value, ok := raw.(string)
-		if !ok || !connectionKey.MatchString(key) || len(value) > runproto.MaxCredentialValueBytes {
+		if !ok || !runproto.CredentialKey(key) || len(value) > runproto.MaxCredentialValueBytes {
 			return nil, invalid
 		}
 		connection[key] = value

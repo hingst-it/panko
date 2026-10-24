@@ -210,6 +210,8 @@ func TestConnectionOutputs(t *testing.T) {
 		{"null value", encode(Object{"password": nil}), nil, true},
 		{"bad key", encode(map[string]string{"bad/key": "output-password"}), nil, true},
 		{"empty key", encode(map[string]string{"": "v"}), nil, true},
+		{"dot key", encode(map[string]string{".": "v"}), nil, true},
+		{"dots key", encode(map[string]string{"..data": "v"}), nil, true},
 		{"long key", encode(map[string]string{strings.Repeat("a", 65): "v"}), nil, true},
 		{"too many", encode(many), nil, true},
 		{"too large", encode(map[string]string{"password": strings.Repeat("ü", 2049)}), nil, true},

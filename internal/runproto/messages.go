@@ -9,7 +9,7 @@ var messages = map[string]string{
 	"backend_mismatch": "OpenTofu initialized a different state backend than the binding",
 	"checkpoint":       "The state backend no longer holds the state Panko last recorded",
 	"provider":         "OpenTofu failed while changing infrastructure",
-	"outputs":          "Module connection outputs could not be read or published",
+	"outputs":          "Module connection outputs could not be read or published; a retry publishes them again",
 	"state_record":     "The resulting state could not be read or recorded",
 	"cleanup":          "State cleanup after destroy failed",
 	"interrupted":      "The runner was interrupted",
