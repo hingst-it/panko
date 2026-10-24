@@ -1,0 +1,38 @@
+name: Hosting runner smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: panko-hosting
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Verify isolation and worker tools
+        run: |
+          test ! -e /var/run/secrets/kubernetes.io/serviceaccount/token
+          id
+          gh --version
+          node --version
+          python3 --version
+          docker info
+          docker run --rm alpine:3.23 sh -ec 'echo "Nested Docker container works"'
+      - uses: jdx/mise-action@v2
+      - name: Create a nested disposable k3d cluster
+        run: |
+          mkdir -p .local
+          mise exec -- k3d cluster create panko-ci-smoke --agents 1 \
+            --kubeconfig-update-default=false --kubeconfig-switch-context=false \
+            --kubeconfig-output "$PWD/.local/runner-smoke-kubeconfig" --timeout 180s
+          mise exec -- kubectl --kubeconfig .local/runner-smoke-kubeconfig wait \
+            --for=condition=Ready nodes --all --timeout=180s
+          mise exec -- kubectl --kubeconfig .local/runner-smoke-kubeconfig get nodes
+      - name: Delete only the nested smoke cluster
+        if: always()
+        run: mise exec -- k3d cluster delete panko-ci-smoke
