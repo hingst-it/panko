@@ -509,8 +509,8 @@ func TestPlanRequestRunsOnceAndRecordsDrift(t *testing.T) {
 	pods := map[string]Object{"p": pod(jsonx.Str(jsonx.Obj(job["metadata"])["name"]), Object{"containerStatuses": []any{terminatedWith("tofu", Object{"exitCode": 0, "message": `{"message":"Completed","changes":{"add":0,"change":1,"remove":0}}`})}})}
 	r, _ = Reconcile(Request{Parent: p, Children: map[string]map[string]Object{"Job.batch/v1": {"plan": done}}, Related: map[string]map[string]Object{PodKey: pods}})
 	last := jsonx.Obj(r.Status["lastPlan"])
-	if last["drift"] != true || last["token"] != "p1" || r.Status["lastExecution"] != nil || len(r.Children) != 0 {
-		t.Fatal("plan outcome not recorded as drift in lastPlan only", r.Status)
+	if last["drift"] != true || last["token"] != "p1" || r.Status["lastExecution"] != nil || len(r.Children) != 1 || !isPlan(r.Children[0]) {
+		t.Fatal("plan outcome not recorded in lastPlan only, or the finished plan Job not retained", r.Status)
 	}
 	p["status"] = r.Status
 	if again, _ := Reconcile(Request{Parent: p}); len(again.Children) != 0 {
@@ -633,5 +633,15 @@ func TestMissingPlanReportIsNotNoDrift(t *testing.T) {
 	last := jsonx.Obj(r.Status["lastPlan"])
 	if last["result"] != "Failed" || last["code"] != "unknown" || last["drift"] != nil {
 		t.Fatal("missing report treated as a successful check", last)
+	}
+}
+func TestStaleStatusDoesNotRestartAFinishedPlan(t *testing.T) {
+	p := readyParent()
+	jsonx.Obj(p["metadata"])["annotations"] = Object{Prefix + "plan-request": "c1"}
+	job, pods := finishedPlan(p, "c1", `{"message":"Completed","changes":{"add":0,"change":0,"remove":0}}`)
+	// Metacontroller can pass a parent whose status predates planRequest and lastPlan.
+	r, _ := Reconcile(Request{Parent: p, Children: map[string]map[string]Object{"Job.batch/v1": {"plan": job}}, Related: map[string]map[string]Object{PodKey: pods}})
+	if len(r.Children) != 1 || jsonx.Obj(r.Children[0]["metadata"])["name"] != jsonx.Obj(job["metadata"])["name"] || jsonx.Obj(r.Status["lastPlan"])["token"] != "c1" {
+		t.Fatal("finished plan restarted or not recorded from a stale status", r.Children, r.Status)
 	}
 }

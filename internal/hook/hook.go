@@ -371,11 +371,17 @@ func planRecord(c Object, pods map[string]Object) Object {
 }
 
 // planDue returns the token of a plan that should start now: an explicit request or a due scheduled check.
-func planDue(parent Object, config JobConfig, now time.Time) string {
+// A retained plan Job with the token also counts as consumed, because a status computed from an older
+// snapshot can briefly lack planRequest and lastPlan.
+func planDue(parent Object, config JobConfig, now time.Time, plan Object) string {
 	status := jsonx.Obj(parent["status"])
 	last := jsonx.Obj(status["lastPlan"])
+	started := ""
+	if plan != nil {
+		started = jsonx.Str(Ann(plan)[Prefix+"retry-token"])
+	}
 	// Explicit requests are consumed separately, so later scheduled checks never revive one.
-	if token := annotation(parent, "plan-request"); token != "" && token != jsonx.Str(status["planRequest"]) {
+	if token := annotation(parent, "plan-request"); token != "" && token != jsonx.Str(status["planRequest"]) && token != started {
 		return token
 	}
 	if config.DriftInterval <= 0 {
@@ -383,7 +389,7 @@ func planDue(parent Object, config JobConfig, now time.Time) string {
 	}
 	// One scheduled check per interval bucket, so restarts and resyncs never start a second one.
 	token := "scheduled-" + strconv.FormatInt(now.Unix()/int64(config.DriftInterval.Seconds()), 10)
-	if token == jsonx.Str(last["token"]) {
+	if token == jsonx.Str(last["token"]) || token == started {
 		return ""
 	}
 	if finished, err := time.Parse(time.RFC3339, jsonx.Str(last["finishedAt"])); err == nil && now.Sub(finished) < config.DriftInterval {
@@ -576,9 +582,19 @@ func Reconcile(r Request) (Response, error) {
 		}
 		return withRevision(result(p, "Applying", generation, "OpenTofu apply is running", retainAll(running), "", nil, nil), revisionOf(running[0]), ""), nil
 	}
+	// The newest finished plan Job stays a child until its TTL; it is the durable record of a consumed token.
 	keepPlan := func(response Response) Response {
 		if finishedPlan != nil {
 			response.Status["lastPlan"] = finishedPlan
+		}
+		if plan != nil && Terminal(plan) != "" {
+			name := jsonx.Obj(plan["metadata"])["name"]
+			for _, c := range response.Children {
+				if jsonx.Obj(c["metadata"])["name"] == name {
+					return response
+				}
+			}
+			response.Children = append(response.Children, Retain(plan))
 		}
 		return response
 	}
@@ -602,7 +618,7 @@ func Reconcile(r Request) (Response, error) {
 			if finishedPlan != nil {
 				jsonx.Obj(probe["status"])["lastPlan"] = finishedPlan
 			}
-			token := planDue(probe, config, time.Now())
+			token := planDue(probe, config, time.Now(), plan)
 			if token != "" {
 				child, err := CreateJob(p, "plan", hash, revision, backend, meta.Generation, 1, token)
 				if err != nil {
@@ -648,7 +664,7 @@ func Reconcile(r Request) (Response, error) {
 			probe = jsonx.Clone(p)
 			jsonx.Obj(probe["status"])["lastPlan"] = finishedPlan
 		}
-		if token := planDue(probe, config, time.Now()); token != "" {
+		if token := planDue(probe, config, time.Now(), plan); token != "" {
 			child, err := CreateJob(p, "plan", hash, revision, backend, meta.Generation, 1, token)
 			if err != nil {
 				return Response{}, err
