@@ -102,6 +102,7 @@ func OpenAPI(discovered map[Route]Resource) Object {
 	schemas := Object{"Error": Object{"type": "object", "required": []any{"message", "errors"}, "properties": Object{
 		"message": Object{"type": "string"}, "errors": Object{"type": "array", "items": Object{"type": "object", "required": []any{"field", "message"},
 			"properties": Object{"field": Object{"type": "string"}, "message": Object{"type": "string"}}}}}}}
+	schemas["Graph"] = graphSchema()
 	paths := Object{}
 	keys := make([]Route, 0, len(discovered))
 	for key := range discovered {
@@ -189,6 +190,14 @@ func OpenAPI(discovered map[Route]Resource) Object {
 		planResponses := jsonx.Clone(responses)
 		planResponses["202"] = Object{"description": "Drift check requested", "content": content(ref(id))}
 		planResponses["409"] = Object{"description": "Resource not Ready or changed", "content": content(ref("Error"))}
+		graphResponses := jsonx.Clone(responses)
+		delete(graphResponses, "202")
+		delete(graphResponses, "409")
+		graphResponses["200"] = Object{"description": "Sanitized configuration graph", "content": content(ref("Graph"))}
+		paths[collection+"/{name}/graph"] = Object{"get": Object{"operationId": "graph_" + id + "_item", "tags": []any{r.Kind}, "summary": "Read the sanitized configuration graph of a " + r.Kind,
+			"parameters": []any{Object{"name": "team", "in": "path", "required": true, "schema": Object{"type": "string"}, "description": "Team namespace authorized by the bearer token."},
+				Object{"name": "name", "in": "path", "required": true, "schema": name}},
+			"security": []any{Object{"TeamToken": []any{}}}, "responses": graphResponses}}
 		paths[collection+"/{name}/plan"] = Object{"post": Object{"operationId": "plan_" + id + "_item", "tags": []any{r.Kind}, "summary": "Check a " + r.Kind + " for drift without changing it",
 			"parameters": []any{Object{"name": "team", "in": "path", "required": true, "schema": Object{"type": "string"}, "description": "Team namespace authorized by the bearer token."},
 				Object{"name": "name", "in": "path", "required": true, "schema": name}},
@@ -197,4 +206,19 @@ func OpenAPI(discovered map[Route]Resource) Object {
 	return Object{"openapi": "3.1.0", "info": Object{"title": "Panko infrastructure API", "version": "1.0.0",
 		"description": "Generated from exposed Kubernetes CRDs. The API server evaluates schema and CEL rules."}, "paths": paths,
 		"components": Object{"schemas": schemas, "securitySchemes": Object{"TeamToken": Object{"type": "http", "scheme": "bearer"}}}}
+}
+
+// graphSchema describes only the sanitized artifact, never Kubernetes ConfigMap fields.
+func graphSchema() Object {
+	return Object{"type": "object", "required": []any{"version", "identity", "uid", "generatedAt", "nodes", "edges"}, "additionalProperties": false,
+		"properties": Object{
+			"version":        Object{"type": "integer", "const": 1},
+			"identity":       Object{"type": "string"},
+			"uid":            Object{"type": "string"},
+			"moduleRevision": Object{"type": "string"},
+			"generatedAt":    Object{"type": "string", "format": "date-time"},
+			"nodes": Object{"type": "array", "maxItems": 200, "items": Object{"type": "object", "required": []any{"id", "label", "kind"}, "additionalProperties": false,
+				"properties": Object{"id": Object{"type": "string"}, "label": Object{"type": "string"}, "kind": Object{"type": "string", "enum": []any{"resource", "module"}}}}},
+			"edges": Object{"type": "array", "items": Object{"type": "array", "minItems": 2, "maxItems": 2, "items": Object{"type": "string"}}},
+		}}
 }

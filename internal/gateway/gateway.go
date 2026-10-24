@@ -82,6 +82,10 @@ type Server struct {
 
 func (s *Server) Handler() http.Handler {
 	m := http.NewServeMux()
+	m.HandleFunc("GET /ui", serveUI)
+	m.HandleFunc("GET /ui/app.js", serveUI)
+	m.HandleFunc("GET /ui/app.css", serveUI)
+	m.HandleFunc("GET /{version}/teams/{team}/{plural}/{name}/graph", s.graph)
 	m.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, Object{"ok": true}) })
 	m.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")

@@ -119,6 +119,10 @@
                         "value": "/module/current"
                       },
                       {
+                        "name": "PANKO_MODULE_REVISION",
+                        "value": "1111111111111111111111111111111111111111"
+                      },
+                      {
                         "name": "PANKO_BACKEND",
                         "value": "{\"config\":{\"in_cluster_config\":true,\"namespace\":\"panko-state-team-a\",\"secret_suffix\":\"team-a-orders\"},\"type\":\"kubernetes\"}"
                       }
@@ -1899,6 +1903,10 @@
                         "value": "/module/current"
                       },
                       {
+                        "name": "PANKO_MODULE_REVISION",
+                        "value": "1111111111111111111111111111111111111111"
+                      },
+                      {
                         "name": "PANKO_BACKEND",
                         "value": "{\"config\":{\"in_cluster_config\":true,\"namespace\":\"panko-state-team-a\",\"secret_suffix\":\"team-a-orders\"},\"type\":\"kubernetes\"}"
                       }
@@ -2560,6 +2568,10 @@
                       {
                         "name": "PANKO_MODULE",
                         "value": "/module/current"
+                      },
+                      {
+                        "name": "PANKO_MODULE_REVISION",
+                        "value": "1111111111111111111111111111111111111111"
                       },
                       {
                         "name": "PANKO_BACKEND",
@@ -3664,6 +3676,10 @@
                         "value": "/module/current"
                       },
                       {
+                        "name": "PANKO_MODULE_REVISION",
+                        "value": "1111111111111111111111111111111111111111"
+                      },
+                      {
                         "name": "PANKO_BACKEND",
                         "value": "{\"config\":{\"in_cluster_config\":true,\"namespace\":\"panko-state-team-a\",\"secret_suffix\":\"team-a-orders\"},\"type\":\"kubernetes\"}"
                       }
@@ -3981,6 +3997,10 @@
                       {
                         "name": "PANKO_MODULE",
                         "value": "/module/current"
+                      },
+                      {
+                        "name": "PANKO_MODULE_REVISION",
+                        "value": "1111111111111111111111111111111111111111"
                       },
                       {
                         "name": "PANKO_BACKEND",

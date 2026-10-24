@@ -1,0 +1,16 @@
+:root { font: 16px system-ui, sans-serif; color: #18313c; background: #f4f7f8; }
+main { max-width: 1100px; margin: 2rem auto; padding: 0 1rem; }
+form, label { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
+input, button { font: inherit; padding: .45rem .7rem; }
+button { cursor: pointer; margin: .2rem; }
+article { background: white; border: 1px solid #b5c9d0; border-radius: .5rem; padding: 1rem; margin: 1rem 0; }
+h2 { margin-top: 0; overflow-wrap: anywhere; }
+dl { display: grid; grid-template-columns: minmax(8rem, 1fr) 3fr; gap: .4rem 1rem; }
+dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+dt { font-weight: 600; }
+[role=alert] { color: #9a261c; white-space: pre-wrap; }
+article > div { overflow: auto; }
+svg { max-width: none; }
+svg rect { fill: #eaf3f5; stroke: #537887; }
+svg line { stroke: #537887; }
+svg text { font: 12px system-ui, sans-serif; fill: #18313c; }

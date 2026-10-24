@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Panko inspector</title>
+<link rel="stylesheet" href="/ui/app.css">
+<script src="/ui/app.js" defer></script>
+</head>
+<body>
+<main>
+<h1>Panko inspector</h1>
+<form id="login" autocomplete="off">
+<label>Team <input id="team" name="team" required autocomplete="off"></label>
+<label>Token <input id="token" type="password" required autocomplete="off"></label>
+<button>Inspect</button>
+<button id="disconnect" type="button">Disconnect</button>
+</form>
+<p>Refreshes every 5 seconds. The token stays in memory until you disconnect or leave this page.</p>
+<p id="error" role="alert"></p>
+<div id="resources"></div>
+</main>
+</body>
+</html>

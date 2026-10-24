@@ -47,7 +47,7 @@ func RunnerRBAC() Object {
 		add("Namespace", team, "", nil)
 		add("Namespace", state, "", nil)
 		add("ServiceAccount", "tofu-runner", team, nil)
-		add("Role", "tofu-runner", team, Object{"rules": []any{rule([]any{"platform.example.com"}, []any{"databases"}, []any{"get"}), rule([]any{""}, []any{"secrets"}, write)}})
+		add("Role", "tofu-runner", team, Object{"rules": []any{rule([]any{"platform.example.com"}, []any{"databases"}, []any{"get"}), rule([]any{""}, []any{"secrets"}, write), rule([]any{""}, []any{"configmaps"}, []any{"get", "create", "update"})}})
 		add("RoleBinding", "tofu-runner", team, Object{"roleRef": roleRef("Role", "tofu-runner"), "subjects": []any{subject("tofu-runner", team)}})
 		add("Role", "tofu-state", state, Object{"rules": []any{rule([]any{""}, []any{"secrets"}, write), rule([]any{"coordination.k8s.io"}, []any{"leases"}, write)}})
 		add("RoleBinding", "tofu-state", state, Object{"roleRef": roleRef("Role", "tofu-state"), "subjects": []any{subject("tofu-runner", team)}})
@@ -84,7 +84,7 @@ func GatewayRBAC(crds []any) (Object, error) {
 		groupNames = append(groupNames, g)
 	}
 	sort.Strings(groupNames)
-	rules := []any{}
+	rules := []any{rule([]any{""}, []any{"configmaps"}, []any{"get"})}
 	for _, g := range groupNames {
 		names := []string{}
 		for name := range groups[g] {

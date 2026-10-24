@@ -32,6 +32,7 @@ type Runner struct {
 	ResultFile               string
 	Credentials              func() (string, []byte, error)
 	ModuleDir, WorkDir, Tofu string
+	ModuleRevision           string
 	Output, ErrorOutput, Log io.Writer
 	Process                  ProcessFunc
 }
@@ -168,6 +169,9 @@ func (r *Runner) execute(ctx context.Context, action string, snapshot resource.S
 		return counter.changes, err
 	}
 	if action == "apply" {
+		if err := r.saveGraph(ctx, snapshot, process, binary, env); err != nil {
+			r.emit(Event{Level: "warning", Event: "graph_unavailable", UID: m.UID, Namespace: m.Namespace, Name: m.Name, Generation: m.Generation, Action: action, ErrorType: fmt.Sprintf("%T", err)})
+		}
 		return counter.changes, nil
 	}
 	if r.Backend["type"] == "kubernetes" {

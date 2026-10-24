@@ -464,3 +464,31 @@ Secret-Volume-Aktualisierung durch Kubernetes kann kurz dauern. Ein gesetztes
 `PANKO_TOKEN` muss anschließend lokal aktualisiert oder entfernt werden. Falls das
 Cluster-Update erfolgreich war, die lokale Ersetzung aber scheitert, stellt
 `admin ... ensure-gateway-auth` die lokale Datei aus dem Secret wieder her.
+
+## Inspektor und Ressourcengraph
+
+Der Gateway liefert unter `/ui` einen kleinen Inspektor mit eingebetteten Assets.
+Nach Eingabe von Team und Team-Token zeigt er die Databases, Phase und Meldung,
+letzte Ausführung mit Code, Versuch, Endzeit und Änderungszahlen, Drift-Ergebnis,
+State-Backend-Typ und Modulrevision. Die Ansicht aktualisiert sich alle fünf
+Sekunden; „Retry“ fordert einen neuen Versuch an, „Check drift“ eine lesende
+Drift-Prüfung. API-Fehler zeigen `message` und die einzelnen `errors`.
+Der Token bleibt im Arbeitsspeicher der Seite und wird beim Trennen oder Verlassen
+verworfen. Requests laufen über denselben Ursprung mit Bearer-Header.
+
+Der Reiter „Graph“ liest
+`GET /v1/teams/{team}/databases/{name}/graph`. Nach erfolgreichem Apply erzeugt
+der Runner mit `tofu graph` einen Konfigurationsgraphen ohne Plan oder State.
+Das bereinigte Artefakt enthält nur statische Ressourcen- und Moduladressen,
+opake IDs und Abhängigkeiten, keine Attributwerte, Outputs, Instanzschlüssel oder
+Provider-Konfiguration. Grenzen: 200 Knoten und 64 KiB JSON; größere Graphen werden
+verworfen. Der ConfigMap `panko-graph-<identity>` liegt im Team-Namespace und
+gehört über die echte UID der Database. Runner benötigen dort
+`get/create/update` auf ConfigMaps, der Gateway nur `get`; bestehende
+Installationen müssen beide RBAC-Manifeste aktualisieren.
+Fehler bei Erzeugung oder Speicherung melden ein strukturiertes
+`graph_unavailable`-Warnereignis und lassen das Apply erfolgreich. Ein vorhandener
+Graph zeigt dann weiterhin den letzten erfolgreichen Stand samt `generatedAt`
+und Modulrevision. Fehlende, ungültige oder veraltete Artefakte liefern HTTP 404;
+die UID-Prüfung erlaubt eine abweichende UID nur bei passender Restore-Identität
+in `status.identity`.

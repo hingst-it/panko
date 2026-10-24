@@ -135,7 +135,7 @@ func TestApplyOwnsBackendAndKeepsSecretsOutOfLogs(t *testing.T) {
 	for _, call := range f.calls {
 		verbs = append(verbs, strings.Join(call[:min(2, len(call))], " "))
 	}
-	if strings.Join(verbs, ",") != "init -input=false,state pull,apply -auto-approve,state pull" {
+	if strings.Join(verbs, ",") != "init -input=false,state pull,apply -auto-approve,state pull,graph" {
 		t.Fatal(verbs)
 	}
 	if strings.Contains(strings.Join(f.calls[0], " "), "backend-config") {

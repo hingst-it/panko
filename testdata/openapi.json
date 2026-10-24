@@ -1730,6 +1730,178 @@
             }
           }
         }
+      },
+      "/v1/teams/{team}/databases/{name}/graph": {
+        "get": {
+          "operationId": "graph_platform_example_com_v1_Database_item",
+          "tags": [
+            "Database"
+          ],
+          "summary": "Read the sanitized configuration graph of a Database",
+          "parameters": [
+            {
+              "name": "team",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "Team namespace authorized by the bearer token."
+            },
+            {
+              "name": "name",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "description": "Resource name, unique within this team."
+              }
+            }
+          ],
+          "security": [
+            {
+              "TeamToken": []
+            }
+          ],
+          "responses": {
+            "401": {
+              "description": "Token required",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            },
+            "403": {
+              "description": "Forbidden",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            },
+            "404": {
+              "description": "Not found",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            },
+            "503": {
+              "description": "Kubernetes unavailable",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            },
+            "200": {
+              "description": "Sanitized configuration graph",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Graph"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/v1/teams/{team}/widgets/{name}/graph": {
+        "get": {
+          "operationId": "graph_platform_example_com_v1_Widget_item",
+          "tags": [
+            "Widget"
+          ],
+          "summary": "Read the sanitized configuration graph of a Widget",
+          "parameters": [
+            {
+              "name": "team",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "Team namespace authorized by the bearer token."
+            },
+            {
+              "name": "name",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "description": "Resource name, unique within this team."
+              }
+            }
+          ],
+          "security": [
+            {
+              "TeamToken": []
+            }
+          ],
+          "responses": {
+            "401": {
+              "description": "Token required",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            },
+            "403": {
+              "description": "Forbidden",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            },
+            "404": {
+              "description": "Not found",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            },
+            "503": {
+              "description": "Kubernetes unavailable",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Error"
+                  }
+                }
+              }
+            },
+            "200": {
+              "description": "Sanitized configuration graph",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Graph"
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "components": {
@@ -2170,6 +2342,76 @@
           "type": "array",
           "items": {
             "$ref": "#/components/schemas/platform_example_com_v1_Widget"
+          }
+        },
+        "Graph": {
+          "type": "object",
+          "required": [
+            "version",
+            "identity",
+            "uid",
+            "generatedAt",
+            "nodes",
+            "edges"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "version": {
+              "type": "integer",
+              "const": 1
+            },
+            "identity": {
+              "type": "string"
+            },
+            "uid": {
+              "type": "string"
+            },
+            "moduleRevision": {
+              "type": "string"
+            },
+            "generatedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "nodes": {
+              "type": "array",
+              "maxItems": 200,
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "label",
+                  "kind"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "resource",
+                      "module"
+                    ]
+                  }
+                }
+              }
+            },
+            "edges": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       },
