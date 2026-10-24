@@ -19,6 +19,8 @@ func TestMain(m *testing.M) {
 	for key, value := range map[string]string{"ENGINE_IMAGE": "engine:test", "GIT_SYNC_IMAGE": "git-sync:test", "MODULE_REPO": "git@example.com:panko/module.git", "MODULE_REVISION": testRevision} {
 		os.Setenv(key, value)
 	}
+	// Golden Jobs assume the repository root, whatever the caller's environment says.
+	os.Unsetenv("MODULE_PATH")
 	os.Exit(m.Run())
 }
 func normalize(v any) {

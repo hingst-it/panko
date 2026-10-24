@@ -29,6 +29,8 @@ type Binding struct {
 	LeaseEpoch     int64  `json:"leaseEpoch"`
 }
 
+// ClaimRequest names the agent and pool it claims for. The endpoint takes the agent's identity
+// from its authenticated token and rejects a request whose AgentID or Pool differ from it.
 type ClaimRequest struct {
 	Version      int      `json:"version"`
 	AgentID      string   `json:"agentId"`

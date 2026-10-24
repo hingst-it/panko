@@ -312,7 +312,7 @@ func TestCopyModuleFollowsSyncLinkAndSkipsGit(t *testing.T) {
 func TestCopyModuleFromPathInsideCheckoutOnly(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
-	for name, content := range map[string]string{"main.tf": "root", "test/modules/aws-s3/main.tf": "bucket", "test/modules/aws-s3/override.tf": ""} {
+	write := func(name, content string) {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0755); err != nil {
 			t.Fatal(err)
 		}
@@ -320,8 +320,9 @@ func TestCopyModuleFromPathInsideCheckoutOnly(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := os.Remove(filepath.Join(root, "test/modules/aws-s3/override.tf")); err != nil {
-		t.Fatal(err)
+	// An override in a sibling module does not concern the selected one.
+	for name, content := range map[string]string{"main.tf": "root", "test/modules/aws-s3/main.tf": "bucket", "test/modules/aws-s3/.terraform.lock.hcl": "lock", "test/modules/other/override.tf": ""} {
+		write(name, content)
 	}
 	work := filepath.Join(t.TempDir(), "module")
 	if err := copyModule(root, "test/modules/aws-s3", work); err != nil {
@@ -330,12 +331,31 @@ func TestCopyModuleFromPathInsideCheckoutOnly(t *testing.T) {
 	if data, err := os.ReadFile(filepath.Join(work, "main.tf")); err != nil || string(data) != "bucket" {
 		t.Fatal("module directory not copied as the module root", string(data), err)
 	}
+	if lock, err := moduleLockfile(root, "test/modules/aws-s3"); err != nil || string(lock) != "lock" {
+		t.Fatal("migration does not read the selected module's lockfile", string(lock), err)
+	}
 	if err := os.Symlink(outside, filepath.Join(root, "escape")); err != nil {
 		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "test/modules/aws-s3/escape")); err != nil {
+		t.Fatal(err)
+	}
+	if copyModule(root, "test/modules/aws-s3", filepath.Join(t.TempDir(), "module")) == nil {
+		t.Error("symlink inside the module directory followed")
+	}
+	if err := os.Remove(filepath.Join(root, "test/modules/aws-s3/escape")); err != nil {
+		t.Fatal(err)
+	}
+	write("test/modules/aws-s3/override.tf", "")
+	if copyModule(root, "test/modules/aws-s3", filepath.Join(t.TempDir(), "module")) == nil {
+		t.Error("override file in the selected module accepted")
 	}
 	for _, path := range []string{"escape", "../x", "missing", "main.tf"} {
 		if copyModule(root, path, filepath.Join(t.TempDir(), "module")) == nil {
 			t.Errorf("module path %q accepted", path)
+		}
+		if _, err := moduleLockfile(root, path); err == nil {
+			t.Errorf("migration accepted module path %q", path)
 		}
 	}
 }

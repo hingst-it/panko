@@ -177,7 +177,7 @@ func TestClaim(t *testing.T) {
 			wantError(t, ValidateClaim(c), ErrInvalid)
 		})
 	}
-	for _, p := range []string{"/tmp", "..", "../module", "a/../b", "a//b", "a/./b", "a/", ".", `C:\module`, `a\b`} {
+	for _, p := range []string{"/tmp", "..", "../module", "a/../b", "a//b", "a/./b", "a/", ".", `C:\module`, `a\b`, ".git/hooks", "a b"} {
 		t.Run(p, func(t *testing.T) {
 			c := claim()
 			c.ModulePath = p
@@ -282,6 +282,8 @@ func TestCommitFields(t *testing.T) {
 		"digest nonhex":         func(c *Commit) { c.Checkpoint.Digest = strings.Repeat("z", 64) },
 		"credential key empty":  func(c *Commit) { c.Credentials = map[string]string{"": "value"} },
 		"credential key long":   func(c *Commit) { c.Credentials = map[string]string{strings.Repeat("a", 65): "value"} },
+		"credential key space":  func(c *Commit) { c.Credentials = map[string]string{"db password": "value"} },
+		"credential key slash":  func(c *Commit) { c.Credentials = map[string]string{"a/b": "value"} },
 		"credential value long": func(c *Commit) { c.Credentials = map[string]string{"key": strings.Repeat("a", 4097)} },
 		"credentials many": func(c *Commit) {
 			c.Credentials = map[string]string{}

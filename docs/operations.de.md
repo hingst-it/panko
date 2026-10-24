@@ -179,6 +179,12 @@ Jede Database wird danach einmal mit der neuen Revision angewendet. Der Status h
 Destroy verwendet genau diese Revision. Ressourcen ohne erfasste Revision werden
 beim ersten Deployment dieses Aufbaus einmal angewendet.
 
+Liegt das Modul in einem Unterverzeichnis des Repositorys, nennt `MODULE_PATH` am Hook
+dieses Verzeichnis (relativ, ohne `..` und `.git`). Der Pfad wird wie das State-Backend
+vor dem ersten Job an die Ressource gebunden (`status.modulePath`). Eine spätere Änderung
+gilt nur für neue Ressourcen; bestehende, auch solche aus der Zeit vor `MODULE_PATH`,
+behalten ihren Pfad für Updates, Drift-Prüfungen, Migrationen und Destroy.
+
 Das öffentliche Beispielmodul wird standardmäßig über HTTPS geladen, ohne
 Deploy-Key oder GitHub-Konto. Für ein privates Modul wird `MODULE_REPO` in
 `cluster/module-mirror.yaml` auf eine SSH-URL gesetzt. Dann ist der

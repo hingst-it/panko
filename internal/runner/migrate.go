@@ -37,7 +37,7 @@ func (r *Runner) migrate(ctx context.Context, snapshot resource.Snapshot) error 
 	if binary == "" {
 		binary = "tofu"
 	}
-	lock, err := moduleLockfile(r.ModuleDir)
+	lock, err := moduleLockfile(r.ModuleDir, r.ModulePath)
 	if err != nil {
 		return err
 	}
@@ -183,8 +183,8 @@ func (r *Runner) backup(ctx context.Context, namespace, uid string, data []byte)
 	return err
 }
 
-func moduleLockfile(module string) ([]byte, error) {
-	dir, err := filepath.EvalSymlinks(module)
+func moduleLockfile(checkout, modulePath string) ([]byte, error) {
+	dir, err := moduleDir(checkout, modulePath)
 	if err != nil {
 		return nil, err
 	}

@@ -128,6 +128,10 @@ spec:
                 identity:
                   type: string
                   description: Stable identity for names, state keys and checkpoints; the original UID after a restore.
+                modulePath:
+                  type: string
+                  maxLength: 200
+                  description: Module directory inside the repository, bound before the first job; empty means the repository root.
                 planRequest:
                   type: string
                   description: Last explicit drift check request token that was started.

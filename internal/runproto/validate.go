@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"path"
 	"regexp"
 	"strings"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/hingst-it/panko/internal/graph"
+	"github.com/hingst-it/panko/internal/resource"
 )
 
 var ErrInvalid = errors.New("invalid runner message")
@@ -34,6 +34,9 @@ var label = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 var revision = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
 var digest = regexp.MustCompile(`^[0-9a-f]{64}$`)
 var idempotency = regexp.MustCompile(`^[A-Za-z0-9_-]{16,128}$`)
+
+// secretKey is the key syntax of a Kubernetes Secret, so a validated commit can always be stored.
+var secretKey = regexp.MustCompile(`^[-._a-zA-Z0-9]{1,64}$`)
 
 func name(s string) bool {
 	if len(s) > 253 || s == "" {
@@ -148,16 +151,9 @@ func ValidateClaim(c Claim) error {
 	if !revision.MatchString(c.ModuleRevision) {
 		return invalid("moduleRevision")
 	}
-	if c.ModulePath != "" {
-		if !text(c.ModulePath, 1024) || path.IsAbs(c.ModulePath) || path.Clean(c.ModulePath) != c.ModulePath ||
-			c.ModulePath == "." || strings.ContainsAny(c.ModulePath, `\:`) {
-			return invalid("modulePath")
-		}
-		for _, part := range strings.Split(c.ModulePath, "/") {
-			if part == ".." {
-				return invalid("modulePath")
-			}
-		}
+	// The same rule as hook and runner, so a claim never names a path the runner refuses.
+	if resource.ModulePath(c.ModulePath) != nil {
+		return invalid("modulePath")
 	}
 	if !object(c.SpecSnapshot, MaxSpecBytes) {
 		return invalid("specSnapshot")
@@ -224,7 +220,7 @@ func ValidateCommit(c Commit, expected Binding) error {
 		return invalid("credentials")
 	}
 	for key, value := range c.Credentials {
-		if !text(key, MaxCredentialKeyBytes) || len(value) > MaxCredentialValueBytes || !utf8.ValidString(value) {
+		if !secretKey.MatchString(key) || len(value) > MaxCredentialValueBytes || !utf8.ValidString(value) {
 			return invalid("credentials")
 		}
 	}
@@ -233,8 +229,10 @@ func ValidateCommit(c Commit, expected Binding) error {
 			return invalid("graph")
 		}
 		// Parse checks edge lengths and semantic bounds; strict decoding also rejects
-		// extra fields that might otherwise smuggle values into the stored artifact.
-		if _, err := Decode[graph.Artifact](bytes.NewReader(c.Graph), graph.MaxBytes); err != nil {
+		// extra fields that might otherwise smuggle values into the stored artifact. The
+		// artifact has its own version, independent of the protocol version.
+		var strict graph.Artifact
+		if len(c.Graph) > graph.MaxBytes || strictJSON(c.Graph, &strict) != nil {
 			return invalid("graph")
 		}
 		a, err := graph.Parse(c.Graph)

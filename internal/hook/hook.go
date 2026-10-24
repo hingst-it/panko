@@ -67,7 +67,8 @@ func Children(r Request) []Object {
 type JobConfig struct {
 	RunnerImage, EngineImage, EngineBinary, GitSyncImage, ModuleRepo, ModuleRevision, ModuleSecret string
 	ProviderMirror, ModuleMirror                                                                   string
-	// ModulePath is the module's directory inside the repository; empty means the repository root.
+	// ModulePath is the module's directory inside the repository for newly bound resources; empty
+	// means the repository root. Each resource keeps the path it was bound with (status.modulePath).
 	ModulePath string
 	// Backends gates team-defined state backends; the Kubernetes fallback is always available.
 	Backends statebackend.Settings
@@ -213,10 +214,13 @@ func CreateJobWith(config JobConfig, parent Object, action, hash, revision strin
 		}
 		pod["volumes"] = withoutSecret(jsonx.Array(pod["volumes"]))
 	}
-	if config.ModulePath != "" {
+	if modulePath := jsonx.Str(jsonx.Obj(parent["status"])["modulePath"]); modulePath != "" {
+		if err := resource.ModulePath(modulePath); err != nil {
+			return nil, err
+		}
 		pod := jsonx.Obj(jsonx.Obj(jsonx.Obj(job["spec"])["template"])["spec"])
 		container := jsonx.Obj(jsonx.Array(pod["containers"])[0])
-		container["env"] = append(jsonx.Array(container["env"]), Object{"name": "PANKO_MODULE_PATH", "value": config.ModulePath})
+		container["env"] = append(jsonx.Array(container["env"]), Object{"name": "PANKO_MODULE_PATH", "value": modulePath})
 	}
 	if config.ProviderMirror != "" {
 		pod := jsonx.Obj(jsonx.Obj(jsonx.Obj(job["spec"])["template"])["spec"])
@@ -435,6 +439,11 @@ func bind(r Request, children []Object, phase string, generation int64, finalize
 	response := result(p, phase, generation, "State backend bound; execution follows", retainAll(children), "", finalized, nil)
 	delete(response.Status, "stateBackendError")
 	response.Status["stateBackend"] = bound
+	// The module path is bound with the backend: resources that ran before keep the repository root,
+	// and a later MODULE_PATH change only affects new resources.
+	if modulePath := LoadJobConfig().ModulePath; modulePath != "" && !statebackend.Executed(p, len(children)) {
+		response.Status["modulePath"] = modulePath
+	}
 	if _, ok := response.Status["identity"]; !ok {
 		response.Status["identity"] = jsonx.Str(meta["uid"])
 	}

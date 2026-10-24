@@ -30,16 +30,31 @@ variable "resource" {
   }
 }
 
-# Endpoint and dummy credentials come from the agent's local profile (AWS_ENDPOINT_URL for all
-# services, so no request reaches real AWS; AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY). The emulator
-# has no account, STS or metadata service.
+variable "endpoint" {
+  type        = string
+  description = "URL of the emulated AWS API, supplied by the agent's local profile (TF_VAR_endpoint)."
+  validation {
+    condition     = can(regex("^https?://", var.endpoint)) && !strcontains(var.endpoint, "amazonaws.com")
+    error_message = "The test module only runs against an emulated AWS API."
+  }
+}
+
+# Fixed dummy credentials and an explicit endpoint: ambient AWS profiles, credentials and
+# endpoints are never used, so the test module cannot reach real AWS. The emulator has no
+# account, STS or metadata service.
 provider "aws" {
   region                      = "us-east-1"
+  access_key                  = "test"
+  secret_key                  = "test"
   s3_use_path_style           = true
   skip_credentials_validation = true
   skip_requesting_account_id  = true
   skip_metadata_api_check     = true
   skip_region_validation      = true
+  endpoints {
+    s3  = var.endpoint
+    sts = var.endpoint
+  }
 }
 
 locals {
