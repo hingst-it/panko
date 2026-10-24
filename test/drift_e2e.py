@@ -18,8 +18,11 @@ def database(name):
 
 def check(name, token):
     kube('annotate', 'db', name, '-n', 'team-a', f'platform.example.com/plan-request={token}', '--overwrite')
-    plan = wait(lambda: get('db', name)['status'].get('lastPlan', {}).get('token') == token and get('db', name)['status']['lastPlan'],
-                f'{name} drift check {token}', 300)
+    # Evaluate one snapshot: Metacontroller can briefly write a status computed from an older one.
+    def finished():
+        plan = get('db', name)['status'].get('lastPlan', {})
+        return plan if plan.get('token') == token else None
+    plan = wait(finished, f'{name} drift check {token}', 300)
     assert plan['result'] == 'Succeeded', plan
     assert get('db', name)['status']['phase'] == 'Ready', 'drift check changed the phase'
     return plan
