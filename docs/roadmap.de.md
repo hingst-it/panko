@@ -10,13 +10,13 @@ Erreicht, wenn eine frische Installation eine nützliche Ressource anlegen, eine
 verständlich melden und gezielt wiederholen, Zugangsdaten bereitstellen, eine geprobte
 Wiederherstellung überstehen und sauber löschen kann, jeweils über dokumentierte Abläufe.
 
-| Nr. | Thema | Größe |
-| --- | --- | --- |
-| 1 | Verständliche Fehler und explizites Wiederholen | L |
-| 1b | Pull-Through-Mirror für Provider | M |
-| 2 | Geprobte Sicherung und Wiederherstellung | M |
-| 3 | Reproduzierbare persönliche Installation | M |
-| 4 | Alltagsbefehle (CLI) | M |
+| Nr. | Thema | Größe | Stand |
+| --- | --- | --- | --- |
+| 1 | Verständliche Fehler und explizites Wiederholen | L | umgesetzt |
+| 1b | Pull-Through-Mirror für Provider | M | umgesetzt |
+| 2 | Geprobte Sicherung und Wiederherstellung | M | umgesetzt, Probe-Wiederherstellung bestanden |
+| 3 | Reproduzierbare persönliche Installation | M | umgesetzt |
+| 4 | Alltagsbefehle (CLI) | M | umgesetzt |
 
 ### 1. Verständliche Fehler und explizites Wiederholen
 
@@ -96,17 +96,17 @@ kubectl und ohne curl.
 
 ## Danach
 
-| Nr. | Thema | Größe | Anmerkung |
-| --- | --- | --- | --- |
-| 3b | Modul-Mirror im Cluster | M | git-sync liest vom Mirror; der Deploy-Key liegt nur noch dort statt in jedem Team-Namespace |
-| 3c | Egress-Regeln für Runner | M | Erst nach 1b und 3b. Panko erzeugt NetworkPolicies aus deklarierten Zielen; Dienste werden auf ihre Pods aufgelöst, externe Ziele als CIDR und Port. Test muss auch Verweigerung zeigen |
-| 5 | Zweiter, echter Ressourcentyp | L | Mit eigenem Credential- und Output-Vertrag; der Runner lädt heute immer das PostgreSQL-Admin-Passwort |
-| 6 | Drift-Prüfung und kontrollierte Modul-Rollouts | L | Lesender Plan auf Abruf; Revisionswechsel pro Ressource statt flottenweit |
-| 7 | Minimale Oberfläche | M, Graph +M | Erst Inspektor (Ressourcen, Phase, letzte Ausführung, Fehlercode); Graph als zweiter Reiter aus `tofu graph`, als bereinigtes Artefakt ohne Attribute, Outputs und Instanzschlüssel, mit Team-Token und UID-Prüfung |
+| Nr. | Thema | Größe | Anmerkung | Stand |
+| --- | --- | --- | --- | --- |
+| 3b | Modul-Mirror im Cluster | M | git-sync liest vom Mirror; der Deploy-Key liegt nur noch dort statt in jedem Team-Namespace | umgesetzt |
+| 3c | Egress-Regeln für Runner | M | Erst nach 1b und 3b. Panko erzeugt NetworkPolicies aus deklarierten Zielen; Dienste werden auf ihre Pods aufgelöst, externe Ziele als CIDR und Port. Test muss auch Verweigerung zeigen | umgesetzt, optional (`"egress": true`) |
+| 5 | Zweiter, echter Ressourcentyp | L | Mit eigenem Credential- und Output-Vertrag; der Runner lädt heute immer das PostgreSQL-Admin-Passwort | offen: erst mit einem tatsächlich benötigten Modul |
+| 6 | Drift-Prüfung und kontrollierte Modul-Rollouts | L | Lesender Plan auf Abruf; Revisionswechsel pro Ressource statt flottenweit | umgesetzt |
+| 7 | Minimale Oberfläche | M, Graph +M | Erst Inspektor (Ressourcen, Phase, letzte Ausführung, Fehlercode); Graph als zweiter Reiter aus `tofu graph`, als bereinigtes Artefakt ohne Attribute, Outputs und Instanzschlüssel, mit Team-Token und UID-Prüfung | umgesetzt (Inspektor und Graph) |
 
 ## Entscheidungen
 
-- Egress bleibt vorerst offen; nur Downloads laufen über Mirrors.
+- Egress-Regeln sind optional und standardmäßig aus; Downloads laufen über Mirrors.
 - Fehlerrückmeldung vor Paketierung: Der Betreiber nutzt die bestehende Installation bereits.
 - Ein zweiter Ressourcentyp erst mit einem tatsächlich benötigten Modul.
 - Oberfläche erst, wenn Status und Wiederholen aussagekräftig sind; kein Graph-first.
