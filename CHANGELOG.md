@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Omit redundant Homebrew version metadata so generated formulae pass strict audit.
+
 ## 0.0.1 — 2026-10-24
 
 First public experimental release for local evaluation and personal installations.

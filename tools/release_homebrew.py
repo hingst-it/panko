@@ -17,7 +17,6 @@ def formula(version, checksums):
         'class Panko < Formula',
         '  desc "Self-service infrastructure API powered by OpenTofu and Kubernetes"',
         '  homepage "https://github.com/hingst-it/panko"',
-        f'  version "{version}"',
         '  license "Apache-2.0"',
         '',
     ]
