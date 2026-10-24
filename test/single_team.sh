@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Acceptance for roadmap item 3 in a dedicated lab: run as
+# Acceptance for #17 in a dedicated lab: run as
 #   PANKO_CONFIG=.local/single-team.json CLUSTER_NAME=... KUBECONFIG=... bash test/single_team.sh
 set -euo pipefail
 export KUBECONFIG="${KUBECONFIG:-$PWD/.local/kubeconfig}"

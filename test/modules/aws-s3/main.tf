@@ -1,4 +1,4 @@
-# Test-only module for the cloud proof (roadmap 8c): one S3 bucket against an emulated AWS API.
+# Test-only module for the cloud proof (#26): one S3 bucket against an emulated AWS API.
 terraform {
   required_version = ">= 1.11.0"
   required_providers {

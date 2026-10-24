@@ -206,7 +206,7 @@ alte Kopien des Secrets aus den konfigurierten Team-Namespaces.
 Der Mirror stellt das Bare-Repository im Cluster über einen nur lesenden,
 unauthentifizierten Git-Dienst auf Port 9418 bereit; Push ist deaktiviert.
 Damit kann jeder Pod im Cluster den Modulcode lesen, aber keinen Schlüssel. Für eine
-persönliche Installation ist das bewusst akzeptiert; mit Egress-Regeln (Roadmap 3c)
+persönliche Installation ist das bewusst akzeptiert; mit Egress-Regeln ([#20](https://github.com/hingst-it/panko/issues/20))
 lässt sich der Zugriff auf Runner-Pods beschränken.
 
 Ist der Modul-Mirror ausgefallen oder fehlt die angeforderte Revision, scheitert

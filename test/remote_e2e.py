@@ -1,4 +1,4 @@
-"""Remote runner pool against an emulated cloud (roadmap 8c): an agent outside the cluster provisions
+"""Remote runner pool against an emulated cloud (#26): an agent outside the cluster provisions
 an S3 bucket in Moto, which only the agent can reach, through the gateway and the runner endpoint."""
 import json
 import os

@@ -65,13 +65,13 @@ Die Portierung erfolgte komponentenweise im lokalen k3d-Labor:
 
 Die Runtime-Tests der Portierung liefen auf Linux ARM64; die vier Go-Kommandos wurden
 zusätzlich für Linux AMD64 cross-kompiliert. Inzwischen läuft die vollständige E2E-Suite
-auch in GitHub Actions auf Linux AMD64 (Nachweis in [TASKS-GO.md](../TASKS-GO.md)). Die entpackten Images
+auch in GitHub Actions auf Linux AMD64 (Nachweis in [#13](https://github.com/hingst-it/panko/issues/13)). Die entpackten Images
 schrumpften von 117 auf 29,9 MB (Gateway), 78,9 auf 23,9 MB (Hook) und 280 auf
 230 MB (Runner, überwiegend OpenTofu und Provider-Mirror). Startzeit und
 Speicherverbrauch wurden nicht gemessen.
 
 Lokale Protokolle liegen unter `.local/go-stage*-*.log` und `.local/go-upgrade-*`; abschließende Nachweise
-werden in [TASKS-GO.md](../TASKS-GO.md) festgehalten.
+stehen in den Issues des Meilensteins [Go port](https://github.com/hingst-it/panko/milestone/2?closed=1), zusammengefasst in [#13](https://github.com/hingst-it/panko/issues/13).
 
 ## Gesicherte Python-Versionen
 

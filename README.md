@@ -179,7 +179,6 @@ Explore the API at [Swagger UI](http://127.0.0.1:8081/docs) or retrieve the [Ope
 | [docs/local-lab.de.md](docs/local-lab.de.md) | Original German technical guide and implementation/verification notes. |
 | [docs/state-backends.de.md](docs/state-backends.de.md) | Team-defined state backends, safety checks, lab S3 and migration. |
 | [docs/remote-runners.de.md](docs/remote-runners.de.md) | Remote runner pools, agents, tokens, recovery and limits. |
-| [docs/roadmap.de.md](docs/roadmap.de.md) | Roadmap towards a first usable personal version and beyond. |
 | [docs/releases.md](docs/releases.md) | Tag releases, required CI checks, binary archives and GHCR images. |
 | [docs/self-hosted-ci.md](docs/self-hosted-ci.md) | Flux-managed hosting workers, isolation, job routing and recovery. |
 | [docs/quickstart.md](docs/quickstart.md) / [docs/agent-install.md](docs/agent-install.md) | Public installation and instructions for AI-assisted setup. |
@@ -200,6 +199,8 @@ OpenTofu state lives in team-specific Kubernetes namespaces and includes credent
 Panko grows out of an appreciation for open source and the people who make infrastructure tools better together. Ideas, bug reports, documentation improvements, and focused patches are welcome. Help us make the wrapper useful while keeping its responsibilities clear and its implementation small.
 
 For a change, explain the infrastructure workflow it improves and how you checked it. The lifecycle and gateway tests above are useful starting points when changing runtime behavior.
+
+The roadmap lives on the [Panko Roadmap project](https://github.com/orgs/hingst-it/projects/1), with [milestones](https://github.com/hingst-it/panko/milestones) and the finished items with their evidence.
 
 ## License
 

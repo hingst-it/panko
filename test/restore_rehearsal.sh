@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Rehearsal for roadmap item 2: back up a lab, delete it, restore into a fresh lab and verify.
+# Rehearsal for #16: back up a lab, delete it, restore into a fresh lab and verify.
 set -euo pipefail
 export CLUSTER_NAME="${CLUSTER_NAME:-infra-lab-restore}"
 export KUBECONFIG="${KUBECONFIG:-$PWD/.local/restore-kubeconfig}"
