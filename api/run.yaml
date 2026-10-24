@@ -58,6 +58,12 @@ spec:
                   type: object
                   description: Non-secret state backend binding; credentials stay at the agent.
                   x-kubernetes-preserve-unknown-fields: true
+                owner:
+                  type: object
+                  description: API version and kind of the resource; its artifacts get it as owner.
+                  properties:
+                    apiVersion: {type: string, maxLength: 253}
+                    kind: {type: string, maxLength: 63}
                 deadlineSeconds: {type: integer, format: int64, minimum: 60}
                 leaseSeconds: {type: integer, format: int64, minimum: 2}
                 heartbeatSeconds: {type: integer, format: int64, minimum: 1}

@@ -72,11 +72,15 @@ type run struct {
 			Revision   string `json:"revision"`
 			Path       string `json:"path"`
 		} `json:"module"`
-		Resource         resource.Snapshot `json:"resource"`
-		Backend          json.RawMessage   `json:"backend"`
-		DeadlineSeconds  int64             `json:"deadlineSeconds"`
-		LeaseSeconds     int64             `json:"leaseSeconds"`
-		HeartbeatSeconds int64             `json:"heartbeatSeconds"`
+		Resource resource.Snapshot `json:"resource"`
+		Owner    struct {
+			APIVersion string `json:"apiVersion"`
+			Kind       string `json:"kind"`
+		} `json:"owner"`
+		Backend          json.RawMessage `json:"backend"`
+		DeadlineSeconds  int64           `json:"deadlineSeconds"`
+		LeaseSeconds     int64           `json:"leaseSeconds"`
+		HeartbeatSeconds int64           `json:"heartbeatSeconds"`
 	} `json:"spec"`
 	Status status `json:"status"`
 	source Object

@@ -156,3 +156,12 @@ func TestJobAndRunOfTheSameNameStayApart(t *testing.T) {
 		t.Fatal("a Job and a Run of the same name collapsed", children)
 	}
 }
+func TestRunNamesItsOwnersKind(t *testing.T) {
+	withPool(t, "")
+	p := remote(t)
+	p["apiVersion"], p["kind"] = "platform.example.com/v1", "Bucket"
+	r, _ := Reconcile(Request{Parent: p})
+	if owner := jsonx.Obj(jsonx.Obj(r.Children[0]["spec"])["owner"]); owner["kind"] != "Bucket" || owner["apiVersion"] != "platform.example.com/v1" {
+		t.Fatal("Run does not name its owner's kind", owner)
+	}
+}

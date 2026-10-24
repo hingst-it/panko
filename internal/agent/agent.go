@@ -44,7 +44,10 @@ type Agent struct {
 	WorkRoot string
 	Tofu     string
 	Git      string
-	Log      io.Writer
+	// PluginCache optionally keeps downloaded providers between executions; safe because the agent
+	// runs one execution at a time, and the module lockfile still verifies every provider.
+	PluginCache string
+	Log         io.Writer
 	// Fetch places the module checkout at the revision; nil uses git.
 	Fetch func(ctx context.Context, repository, revision, dir string) error
 	// Process runs OpenTofu; nil uses the runner's process-group handling.
@@ -197,6 +200,9 @@ func (a *Agent) run(ctx context.Context, claim runproto.Claim) runproto.Commit {
 		return fail("module", err)
 	}
 	profile["HOME"], profile["AWS_SHARED_CREDENTIALS_FILE"], profile["AWS_CONFIG_FILE"] = home, os.DevNull, os.DevNull
+	if a.PluginCache != "" {
+		profile["TF_PLUGIN_CACHE_DIR"] = a.PluginCache
+	}
 	checkout := filepath.Join(work, "checkout")
 	if err := a.fetch(ctx, claim.ModuleRepository, claim.ModuleRevision, checkout); err != nil {
 		return fail("module", err)

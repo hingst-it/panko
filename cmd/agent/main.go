@@ -32,6 +32,7 @@ func run() error {
 	work := flag.String("work", envOr("PANKO_WORK", os.TempDir()), "Directory for execution workspaces")
 	tofu := flag.String("tofu", envOr("PANKO_TOFU", "tofu"), "OpenTofu binary")
 	git := flag.String("git", envOr("PANKO_GIT", "git"), "git binary")
+	cache := flag.String("plugin-cache", os.Getenv("PANKO_PLUGIN_CACHE"), "Optional provider cache directory kept between executions")
 	flag.Parse()
 	if flag.NArg() != 1 || (flag.Arg(0) != "run" && flag.Arg(0) != "check") {
 		return fmt.Errorf("usage: panko-agent [flags] run|check")
@@ -57,7 +58,7 @@ func run() error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	a := &agent.Agent{Endpoint: client, AgentID: id, Pool: *pool, Profiles: *profiles, WorkRoot: *work, Tofu: *tofu, Git: *git, Log: os.Stdout}
+	a := &agent.Agent{Endpoint: client, AgentID: id, Pool: *pool, Profiles: *profiles, WorkRoot: *work, Tofu: *tofu, Git: *git, PluginCache: *cache, Log: os.Stdout}
 	return a.Serve(ctx)
 }
 

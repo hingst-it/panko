@@ -179,6 +179,8 @@ func createRun(config JobConfig, job, parent Object, action, hash, revision stri
 		"pool": name, "action": action, "generation": generation, "attempt": attempt, "retryToken": retry, "hash": hash,
 		"module":   Object{"repository": repository, "revision": revision, "path": jsonx.Str(jsonx.Obj(parent["status"])["modulePath"])},
 		"resource": snapshot, "backend": backend,
+		// Artifacts the endpoint stores for this Run are owned by the resource, whatever its kind.
+		"owner":           Object{"apiVersion": jsonx.Str(parent["apiVersion"]), "kind": jsonx.Str(parent["kind"])},
 		"deadlineSeconds": int64(1800), "leaseSeconds": int64(60), "heartbeatSeconds": int64(15),
 	}}, nil
 }

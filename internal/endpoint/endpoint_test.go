@@ -305,8 +305,8 @@ func TestCommitResumeAndArtifacts(t *testing.T) {
 		t.Fatal("connection missing")
 	}
 	owner := object(jsonx.Array(object(secret["metadata"])["ownerReferences"])[0])
-	if owner["uid"] != "resource-uid" {
-		t.Fatal(owner)
+	if owner["uid"] != "resource-uid" || owner["kind"] != "Database" {
+		t.Fatal("Runs without an owner field must keep Database as owner", owner)
 	}
 	graph := f.objects["/api/v1/namespaces/team-a/configmaps/panko-graph-original-uid"]
 	if !strings.Contains(str(object(graph["data"])["graph.json"]), strings.Repeat("a", 40)) {
@@ -629,5 +629,19 @@ func TestIdentityConfirmsTokenAndPoolWithoutClaiming(t *testing.T) {
 	}
 	if w := request(s, "/v1/identity", "agent-0000000000000000.wrong", Object{}); w.Code != 401 {
 		t.Fatal("unknown token confirmed", w.Code)
+	}
+}
+func TestArtifactsBelongToTheRunsOwnerKind(t *testing.T) {
+	s, f, token := fixture(t)
+	object(f.objects[runPath("team-a", "run-1")]["spec"])["owner"] = Object{"apiVersion": "platform.example.com/v1", "kind": "Bucket"}
+	c := claimed(t, s, token)
+	commit := result(c)
+	commit.Credentials = map[string]string{"endpoint": "http://moto:5000"}
+	if w := request(s, "/v1/commit", token, commit); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	secret := f.objects["/api/v1/namespaces/team-a/secrets/orders-connection"]
+	if owner := object(jsonx.Array(object(secret["metadata"])["ownerReferences"])[0]); owner["kind"] != "Bucket" {
+		t.Fatal("artifact owned by the wrong kind, the garbage collector would remove it", owner)
 	}
 }

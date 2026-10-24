@@ -78,7 +78,12 @@ func (s *Server) artifacts(ctx context.Context, r *run, c runproto.Commit) error
 			return err
 		}
 	}
-	owner := []any{Object{"apiVersion": "platform.example.com/v1", "kind": "Database", "name": m.Name, "uid": m.UID}}
+	// Runs from before the owner field belong to Databases.
+	apiVersion, kind := r.Spec.Owner.APIVersion, r.Spec.Owner.Kind
+	if apiVersion == "" || kind == "" {
+		apiVersion, kind = "platform.example.com/v1", "Database"
+	}
+	owner := []any{Object{"apiVersion": apiVersion, "kind": kind, "name": m.Name, "uid": m.UID}}
 	if c.Credentials != nil {
 		name := m.Name + "-connection"
 		body := Object{"apiVersion": "v1", "kind": "Secret", "type": "Opaque", "metadata": Object{"name": name, "namespace": m.Namespace, "ownerReferences": owner}, "stringData": c.Credentials}
