@@ -424,3 +424,41 @@ func TestRetryApplyAfterJobTTL(t *testing.T) {
 		t.Fatal("retry after TTL did not continue the attempt count")
 	}
 }
+func TestConsumedRetryTokenStaysConsumedAcrossChanges(t *testing.T) {
+	p := parent()
+	jsonx.Obj(p["metadata"])["annotations"] = Object{Prefix + "retry-apply": "r1"}
+	jsonx.Obj(p["metadata"])["generation"] = int64(2)
+	jsonx.Obj(p["spec"])["connectionLimit"] = 30
+	fresh, _ := Reconcile(Request{Parent: p})
+	if len(fresh.Children) != 1 || Ann(fresh.Children[0])[Prefix+"retry-token"] != "r1" || Ann(fresh.Children[0])[Prefix+"attempt"] != "1" {
+		t.Fatal("new generation did not take the current token as consumed", fresh.Children)
+	}
+	failed := applyJob(p, 1, "r1", "Failed")
+	if r, _ := Reconcile(Request{Parent: p, Children: map[string]map[string]Object{"Job.batch/v1": {"one": failed}}}); r.Status["phase"] != "Failed" {
+		t.Fatal("old token retried a new generation automatically", r.Status)
+	}
+	t.Setenv("MODULE_REVISION", "2222222222222222222222222222222222222222")
+	p["status"] = status(Object{"phase": "Failed", "observedGeneration": int64(2), "observedRevision": testRevision, "lastExecution": Object{"attempt": int64(1), "retryToken": "r1"}})
+	r, _ := Reconcile(Request{Parent: p})
+	if len(r.Children) != 1 || Ann(r.Children[0])[Prefix+"retry-token"] != "r1" {
+		t.Fatal("revision change did not baseline the token")
+	}
+}
+func TestSupersededAndInterruptedJobsKeepTheirRecord(t *testing.T) {
+	p := parent()
+	old := applyJob(p, 1, "", "Complete")
+	jsonx.Obj(old["status"])["completionTime"] = "t9"
+	jsonx.Obj(p["metadata"])["generation"] = int64(2)
+	jsonx.Obj(p["spec"])["connectionLimit"] = 30
+	children := map[string]map[string]Object{"Job.batch/v1": {"old": old}}
+	r, _ := Reconcile(Request{Parent: p, Children: children})
+	if e := jsonx.Obj(r.Status["lastExecution"]); e["job"] != jsonx.Obj(old["metadata"])["name"] || e["result"] != "Succeeded" {
+		t.Fatal("superseded Job dropped without a record", r.Status["lastExecution"])
+	}
+	deleting := parent()
+	finished := applyJob(deleting, 1, "", "Failed")
+	d, _ := Reconcile(Request{Parent: deleting, Finalizing: true, Children: map[string]map[string]Object{"Job.batch/v1": {"apply": finished}}})
+	if e := jsonx.Obj(d.Status["lastExecution"]); e["action"] != "apply" || e["result"] != "Failed" {
+		t.Fatal("apply that finished during deletion not recorded", d.Status["lastExecution"])
+	}
+}

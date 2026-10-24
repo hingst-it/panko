@@ -1825,6 +1825,14 @@
             "namespace": "panko-state-team-a",
             "secret_suffix": "team-a-orders"
           }
+        },
+        "lastExecution": {
+          "action": "apply",
+          "job": "db-orders-2529007422842ece61c7062c-apply",
+          "attempt": 1,
+          "generation": 1,
+          "moduleRevision": "1111111111111111111111111111111111111111",
+          "result": "Succeeded"
         }
       },
       "children": [

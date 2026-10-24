@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/hingst-it/panko/internal/jsonx"
 )
@@ -87,7 +88,8 @@ func WriteResult(path string, result Result) {
 	_ = os.WriteFile(path, jsonx.Encode(result), 0644)
 }
 
-// summary forwards OpenTofu's JSON output and keeps the final change counts.
+// summary turns OpenTofu's JSON events into log lines and keeps the final change counts.
+// Raw events are never forwarded: output events can carry values of sensitive outputs.
 type summary struct {
 	out     io.Writer
 	buffer  bytes.Buffer
@@ -104,21 +106,30 @@ func (s *summary) Write(p []byte) (int, error) {
 		}
 		s.inspect(line)
 	}
-	if s.out == nil {
-		return len(p), nil
-	}
-	return s.out.Write(p)
+	return len(p), nil
 }
 func (s *summary) inspect(line []byte) {
-	if !bytes.Contains(line, []byte(`"change_summary"`)) {
+	var event struct {
+		Type       string  `json:"type"`
+		Message    string  `json:"@message"`
+		Changes    Changes `json:"changes"`
+		Diagnostic struct {
+			Detail string `json:"detail"`
+		} `json:"diagnostic"`
+	}
+	if jsonx.Decode(bytes.NewReader(line), &event) != nil {
 		return
 	}
-	var event struct {
-		Type    string  `json:"type"`
-		Changes Changes `json:"changes"`
-	}
-	if jsonx.Decode(bytes.NewReader(line), &event) == nil && event.Type == "change_summary" {
+	if event.Type == "change_summary" {
 		changes := event.Changes
 		s.changes = &changes
 	}
+	if s.out == nil || event.Message == "" {
+		return
+	}
+	text := event.Message
+	if event.Type == "diagnostic" && event.Diagnostic.Detail != "" {
+		text += "\n  " + strings.ReplaceAll(event.Diagnostic.Detail, "\n", "\n  ")
+	}
+	_, _ = io.WriteString(s.out, text+"\n")
 }

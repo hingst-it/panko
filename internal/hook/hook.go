@@ -241,6 +241,23 @@ func latestApply(children []Object, hash, revision string) Object {
 	}
 	return latest
 }
+
+// newestTerminal returns the most recently finished Job whose outcome is not recorded yet. Superseded
+// Jobs are dropped from the response, and Metacontroller deletes them, so their outcome is kept first.
+func newestTerminal(parent Object, children []Object, pods map[string]Object) Object {
+	recorded := jsonx.Str(jsonx.Obj(jsonx.Obj(parent["status"])["lastExecution"])["job"])
+	var newest Object
+	for _, c := range children {
+		if Terminal(c) == "" || jsonx.Obj(c["metadata"])["name"] == recorded {
+			continue
+		}
+		e := Execution(c, pods)
+		if newest == nil || jsonx.Str(e["finishedAt"]) > jsonx.Str(newest["finishedAt"]) {
+			newest = e
+		}
+	}
+	return newest
+}
 func annotation(parent Object, key string) string {
 	return jsonx.Str(jsonx.Obj(jsonx.Obj(parent["metadata"])["annotations"])[Prefix+key])
 }
@@ -315,6 +332,9 @@ func finalize(r Request, children []Object, generation int64, hash string) (Resp
 	var execution Object
 	if latest != nil && Terminal(latest) != "" {
 		execution = Execution(latest, r.Related[PodKey])
+	} else {
+		// An apply that finished while deletion waited would otherwise vanish without a record.
+		execution = newestTerminal(parent, children, r.Related[PodKey])
 	}
 	record := func(response Response) Response {
 		if execution != nil {
@@ -411,23 +431,31 @@ func Reconcile(r Request) (Response, error) {
 		response.Status["lastExecution"] = execution
 		return response, nil
 	}
+	finished := newestTerminal(p, children, r.Related[PodKey])
+	record := func(response Response) Response {
+		if finished != nil {
+			response.Status["lastExecution"] = finished
+		}
+		return response
+	}
 	old := jsonx.Obj(p["status"])
 	// Resources applied before revisions were tracked are applied once with the configured module.
 	if old["lastAppliedHash"] == hash && old["lastAppliedRevision"] == revision {
-		return withRevision(result(p, "Ready", meta.Generation, "Database is ready", nil, hash, nil, nil), revision, revision), nil
+		return record(withRevision(result(p, "Ready", meta.Generation, "Database is ready", nil, hash, nil, nil), revision, revision)), nil
 	}
-	next, token := int64(1), ""
+	// A new attempt takes the current token, so a token already used for an earlier retry stays consumed.
+	next, token := int64(1), retry
 	if old["phase"] == "Failed" && jsonx.Int(old["observedGeneration"]) == meta.Generation && old["observedRevision"] == revision {
 		// The failed Job may be gone after its TTL; the recorded execution still carries its attempt and token.
 		last := jsonx.Obj(old["lastExecution"])
 		if retry == "" || retry == jsonx.Str(last["retryToken"]) {
-			return withRevision(result(p, "Failed", meta.Generation, jsonx.Str(old["message"]), nil, "", nil, nil), revision, ""), nil
+			return record(withRevision(result(p, "Failed", meta.Generation, jsonx.Str(old["message"]), nil, "", nil, nil), revision, "")), nil
 		}
-		next, token = jsonx.Int(last["attempt"])+1, retry
+		next = jsonx.Int(last["attempt"]) + 1
 	}
 	child, err := CreateJob(p, "apply", hash, revision, backend, meta.Generation, next, token)
 	if err != nil {
 		return Response{}, err
 	}
-	return withRevision(result(p, "Pending", meta.Generation, "Apply scheduled", []Object{child}, "", nil, nil), revision, ""), nil
+	return record(withRevision(result(p, "Pending", meta.Generation, "Apply scheduled", []Object{child}, "", nil, nil), revision, "")), nil
 }

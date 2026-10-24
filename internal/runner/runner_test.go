@@ -411,3 +411,22 @@ func TestResultCodePerStage(t *testing.T) {
 		})
 	}
 }
+func TestJSONOutputIsNotForwardedRaw(t *testing.T) {
+	var log bytes.Buffer
+	s := &summary{out: &log}
+	events := `{"@message":"Apply complete! Resources: 1 added","type":"change_summary","changes":{"add":1,"change":0,"remove":0}}
+{"@message":"Outputs: 1","type":"outputs","outputs":{"password":{"sensitive":true,"value":"super-secret"}}}
+{"@message":"Error: connection refused","type":"diagnostic","diagnostic":{"severity":"error","summary":"connection refused","detail":"dial tcp: refused"}}
+`
+	for _, chunk := range []string{events[:40], events[40:]} {
+		if _, err := io.WriteString(s, chunk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if strings.Contains(log.String(), "super-secret") || !strings.Contains(log.String(), "Outputs: 1") {
+		t.Fatal("output values forwarded or messages lost: " + log.String())
+	}
+	if !strings.Contains(log.String(), "dial tcp: refused") || s.changes == nil || s.changes.Add != 1 {
+		t.Fatal("diagnostic detail or change counts lost")
+	}
+}
