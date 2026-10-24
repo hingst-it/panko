@@ -3,5 +3,11 @@
     "team-a",
     "team-b"
   ],
-  "s3": true
+  "s3": true,
+  "egressTargets": [
+    {
+      "service": "infra-backends/postgres",
+      "port": 5432
+    }
+  ]
 }

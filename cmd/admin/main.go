@@ -56,7 +56,7 @@ func run() error {
 		}
 	}
 	if flags.NArg() != 1 {
-		return fmt.Errorf("usage: panko-admin [--config panko.json] [--kubeconfig PATH] teams|add-team|config-s3|pause|resume|export|import|runner-rbac|module-secret|module-mirror-secret|ensure-mirror-tls|mirror-ca|s3-profiles|gateway-rbac|preflight|migrate-state|migrate-backend|ensure-postgres-auth|ensure-gateway-auth|rotate-token|ensure-installation-id|ensure-s3-auth|ensure-s3-teams|upgrade-module")
+		return fmt.Errorf("usage: panko-admin [--config panko.json] [--kubeconfig PATH] teams|add-team|config-s3|pause|resume|export|import|runner-rbac|module-secret|module-mirror-secret|ensure-mirror-tls|mirror-ca|s3-profiles|gateway-rbac|preflight|migrate-state|migrate-backend|ensure-postgres-auth|ensure-gateway-auth|rotate-token|ensure-installation-id|ensure-s3-auth|ensure-s3-teams|upgrade-module|config-egress|egress-policies")
 	}
 	command := flags.Arg(0)
 	if command == "add-team" {
@@ -78,6 +78,9 @@ func run() error {
 		return nil
 	case "config-s3":
 		fmt.Println(installation.S3)
+		return nil
+	case "config-egress":
+		fmt.Println(installation.Egress)
 		return nil
 	}
 	if command == "runner-rbac" {
@@ -108,7 +111,7 @@ func run() error {
 		return nil
 	}
 	clusterCommands := map[string]bool{"ensure-mirror-tls": true, "mirror-ca": true, "gateway-rbac": true, "preflight": true, "migrate-state": true, "migrate-backend": true, "ensure-postgres-auth": true,
-		"ensure-gateway-auth": true, "rotate-token": true, "pause": true, "resume": true, "export": true, "import": true, "upgrade-module": true, "ensure-installation-id": true, "ensure-s3-auth": true, "ensure-s3-teams": true}
+		"ensure-gateway-auth": true, "rotate-token": true, "pause": true, "resume": true, "export": true, "import": true, "upgrade-module": true, "egress-policies": true, "ensure-installation-id": true, "ensure-s3-auth": true, "ensure-s3-teams": true}
 	if !clusterCommands[command] {
 		return fmt.Errorf("unknown admin command")
 	}
@@ -146,6 +149,13 @@ func run() error {
 		return m.Preflight(ctx)
 	}
 	switch command {
+	case "egress-policies":
+		policies, err := m.EgressPolicies(ctx, installation)
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(jsonx.Encode(policies)))
+		return nil
 	case "upgrade-module":
 		if *all == (*namespace != "" || *name != "") || (!*all && (*namespace == "" || *name == "")) {
 			return fmt.Errorf("upgrade-module requires either --all or --namespace and --name")

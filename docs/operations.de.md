@@ -66,6 +66,28 @@ Status und werden nicht erneut angewendet. Nur eine geänderte `MODULE_REVISION`
 jede Ressource einmal mit dem neuen Modul an. Neue Lab-Bestandteile wie der S3-Gateway
 erfordern zusätzlich `make bootstrap`.
 
+## Egress-Regeln für Runner
+
+Mit `"egress": true` in `panko.json` erzeugt `make deploy` je Team-Namespace die
+NetworkPolicy `panko-runner-egress`. Sie gilt nur für Runner-Pods und erlaubt
+ausschließlich DNS, die Kubernetes-API, Provider- und Modul-Mirror, das Lab-S3 und die
+Ziele aus `egressTargets`:
+
+```json
+"egressTargets": [
+  {"service": "infra-backends/postgres", "port": 5432},
+  {"cidr": "192.168.1.10/32", "port": 3306}
+]
+```
+
+Dienste werden auf ihre Pods und den Ziel-Port aufgelöst, weil Policies Pod-Adressen
+sehen; externe Ziele werden als CIDR angegeben. Hostnamen sind mit Standard-Policies
+nicht möglich. Mit aktiven Regeln entfällt der direkte Rückfall auf die
+Provider-Registry: Ist der Provider-Mirror ausgefallen, scheitern Jobs. Deshalb ist die
+Einstellung standardmäßig aus. `"egress": false` entfernt die Policies beim nächsten
+Deployment wieder. `test/egress_e2e.py` prüft beide Seiten: Provisionierung und
+deklarierte Ziele funktionieren, Gateway und Internet sind gesperrt.
+
 ## Drift-Prüfung und Modul-Rollouts
 
 `panko plan NAME --wait` (oder `POST .../{name}/plan`) startet für eine Ressource im

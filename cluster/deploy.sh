@@ -34,11 +34,21 @@ kubectl -n infra-runners rollout status deploy/provider-mirror --timeout=120s
 kubectl apply -f controller/deployment.yaml
 kubectl -n infra-runners rollout restart deploy/database-hook
 kubectl -n infra-runners rollout status deploy/database-hook --timeout=120s
+teams=$(.local/bin/admin teams)
 if [ -n "$module_mirror" ]; then
   # The replacement hook no longer creates Jobs that mount team key copies.
-  teams=$(.local/bin/admin teams)
   for team in $teams; do
     kubectl -n "$team" delete secret panko-module-git --ignore-not-found
+  done
+fi
+# Optional egress restriction for runner pods; turning it off removes the policies again.
+egress=$(.local/bin/admin config-egress)
+if [ "$egress" = true ]; then
+  policies=$(.local/bin/admin --kubeconfig "$KUBECONFIG" egress-policies)
+  printf '%s\n' "$policies" | kubectl apply -f -
+else
+  for team in $teams; do
+    kubectl -n "$team" delete networkpolicy panko-runner-egress --ignore-not-found
   done
 fi
 kubectl apply -f controller/compositecontroller.yaml

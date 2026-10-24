@@ -15,6 +15,9 @@ import (
 type Config struct {
 	Teams []string `json:"teams"`
 	S3    bool     `json:"s3"`
+	// Egress restricts runner pods to Panko's components and EgressTargets; the mirrors become required.
+	Egress        bool           `json:"egress,omitempty"`
+	EgressTargets []EgressTarget `json:"egressTargets,omitempty"`
 }
 
 // Same pattern as Database spec.owner, because the team is the default owner of its resources.
@@ -35,6 +38,11 @@ func validTeam(name string) error {
 func (c Config) Validate() error {
 	if len(c.Teams) == 0 {
 		return fmt.Errorf("at least one team is required")
+	}
+	for _, target := range c.EgressTargets {
+		if err := target.validate(); err != nil {
+			return err
+		}
 	}
 	seen := map[string]bool{}
 	for _, team := range c.Teams {
