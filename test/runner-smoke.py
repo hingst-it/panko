@@ -31,10 +31,17 @@ def main():
         hook_env = {item['name']: item.get('value', '') for item in
                     get('deployment', 'database-hook', 'infra-runners')['spec']['template']['spec']['containers'][0].get('env', [])}
         text = json.dumps(fixture)
-        for test_value, key in (('engine:test', 'ENGINE_IMAGE'), ('git-sync:test', 'GIT_SYNC_IMAGE'),
-                                ('git@example.com:panko/module.git', 'MODULE_REPO'), ('1' * 40, 'MODULE_REVISION')):
-            text = text.replace(test_value, hook_env[key])
+        source = hook_env.get('MODULE_MIRROR') or hook_env['MODULE_REPO']
+        for test_value, value in (('engine:test', hook_env['ENGINE_IMAGE']), ('git-sync:test', hook_env['GIT_SYNC_IMAGE']),
+                                  ('git@example.com:panko/module.git', source), ('1' * 40, hook_env['MODULE_REVISION'])):
+            text = text.replace(test_value, value)
         fixture = json.loads(text)
+        if hook_env.get('MODULE_MIRROR'):
+            # Like the hook: the mirror needs no key, which no longer exists in team namespaces.
+            pod = fixture['spec']['template']['spec']
+            pod['volumes'] = [v for v in pod['volumes'] if v['name'] != 'git-secret']
+            for c in pod['initContainers']:
+                c['volumeMounts'] = [m for m in c['volumeMounts'] if m['name'] != 'git-secret']
         for action in ('apply', 'destroy'):
             job_name = name + '-' + action
             child = copy.deepcopy(fixture)
