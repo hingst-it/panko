@@ -654,13 +654,6 @@ func Reconcile(r Request) (Response, error) {
 			running = append(running, c)
 		}
 	}
-	if len(running) > 0 {
-		generation, err := strconv.ParseInt(jsonx.Str(Ann(running[0])[Prefix+"generation"]), 10, 64)
-		if err != nil {
-			return Response{}, fmt.Errorf("invalid Job generation")
-		}
-		return withRevision(result(p, "Applying", generation, "OpenTofu apply is running", retainAll(running), "", nil, nil), revisionOf(running[0]), ""), nil
-	}
 	// The newest finished plan Job stays a child until its TTL; it is the durable record of a consumed token.
 	keepPlan := func(response Response) Response {
 		if finishedPlan != nil {
@@ -676,6 +669,15 @@ func Reconcile(r Request) (Response, error) {
 			response.Children = append(response.Children, Retain(plan))
 		}
 		return response
+	}
+	if len(running) > 0 {
+		generation, err := strconv.ParseInt(jsonx.Str(Ann(running[0])[Prefix+"generation"]), 10, 64)
+		if err != nil {
+			return Response{}, fmt.Errorf("invalid Job generation")
+		}
+		// Keep the finished plan too: Metacontroller deletes omitted children, and the plan is the
+		// record that its request was consumed.
+		return keepPlan(withRevision(result(p, "Applying", generation, "OpenTofu apply is running", retainAll(running), "", nil, nil), revisionOf(running[0]), "")), nil
 	}
 	if id := Maintenance(p); id != "" {
 		return keepPlan(result(p, "Maintenance", meta.Generation, "State backend maintenance "+id+"; no jobs start", retainAll(children), "", nil, nil)), nil

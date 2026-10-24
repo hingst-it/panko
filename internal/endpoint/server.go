@@ -6,7 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/hingst-it/panko/internal/jsonx"
@@ -16,7 +19,10 @@ import (
 
 // Server's configuration is immutable once requests start. Each replica caches its own registry.
 type Server struct {
-	API      kube.API
+	API kube.API
+	// Log receives one JSON line per claim, accepted commit and sweeper transition; nil disables it.
+	Log      io.Writer
+	logMu    sync.Mutex
 	registry registry
 	now      func() time.Time
 	poll     time.Duration
@@ -150,6 +156,7 @@ func (s *Server) claim(w http.ResponseWriter, req *http.Request, id, pool string
 				failure(w, 503)
 				return
 			}
+			s.event("run_claimed", r, id, "")
 			reply(w, 200, result)
 			return
 		}
@@ -323,6 +330,7 @@ func (s *Server) commit(w http.ResponseWriter, req *http.Request, id, pool strin
 		}
 		finish(r, s.now(), c.Code, reason, c.Changes)
 		r.Status.Commit.Stage = "Committed"
+		s.event("run_committed", r, id, c.Code)
 		if err = s.save(req.Context(), r); apiCode(err, 409) {
 			continue
 		} else if err != nil {
@@ -334,6 +342,23 @@ func (s *Server) commit(w http.ResponseWriter, req *http.Request, id, pool strin
 	}
 	// Repeated conflicts are contention, not a refusal; the agent retries the identical commit.
 	failure(w, 503)
+}
+
+// event logs a Run transition without any of the commit's data.
+func (s *Server) event(name string, r *run, agent, code string) {
+	if s.Log == nil {
+		return
+	}
+	e := Object{"event": name, "namespace": r.Metadata.Namespace, "run": r.Metadata.Name, "pool": r.Spec.Pool, "action": r.Spec.Action, "attempt": r.Spec.Attempt}
+	if agent != "" {
+		e["agentId"] = agent
+	}
+	if code != "" {
+		e["code"] = code
+	}
+	s.logMu.Lock()
+	defer s.logMu.Unlock()
+	_, _ = fmt.Fprintln(s.Log, string(jsonx.Encode(e)))
 }
 
 // Sweep makes one CAS pass; replicas may call it concurrently.
@@ -362,6 +387,7 @@ func (s *Server) Sweep(ctx context.Context) error {
 			continue
 		}
 		finish(r, now, code, reason, nil)
+		s.event("run_"+reason, r, "", code)
 		if err = s.save(ctx, r); err != nil && !apiCode(err, 409) && !apiCode(err, 404) {
 			return err
 		}

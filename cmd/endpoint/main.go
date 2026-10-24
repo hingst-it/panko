@@ -30,6 +30,7 @@ func run() error {
 		return err
 	}
 	server := endpoint.New(api)
+	server.Log = os.Stdout
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go server.RunSweeper(ctx)

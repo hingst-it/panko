@@ -278,8 +278,15 @@ def main():
         previous = status(name)['lastAppliedHash']
         write_profile(first, TF_VAR_pause='120')
         curl('PATCH', f'{path}/{name}', {'spec': {'tags': {'env': 'recovered'}}})
-        # Kill the agent while OpenTofu holds the state lock, in the middle of the paused apply.
-        wait(state_locks, 'state lock held by the first agent', 300)
+        # Kill the agent while OpenTofu holds the state lock in the middle of this paused apply, not
+        # while some other execution happens to hold it.
+        def apply_holds_lock():
+            items = json.loads(kube('get', 'runs', '-n', TEAM, '-l', 'platform.example.com/uid=' + uid, '-o', 'json').stdout)['items']
+            generation = get('bucket', name, TEAM)['metadata']['generation']
+            claimed = [r for r in items if r['spec']['action'] == 'apply' and r['spec']['generation'] == generation
+                       and (r.get('status') or {}).get('lease') and not (r.get('status') or {}).get('conditions')]
+            return claimed and state_locks()
+        wait(apply_holds_lock, 'state lock held by the first agent for the new apply', 300)
         docker('kill', NAMES['agent'])
         interrupted = wait(lambda: (s := status(name)).get('phase') == 'Failed' and s, 'interrupted apply', 300)
         assert interrupted['lastExecution']['code'] == 'interrupted', interrupted['lastExecution']
