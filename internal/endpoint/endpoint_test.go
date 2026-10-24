@@ -661,3 +661,25 @@ func TestHeartbeatsDoNotCompeteWithAnAcceptedCommit(t *testing.T) {
 		t.Fatal("heartbeat wrote the Run while its commit was in progress")
 	}
 }
+// stuck never returns from Write, like a stdout nobody reads.
+type stuck struct{}
+
+func (stuck) Write([]byte) (int, error) { select {} }
+
+func TestABlockedLogDoesNotStallClaimsOrCommits(t *testing.T) {
+	s, _, token := fixture(t)
+	s.Log = stuck{}
+	done := make(chan struct{})
+	go func() {
+		c := claimed(t, s, token)
+		if w := request(s, "/v1/commit", token, result(c)); w.Code != 200 {
+			t.Error(w.Code, w.Body.String())
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a blocked log stalled the claim or the commit")
+	}
+}

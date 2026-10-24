@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"sync"
@@ -22,7 +21,8 @@ type Server struct {
 	API kube.API
 	// Log receives one JSON line per claim, accepted commit and sweeper transition; nil disables it.
 	Log      io.Writer
-	logMu    sync.Mutex
+	logOnce  sync.Once
+	logLines chan []byte
 	registry registry
 	now      func() time.Time
 	poll     time.Duration
@@ -330,13 +330,13 @@ func (s *Server) commit(w http.ResponseWriter, req *http.Request, id, pool strin
 		}
 		finish(r, s.now(), c.Code, reason, c.Changes)
 		r.Status.Commit.Stage = "Committed"
-		s.event("run_committed", r, id, c.Code)
 		if err = s.save(req.Context(), r); apiCode(err, 409) {
 			continue
 		} else if err != nil {
 			failure(w, 503)
 			return
 		}
+		s.event("run_committed", r, id, c.Code)
 		reply(w, 200, runproto.CommitResponse{Version: 1, IdempotencyKey: c.IdempotencyKey, Stage: "Committed"})
 		return
 	}
@@ -356,9 +356,20 @@ func (s *Server) event(name string, r *run, agent, code string) {
 	if code != "" {
 		e["code"] = code
 	}
-	s.logMu.Lock()
-	defer s.logMu.Unlock()
-	_, _ = fmt.Fprintln(s.Log, string(jsonx.Encode(e)))
+	// A writer goroutine drains a bounded queue, so a blocked log never stalls a transition; lines
+	// beyond the queue are dropped.
+	s.logOnce.Do(func() {
+		s.logLines = make(chan []byte, 256)
+		go func() {
+			for line := range s.logLines {
+				_, _ = s.Log.Write(line)
+			}
+		}()
+	})
+	select {
+	case s.logLines <- append(jsonx.Encode(e), '\n'):
+	default:
+	}
 }
 
 // Sweep makes one CAS pass; replicas may call it concurrently.
@@ -387,8 +398,9 @@ func (s *Server) Sweep(ctx context.Context) error {
 			continue
 		}
 		finish(r, now, code, reason, nil)
-		s.event("run_"+reason, r, "", code)
-		if err = s.save(ctx, r); err != nil && !apiCode(err, 409) && !apiCode(err, 404) {
+		if err = s.save(ctx, r); err == nil {
+			s.event("run_"+reason, r, "", code)
+		} else if !apiCode(err, 409) && !apiCode(err, 404) {
 			return err
 		}
 	}
