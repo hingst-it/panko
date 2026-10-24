@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/hingst-it/panko/internal/jsonx"
+	"github.com/hingst-it/panko/internal/runproto"
 )
 
 // Result is the bounded, secret-free outcome the runner reports through its termination message.
@@ -20,21 +21,6 @@ type Changes struct {
 	Add    int64 `json:"add"`
 	Change int64 `json:"change"`
 	Remove int64 `json:"remove"`
-}
-
-// Fixed messages per stage; raw OpenTofu output stays in the Job log.
-var messages = map[string]string{
-	"binding":          "The bound state backend does not belong to this resource",
-	"credentials":      "Credentials for the provider or state backend could not be loaded",
-	"module":           "The module could not be prepared",
-	"backend_init":     "OpenTofu could not initialize the state backend or providers",
-	"backend_mismatch": "OpenTofu initialized a different state backend than the binding",
-	"checkpoint":       "The state backend no longer holds the state Panko last recorded",
-	"provider":         "OpenTofu failed while changing infrastructure",
-	"state_record":     "The resulting state could not be read or recorded",
-	"cleanup":          "State cleanup after destroy failed",
-	"interrupted":      "The runner was interrupted",
-	"migration":        "The state migration failed",
 }
 
 type stageError struct {
@@ -71,7 +57,7 @@ func outcome(err error, changes *Changes) Result {
 	if errors.As(err, &signal) {
 		code = "interrupted"
 	}
-	message := messages[code]
+	message := runproto.Message(code)
 	// Safety reasons are Panko's own fixed strings and help the owner decide what to restore.
 	var safety SafetyError
 	if errors.As(err, &safety) {
