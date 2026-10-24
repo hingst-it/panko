@@ -664,6 +664,7 @@ func TestHeartbeatsDoNotCompeteWithAnAcceptedCommit(t *testing.T) {
 		t.Fatal("heartbeat wrote the Run while its commit was in progress")
 	}
 }
+
 // stuck never returns from Write, like a stdout nobody reads.
 type stuck struct{}
 
