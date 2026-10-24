@@ -28,6 +28,13 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - name: Make room for the k3d lab
+        run: |
+          # The hosted runner's unused SDKs share a disk with Docker and k3d.
+          # Disk pressure lets kubelet collect our imported :dev images;
+          # Jobs cannot pull them again because they use imagePullPolicy: Never.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -h /
       - uses: jdx/mise-action@v2
       - name: Install test dependencies
         run: |
@@ -40,6 +47,9 @@ jobs:
           mkdir -p .local
           (umask 077 && printf '%s\n' "$MODULE_DEPLOY_KEY" > .local/module-deploy-key)
           make cluster-up bootstrap build deploy
+          # All images are built and imported; release the Go build layers.
+          docker builder prune --all --force
+          df -h /
           make test
       - name: Collect diagnostics
         if: failure()
@@ -47,6 +57,9 @@ jobs:
           KUBECONFIG: ${{ github.workspace }}/.local/kubeconfig
         run: |
           mkdir -p .local/diagnostics
+          df -h > .local/diagnostics/disk.txt 2>&1 || true
+          docker system df > .local/diagnostics/docker-disk.txt 2>&1 || true
+          kubectl describe nodes > .local/diagnostics/nodes.txt 2>&1 || true
           kubectl get pods,jobs,databases -A -o wide > .local/diagnostics/resources.txt 2>&1 || true
           kubectl get events -A --sort-by=.lastTimestamp > .local/diagnostics/events.txt 2>&1 || true
           for ns in infra-runners infra-gateway team-a team-b; do
