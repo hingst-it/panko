@@ -78,7 +78,7 @@ func TestMirrorFallbackReachesEveryInit(t *testing.T) {
 		t.Run(action, func(t *testing.T) {
 			r, s, logs := setup(t)
 			f, c := &tofu{written: stateJSON("L1", 1)}, &cluster{}
-			r.API, r.Process = fakeAPI(c.api), f.run
+			r.Platform.(*ClusterPlatform).API, r.Process = fakeAPI(c.api), f.run
 			if err := r.Run(context.Background(), action, s, "job-1"); err != nil {
 				t.Fatal(err)
 			}
