@@ -3,6 +3,7 @@ package admin
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/hingst-it/panko/internal/hook"
 	"github.com/hingst-it/panko/internal/jsonx"
+	"github.com/hingst-it/panko/internal/kube"
 )
 
 const backupVersion = 1
@@ -114,6 +116,9 @@ func (m *Migrator) Export(ctx context.Context, dir string) error {
 			if jsonx.Str(status["identity"]) == "" {
 				status["identity"] = jsonx.Obj(db["metadata"])["uid"]
 			}
+			if ref := jsonx.Str(jsonx.Obj(status["stateBackend"])["credentialsSecret"]); ref != "" {
+				credentials[team+"/"+ref] = true
+			}
 			entry := portableObject("platform.example.com/v1", "Database", db)
 			entry["status"] = status
 			databases = append(databases, entry)
@@ -179,6 +184,28 @@ func (m *Migrator) Import(ctx context.Context, dir string) error {
 	if err := jsonx.Decode(bytes.NewReader(data), &backup); err != nil || jsonx.Int(backup["version"]) != backupVersion {
 		return fmt.Errorf("unsupported backup format")
 	}
+	// Validate the whole backup and the destination before anything is written.
+	restored := map[string]bool{}
+	for _, item := range jsonx.Array(backup["databases"]) {
+		db := jsonx.Obj(item)
+		meta := jsonx.Obj(db["metadata"])
+		identity := jsonx.Str(jsonx.Obj(db["status"])["identity"])
+		if jsonx.Str(meta["name"]) == "" || jsonx.Str(meta["namespace"]) == "" || identity == "" || jsonx.Obj(jsonx.Obj(db["status"])["stateBackend"]) == nil {
+			return fmt.Errorf("backup contains a Database without name, identity or state binding")
+		}
+		existing, err := m.get(ctx, databasePath(jsonx.Str(meta["namespace"]), jsonx.Str(meta["name"])))
+		if err != nil {
+			return err
+		}
+		if existing == nil {
+			continue
+		}
+		// A Database restored by an interrupted earlier import carries the same identity; anything else is foreign.
+		if jsonx.Str(jsonx.Obj(existing["status"])["identity"]) != identity {
+			return fmt.Errorf("database %s/%s already exists; restore into a fresh installation", meta["namespace"], meta["name"])
+		}
+		restored[jsonx.Str(meta["namespace"])+"/"+jsonx.Str(meta["name"])] = true
+	}
 	// The installation identity is part of every S3 state key.
 	if id := jsonx.Str(backup["installation"]); id != "" {
 		if err := m.replace(ctx, "/api/v1/namespaces/infra-runners/configmaps", "panko-installation", Object{"apiVersion": "v1", "kind": "ConfigMap",
@@ -206,27 +233,60 @@ func (m *Migrator) Import(ctx context.Context, dir string) error {
 		db := jsonx.Obj(item)
 		meta := jsonx.Obj(db["metadata"])
 		path := databasePath(jsonx.Str(meta["namespace"]), jsonx.Str(meta["name"]))
-		existing, err := m.get(ctx, path)
-		if err != nil {
-			return err
+		if !restored[jsonx.Str(meta["namespace"])+"/"+jsonx.Str(meta["name"])] {
+			if _, err := m.API.Request(ctx, "POST", "/apis/platform.example.com/v1/namespaces/"+jsonx.Str(meta["namespace"])+"/databases", Object{"apiVersion": db["apiVersion"], "kind": db["kind"], "metadata": meta, "spec": db["spec"]}, ""); err != nil {
+				return err
+			}
 		}
-		if existing != nil {
-			return fmt.Errorf("database %s/%s already exists; restore into a fresh installation", meta["namespace"], meta["name"])
-		}
-		created, err := m.API.Request(ctx, "POST", "/apis/platform.example.com/v1/namespaces/"+jsonx.Str(meta["namespace"])+"/databases", Object{"apiVersion": db["apiVersion"], "kind": db["kind"], "metadata": meta, "spec": db["spec"]}, "")
-		if err != nil {
-			return err
-		}
-		status := jsonx.Obj(db["status"])
-		// The restored Job history refers to the old cluster; the next reconciliation applies once.
-		delete(status, "conditions")
-		body := Object{"apiVersion": db["apiVersion"], "kind": db["kind"], "metadata": Object{"name": meta["name"], "namespace": meta["namespace"], "resourceVersion": jsonx.Obj(created["metadata"])["resourceVersion"]}, "status": status}
-		if _, err := m.API.Request(ctx, "PUT", path+"/status", body, ""); err != nil {
+		if err := m.restoreStatus(ctx, path, restorableStatus(jsonx.Obj(db["status"]))); err != nil {
 			return err
 		}
 	}
 	m.logf("Imported %d databases", len(jsonx.Array(backup["databases"])))
 	return nil
+}
+
+// restorableStatus keeps identity, binding and the revision state was written with, and drops the
+// execution bookkeeping of the old cluster, so each restored Database applies exactly once. That
+// apply also recreates connection Secrets, which are not part of the backup.
+func restorableStatus(old Object) Object {
+	status := Object{"phase": "Pending", "message": "Restored; apply follows"}
+	for _, key := range []string{"identity", "stateBackend", "lastAppliedRevision", "connectionSecretRef"} {
+		if value, ok := old[key]; ok {
+			status[key] = value
+		}
+	}
+	return status
+}
+
+// restoreStatus writes the status with fresh resourceVersions until it sticks, then verifies the identity.
+// Metacontroller may add its finalizer concurrently even while the hook is paused.
+func (m *Migrator) restoreStatus(ctx context.Context, path string, status Object) error {
+	for attempt := 0; attempt < 10; attempt++ {
+		current, err := m.get(ctx, path)
+		if err != nil {
+			return err
+		}
+		meta := jsonx.Obj(current["metadata"])
+		body := Object{"apiVersion": current["apiVersion"], "kind": current["kind"], "metadata": Object{"name": meta["name"], "namespace": meta["namespace"], "resourceVersion": meta["resourceVersion"]}, "status": status}
+		_, err = m.API.Request(ctx, "PUT", path+"/status", body, "")
+		var api *kube.Error
+		if errors.As(err, &api) && api.Code == 409 {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		written, err := m.get(ctx, path)
+		if err != nil {
+			return err
+		}
+		got := jsonx.Obj(written["status"])
+		if got["identity"] == status["identity"] && bytes.Equal(jsonx.Encode(got["stateBackend"]), jsonx.Encode(status["stateBackend"])) {
+			return nil
+		}
+	}
+	return fmt.Errorf("restored status of %s did not persist", path)
 }
 
 // replace creates an object or overwrites the existing one, keeping its resourceVersion.

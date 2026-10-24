@@ -10,9 +10,9 @@ fi
 mkdir -p "$dir"
 chmod 700 "$dir"
 umask 077
-.local/bin/admin --kubeconfig "$KUBECONFIG" pause
-# Resume even if a step below fails; the backup is then incomplete and reported as failed.
+# Resume even if pausing or a later step fails; the backup is then incomplete and reported as failed.
 trap '.local/bin/admin --kubeconfig "$KUBECONFIG" resume' EXIT
+.local/bin/admin --kubeconfig "$KUBECONFIG" pause
 .local/bin/admin --kubeconfig "$KUBECONFIG" export --dir "$dir"
 kubectl -n infra-backends exec postgres-0 -- pg_dumpall -U postgres --clean --if-exists > "$dir/postgres.sql"
 s3=$(.local/bin/admin config-s3)

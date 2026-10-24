@@ -247,12 +247,18 @@ func (m *Migrator) resolveTarget(ctx context.Context, db Object, name string) (O
 	}
 	selection := jsonx.Clone(db)
 	jsonx.Obj(selection["spec"])["stateBackendRef"] = Object{"name": name}
+	// State keys follow the stable identity, which differs from the UID after a restore.
+	identity := jsonx.Str(jsonx.Obj(db["status"])["identity"])
+	if identity == "" {
+		identity = jsonx.Str(jsonx.Obj(db["metadata"])["uid"])
+	}
+	jsonx.Obj(selection["metadata"])["uid"] = identity
 	target, err := statebackend.Resolve(selection, backends, byName, statebackend.Settings{External: true, Installation: jsonx.Str(jsonx.Obj(installation["data"])["id"])})
 	if err != nil {
 		return nil, err
 	}
 	meta := jsonx.Obj(db["metadata"])
-	return target, statebackend.Validate(target, namespace, jsonx.Str(meta["name"]), jsonx.Str(meta["uid"]))
+	return target, statebackend.Validate(target, namespace, jsonx.Str(meta["name"]), identity)
 }
 func (m *Migrator) patch(ctx context.Context, path string, body Object) error {
 	_, err := m.API.Request(ctx, "PATCH", path, body, "application/merge-patch+json")

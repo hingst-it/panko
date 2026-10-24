@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import sys
 
-from e2e import credentials, delete_and_check, get, kube, ready, wait
+from e2e import connect, credentials, delete_and_check, get, kube, ready, wait
 
 EXPECT = Path('.local/restore-expect.json')
 S3 = os.environ.get('PANKO_RESTORE_S3', 'true') == 'true'
@@ -13,7 +13,7 @@ NAMES = ['keep-k8s'] + (['keep-s3'] if S3 else [])
 
 
 def database(name, ref=None):
-    spec = {'owner': 'team-a', 'extensions': [], 'connectionLimit': 20}
+    spec = {'owner': 'team-a', 'extensions': ['pgcrypto'], 'connectionLimit': 20}
     if ref:
         spec['stateBackendRef'] = {'name': ref}
     kube('create', '-f', '-', obj={'apiVersion': 'platform.example.com/v1', 'kind': 'Database',
@@ -61,6 +61,7 @@ def verify():
         assert (creds['database'], creds['username']) == (old['database'], old['username']), 'database or role renamed'
         assert fingerprint(creds) == old['credentials'], 'credentials changed by the restore'
         assert psql(creds['database'], 'SELECT value FROM keep;') == 'survives restore', 'data lost'
+        connect(name)
         generation = db['metadata']['generation'] + 1
         kube('patch', 'db', name, '-n', 'team-a', '--type=merge', '-p', '{"spec":{"connectionLimit":25}}')
         ready(name, generation=generation)

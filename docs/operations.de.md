@@ -86,13 +86,17 @@ Danach laufen Hook und Gateway wieder an. Das Verzeichnis enthält Zugangsdaten 
 Datenbankinhalte und gehört nicht ins Repository oder auf geteilte Ablagen.
 
 `make restore` erwartet eine frische Installation (`make cluster-up bootstrap build deploy`)
-und verweigert das Überschreiben vorhandener Databases. Es stoppt Hook und Gateway,
+und prüft vor dem ersten Schreibzugriff, dass keine fremden Databases existieren. Es stoppt Hook und Gateway,
 spielt Zugangsdaten, Installations-ID, States, Checkpoints und Databases ein, stellt
 Datenbankinhalte und S3-Daten wieder her und gleicht `.local/team-tokens.json` mit dem
 wiederhergestellten Secret ab. Neu angelegte Databases erhalten von Kubernetes eine neue
 UID; `status.identity` behält die ursprüngliche, sodass Namen, State-Schlüssel und
 Checkpoints unverändert bleiben. Nach dem Start wendet jede Database einmal gegen ihren
-wiederhergestellten State an, ohne Datenbanken oder Rollen neu anzulegen.
+wiederhergestellten State an, ohne Datenbanken oder Rollen neu anzulegen; dabei entstehen
+auch die Connection-Secrets neu. SQL-Fehler brechen die Wiederherstellung ab, die Ausgabe
+von psql liegt dann in `restore-psql.log` im Sicherungsverzeichnis. Schlägt ein Schritt
+fehl, bleibt die Installation pausiert; ein erneutes `make restore` mit demselben
+Verzeichnis setzt fort.
 
 `test/restore_rehearsal.sh` probt den Ablauf vollständig: Lab mit Daten anlegen,
 sichern, löschen, neu aufbauen, wiederherstellen, Daten und Zugangsdaten prüfen,
