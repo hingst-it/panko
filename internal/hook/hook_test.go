@@ -645,3 +645,26 @@ func TestStaleStatusDoesNotRestartAFinishedPlan(t *testing.T) {
 		t.Fatal("finished plan restarted or not recorded from a stale status", r.Children, r.Status)
 	}
 }
+func TestNewestFinishedPlanRecordedWhileAnEarlierOneIsRetained(t *testing.T) {
+	report := `{"message":"Completed","changes":{"add":0,"change":1,"remove":0}}`
+	for _, keys := range [][2]string{{"a", "z"}, {"z", "a"}} {
+		p := readyParent()
+		jsonx.Obj(p["metadata"])["annotations"] = Object{Prefix + "plan-request": "c2"}
+		older, _ := finishedPlan(p, "c1", report)
+		newer, pods := finishedPlan(p, "c2", report)
+		jsonx.Obj(older["metadata"])["creationTimestamp"] = "2026-10-24T10:12:21Z"
+		jsonx.Obj(newer["metadata"])["creationTimestamp"] = "2026-10-24T10:12:28Z"
+		jsonx.Obj(p["status"])["planRequest"] = "c2"
+		jsonx.Obj(p["status"])["lastPlan"] = Object{"job": jsonx.Obj(older["metadata"])["name"], "token": "c1"}
+		children := map[string]map[string]Object{"Job.batch/v1": {keys[0]: older, keys[1]: newer}}
+		related := map[string]map[string]Object{PodKey: pods}
+		r, _ := Reconcile(Request{Parent: p, Children: children, Related: related})
+		if jsonx.Obj(r.Status["lastPlan"])["token"] != "c2" {
+			t.Fatal("newer plan not recorded while the earlier one is retained", keys, r.Status["lastPlan"])
+		}
+		d, _ := Reconcile(Request{Parent: p, Finalizing: true, Children: children, Related: related})
+		if jsonx.Obj(d.Status["lastPlan"])["token"] != "c2" {
+			t.Fatal("newer plan not recorded during teardown", keys, d.Status["lastPlan"])
+		}
+	}
+}

@@ -437,13 +437,30 @@ func finalize(r Request, children []Object, generation int64, hash string) (Resp
 	}
 	// Plans finishing during teardown are omitted from the response, so their outcome is kept first.
 	recorded := jsonx.Str(jsonx.Obj(jsonx.Obj(r.Parent["status"])["lastPlan"])["job"])
-	for _, c := range children {
-		if isPlan(c) && Terminal(c) != "" && jsonx.Str(jsonx.Obj(c["metadata"])["name"]) != recorded {
-			response.Status["lastPlan"] = planRecord(c, r.Related[PodKey])
-		}
+	if c := currentPlan(children); c != nil && Terminal(c) != "" && jsonx.Str(jsonx.Obj(c["metadata"])["name"]) != recorded {
+		response.Status["lastPlan"] = planRecord(c, r.Related[PodKey])
 	}
 	return response, nil
 }
+
+// currentPlan returns the running plan Job, or else the most recently created finished one. A retained
+// earlier plan can still be a child when the next one finishes, so name order would pick the wrong one.
+func currentPlan(children []Object) Object {
+	var plan Object
+	for _, c := range children {
+		if !isPlan(c) {
+			continue
+		}
+		if Terminal(c) == "" {
+			return c
+		}
+		if plan == nil || created(c) > created(plan) {
+			plan = c
+		}
+	}
+	return plan
+}
+func created(c Object) string { return jsonx.Str(jsonx.Obj(c["metadata"])["creationTimestamp"]) }
 func finalizeJobs(r Request, children []Object, generation int64, hash string) (Response, error) {
 	parent := r.Parent
 	no, yes := false, true
@@ -549,13 +566,11 @@ func Reconcile(r Request) (Response, error) {
 	}
 	config := LoadJobConfig()
 	// Plan Jobs never change infrastructure; their outcome goes to lastPlan, not lastExecution.
-	var plan Object
+	plan := currentPlan(children)
 	applies := []Object{}
 	for _, c := range children {
 		if !isPlan(c) {
 			applies = append(applies, c)
-		} else if Terminal(c) == "" || plan == nil {
-			plan = c
 		}
 	}
 	if plan != nil && Terminal(plan) == "" {
