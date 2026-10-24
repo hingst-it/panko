@@ -121,3 +121,35 @@ func moduleSecrets(name string, key, knownHosts []byte, namespaces []string) Obj
 	}
 	return list(items)
 }
+
+// EndpointRBAC limits artifact writes to team namespaces and checkpoint stores. Kubernetes RBAC
+// cannot restrict create by name or prefix; the endpoint derives all storage names from the Run.
+func EndpointRBAC() Object {
+	name := "runner-endpoint"
+	subjects := []any{subject(name, "infra-runners")}
+	items := []any{}
+	add := func(kind, ns string, fields Object) { items = append(items, obj(kind, name, ns, fields)) }
+	add("ClusterRole", "", Object{"rules": []any{
+		rule([]any{"platform.example.com"}, []any{"runs"}, []any{"get", "list", "watch"}),
+		rule([]any{"platform.example.com"}, []any{"runs/status"}, []any{"update"}),
+		rule([]any{"platform.example.com"}, []any{"databases"}, []any{"get"}),
+	}})
+	add("ClusterRoleBinding", "", Object{"roleRef": roleRef("ClusterRole", name), "subjects": subjects})
+	for _, team := range Teams {
+		add("Role", team, Object{"rules": []any{
+			rule([]any{""}, []any{"secrets"}, []any{"get", "create", "update", "delete"}),
+			rule([]any{""}, []any{"configmaps"}, []any{"get", "create", "update"}),
+		}})
+		add("RoleBinding", team, Object{"roleRef": roleRef("Role", name), "subjects": subjects})
+		state := "panko-state-" + team
+		add("Role", state, Object{"rules": []any{rule([]any{""}, []any{"secrets"}, []any{"get", "create", "update", "delete"})}})
+		add("RoleBinding", state, Object{"roleRef": roleRef("Role", name), "subjects": subjects})
+	}
+	registry := rule([]any{""}, []any{"secrets"}, []any{"get"})
+	registry["resourceNames"] = []any{"panko-runner-agents"}
+	maps := rule([]any{""}, []any{"configmaps"}, []any{"get"})
+	maps["resourceNames"] = []any{"panko-installation", "panko-runner-pause"}
+	add("Role", "infra-runners", Object{"rules": []any{registry, maps}})
+	add("RoleBinding", "infra-runners", Object{"roleRef": roleRef("Role", name), "subjects": subjects})
+	return list(items)
+}

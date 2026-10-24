@@ -123,8 +123,8 @@ func ValidateClaimRequest(c ClaimRequest) error {
 	return nil
 }
 
-func checkpoint(c *Checkpoint) error {
-	if c != nil && (!identifier.MatchString(c.Lineage) || c.Serial < 0 || !digest.MatchString(c.Digest)) {
+func checkpoint(c *Checkpoint, optionalDigest bool) error {
+	if c != nil && (!identifier.MatchString(c.Lineage) || c.Serial < 0 || !(optionalDigest && c.Digest == "" || digest.MatchString(c.Digest))) {
 		return invalid("checkpoint")
 	}
 	return nil
@@ -167,9 +167,10 @@ func ValidateClaim(c Claim) error {
 	if !object(c.BackendBinding, MaxBackendBytes) {
 		return invalid("backendBinding")
 	}
-	if err := checkpoint(c.ExpectedCheckpoint); err != nil {
+	if err := checkpoint(c.ExpectedCheckpoint, true); err != nil {
 		return err
 	}
+
 	// At most a day; heartbeat must leave time for another attempt before expiry.
 	if c.LeaseDurationSeconds < 2 || c.LeaseDurationSeconds > 86400 ||
 		c.HeartbeatIntervalSeconds < 1 || c.HeartbeatIntervalSeconds >= c.LeaseDurationSeconds {
@@ -209,7 +210,7 @@ func ValidateCommit(c Commit, expected Binding) error {
 	if success && c.Action != "destroy" && c.Changes == nil {
 		return invalid("changes")
 	}
-	if err := checkpoint(c.Checkpoint); err != nil {
+	if err := checkpoint(c.Checkpoint, false); err != nil {
 		return err
 	}
 	if c.Action == "plan" && c.Checkpoint != nil || success && c.Action == "destroy" && c.Checkpoint != nil ||

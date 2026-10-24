@@ -122,23 +122,25 @@ func Decode[T any](r io.Reader, limit int64) (T, error) {
 // Same compares canonical JSON, including raw graph objects, without rounding
 // integer tokens through float64. Callers validate commits before persisting them.
 func Same(a, b Commit) bool {
-	canonical := func(c Commit) ([]byte, error) {
-		data, err := json.Marshal(c)
-		if err != nil {
-			return nil, err
-		}
-		d := json.NewDecoder(bytes.NewReader(data))
-		d.UseNumber()
-		var value any
-		if err := d.Decode(&value); err != nil {
-			return nil, err
-		}
-		return json.Marshal(value)
-	}
-	x, err := canonical(a)
+	x, err := CanonicalCommit(a)
 	if err != nil {
 		return false
 	}
-	y, err := canonical(b)
+	y, err := CanonicalCommit(b)
 	return err == nil && bytes.Equal(x, y)
+}
+
+// CanonicalCommit is the encoding used by Same and endpoint commit digests.
+func CanonicalCommit(c Commit) ([]byte, error) {
+	data, err := json.Marshal(c)
+	if err != nil {
+		return nil, err
+	}
+	d := json.NewDecoder(bytes.NewReader(data))
+	d.UseNumber()
+	var value any
+	if err := d.Decode(&value); err != nil {
+		return nil, err
+	}
+	return json.Marshal(value)
 }

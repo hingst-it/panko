@@ -92,3 +92,10 @@ type Commit struct {
 	Graph             json.RawMessage   `json:"graph,omitempty"`
 	FinishedAt        string            `json:"finishedAt"`
 }
+
+// CommitResponse is stable across identical retries.
+type CommitResponse struct {
+	Version        int    `json:"version"`
+	IdempotencyKey string `json:"idempotencyKey"`
+	Stage          string `json:"stage"`
+}

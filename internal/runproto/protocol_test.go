@@ -460,3 +460,17 @@ func TestSame(t *testing.T) {
 		t.Fatal("large integers rounded")
 	}
 }
+
+func TestClaimCheckpointDigestOptional(t *testing.T) {
+	for _, digest := range []string{"", strings.Repeat("a", 64), "bad", strings.Repeat("A", 64)} {
+		c := claim()
+		c.ExpectedCheckpoint.Digest = digest
+		err := ValidateClaim(c)
+		if (err == nil) != (digest == "" || digest == strings.Repeat("a", 64)) {
+			t.Fatalf("claim digest validation: %v", err)
+		}
+	}
+	c := commit()
+	c.Checkpoint.Digest = ""
+	wantError(t, ValidateCommit(c, binding()), ErrInvalid)
+}
