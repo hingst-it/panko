@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 import time
 
-from e2e import K, RUN, credentials, get, kube, ready, wait
+from e2e import K, RUN, credentials, get, kube, wait
 
 BASE = 'http://127.0.0.1:18081'
 TOKENS = json.loads(Path('.local/team-tokens.json').read_text())
@@ -39,6 +39,29 @@ def failed(name, code):
     return execution
 
 
+def ready_with(name, revision):
+    """Wait until the hook reports the given module revision as Ready; earlier failures may still show."""
+    def check():
+        status = get('db', name).get('status', {})
+        if status.get('observedRevision') != revision:
+            return False
+        assert status.get('phase') != 'Failed', status.get('message')
+        return status.get('phase') == 'Ready'
+    wait(check, f'{name} Ready with revision {revision}', 300)
+
+
+def ready_after(name, attempt):
+    """Wait for a newer attempt than the failed one to finish Ready; the old failure may still show."""
+    def check():
+        status = get('db', name).get('status', {})
+        execution = status.get('lastExecution', {})
+        if execution.get('attempt', 0) <= attempt:
+            return False
+        assert status.get('phase') != 'Failed', status.get('message')
+        return status.get('phase') == 'Ready' and execution
+    return wait(check, f'{name} Ready after attempt {attempt}', 300)
+
+
 def hook_env(**values):
     kube('set', 'env', '-n', 'infra-runners', 'deploy/database-hook', *[f'{k}={v}' for k, v in values.items()])
     kube('rollout', 'status', '-n', 'infra-runners', 'deploy/database-hook', '--timeout=120s')
@@ -66,8 +89,7 @@ def main():
         assert get('db', provider)['status']['lastExecution']['code'] == 'provider', 'execution record lost with the Job'
         kube('patch', 'secret', 'postgres-admin', '-n', 'infra-backends', '--type=merge', '-p', json.dumps({'data': {'password': admin['data']['password']}}))
         curl('POST', f'/v1/teams/team-a/databases/{provider}/retry', 202)
-        ready(provider)
-        execution = get('db', provider)['status']['lastExecution']
+        execution = ready_after(provider, first['attempt'])
         assert execution['result'] == 'Succeeded' and execution['attempt'] == first['attempt'] + 1 and execution.get('retryToken'), execution
         assert execution.get('changes', {}).get('add', 0) > 0, execution
         assert credentials(provider)['database']
@@ -79,16 +101,16 @@ def main():
         database(names[1])
         failed(names[1], 'module_fetch')
         hook_env(MODULE_REVISION=original['MODULE_REVISION'])
-        ready(names[1])
+        ready_with(names[1], original['MODULE_REVISION'])
         print('2: module fetch failure reported; restored revision applied', flush=True)
 
         # 3: engine preparation failure from a wrong binary path.
         hook_env(ENGINE_BINARY='/usr/local/bin/missing-tofu')
         database(names[2])
-        failed(names[2], 'engine_copy')
+        engine = failed(names[2], 'engine_copy')
         hook_env(ENGINE_BINARY=original['ENGINE_BINARY'])
         curl('POST', f'/v1/teams/team-a/databases/{names[2]}/retry', 202)
-        ready(names[2])
+        ready_after(names[2], engine['attempt'])
         print('3: engine failure reported; retry after restoring the engine succeeded', flush=True)
         print('All failure reporting end-to-end tests passed', flush=True)
     finally:
