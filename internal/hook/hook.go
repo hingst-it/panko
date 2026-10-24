@@ -66,7 +66,7 @@ func Children(r Request) []Object {
 // JobConfig selects the engine image and the pinned module revision each Job assembles at start.
 type JobConfig struct {
 	RunnerImage, EngineImage, EngineBinary, GitSyncImage, ModuleRepo, ModuleRevision, ModuleSecret string
-	ProviderMirror                                                                                 string
+	ProviderMirror, ModuleMirror                                                                   string
 	// Backends gates team-defined state backends; the Kubernetes fallback is always available.
 	Backends statebackend.Settings
 }
@@ -85,7 +85,7 @@ func JobConfigFrom(lookup func(string) string) JobConfig {
 	}
 	return JobConfig{RunnerImage: value("RUNNER_IMAGE", "panko-runner:dev"), EngineImage: lookup("ENGINE_IMAGE"), EngineBinary: value("ENGINE_BINARY", "/usr/local/bin/tofu"),
 		GitSyncImage: lookup("GIT_SYNC_IMAGE"), ModuleRepo: lookup("MODULE_REPO"), ModuleRevision: lookup("MODULE_REVISION"), ModuleSecret: value("MODULE_SECRET", "panko-module-git"),
-		ProviderMirror: lookup("PROVIDER_MIRROR"), Backends: statebackend.Settings{External: lookup("EXTERNAL_STATE_BACKENDS") == "enabled", Installation: lookup("INSTALLATION_ID")}}
+		ProviderMirror: lookup("PROVIDER_MIRROR"), ModuleMirror: lookup("MODULE_MIRROR"), Backends: statebackend.Settings{External: lookup("EXTERNAL_STATE_BACKENDS") == "enabled", Installation: lookup("INSTALLATION_ID")}}
 }
 func (c JobConfig) Validate() error {
 	if c.ProviderMirror != "" {
@@ -94,8 +94,14 @@ func (c JobConfig) Validate() error {
 			return fmt.Errorf("PROVIDER_MIRROR must be an https URL")
 		}
 	}
-	if c.EngineImage == "" || c.GitSyncImage == "" || c.ModuleRepo == "" {
-		return fmt.Errorf("ENGINE_IMAGE, GIT_SYNC_IMAGE and MODULE_REPO are required")
+	if c.ModuleMirror != "" {
+		u, err := url.Parse(c.ModuleMirror)
+		if err != nil || u.Scheme != "git" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Path == "" || u.Opaque != "" {
+			return fmt.Errorf("MODULE_MIRROR must be a git:// URL without credentials, query or fragment")
+		}
+	}
+	if c.EngineImage == "" || c.GitSyncImage == "" || (c.ModuleRepo == "" && c.ModuleMirror == "") {
+		return fmt.Errorf("ENGINE_IMAGE, GIT_SYNC_IMAGE and MODULE_REPO or MODULE_MIRROR are required")
 	}
 	// A moving branch or tag would change the module without a new apply.
 	if !revisionPattern.MatchString(c.ModuleRevision) {
@@ -152,6 +158,33 @@ func CreateJobWith(config JobConfig, parent Object, action, hash, revision strin
 				"volumeMounts":    []any{Object{"name": "work", "mountPath": "/work"}, Object{"name": "tmp", "mountPath": "/tmp"}, Object{"name": "engine", "mountPath": "/engine", "readOnly": true}, Object{"name": "module", "mountPath": "/module", "readOnly": true}}}},
 			"volumes": []any{Object{"name": "work", "emptyDir": Object{}}, Object{"name": "tmp", "emptyDir": Object{}}, Object{"name": "engine", "emptyDir": Object{}}, Object{"name": "module", "emptyDir": Object{}}, Object{"name": "git-tmp", "emptyDir": Object{}},
 				Object{"name": "git-secret", "secret": Object{"secretName": config.ModuleSecret, "defaultMode": 0440}}}}}}}
+	if config.ModuleMirror != "" {
+		// The mirror serves the module without credentials, so Jobs get neither the key nor its volume.
+		pod := jsonx.Obj(jsonx.Obj(jsonx.Obj(job["spec"])["template"])["spec"])
+		withoutSecret := func(items []any) []any {
+			kept := []any{}
+			for _, item := range items {
+				if jsonx.Obj(item)["name"] != "git-secret" {
+					kept = append(kept, item)
+				}
+			}
+			return kept
+		}
+		for _, item := range jsonx.Array(pod["initContainers"]) {
+			c := jsonx.Obj(item)
+			if c["name"] != "module" {
+				continue
+			}
+			args := jsonx.Array(c["args"])
+			for i, arg := range args {
+				if strings.HasPrefix(jsonx.Str(arg), "--repo=") {
+					args[i] = "--repo=" + config.ModuleMirror
+				}
+			}
+			c["volumeMounts"] = withoutSecret(jsonx.Array(c["volumeMounts"]))
+		}
+		pod["volumes"] = withoutSecret(jsonx.Array(pod["volumes"]))
+	}
 	if config.ProviderMirror != "" {
 		pod := jsonx.Obj(jsonx.Obj(jsonx.Obj(job["spec"])["template"])["spec"])
 		container := jsonx.Obj(jsonx.Array(pod["containers"])[0])

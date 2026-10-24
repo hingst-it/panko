@@ -1,0 +1,8 @@
+# Keep the Alpine version aligned with Dockerfile.runtime.
+FROM alpine:3.23
+RUN apk add --no-cache git git-daemon openssh-client \
+    && addgroup -g 1000 panko \
+    && adduser -D -u 1000 -G panko -h /tmp panko
+COPY cluster/module-mirror.sh /usr/local/bin/module-mirror
+USER 1000:1000
+ENTRYPOINT ["/bin/sh", "/usr/local/bin/module-mirror"]

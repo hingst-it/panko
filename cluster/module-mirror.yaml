@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: module-mirror
+  namespace: infra-runners
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: module-mirror}
+  template:
+    metadata:
+      labels: {app: module-mirror}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000}
+      containers:
+        - name: mirror
+          image: panko-module-mirror:dev
+          imagePullPolicy: Never
+          env:
+            - {name: MODULE_REPO, value: "git@github.com:hingst-it/panko-database.git"}
+          ports: [{name: git, containerPort: 9418}]
+          readinessProbe:
+            exec:
+              command: [git, ls-remote, "git://127.0.0.1:9418/module.git", HEAD]
+            periodSeconds: 5
+            timeoutSeconds: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 20m, memory: 32Mi}
+            limits: {memory: 256Mi}
+          volumeMounts:
+            - {name: repository, mountPath: /repositories}
+            - {name: tmp, mountPath: /tmp}
+            - {name: git-secret, mountPath: /etc/git-secret, readOnly: true}
+      volumes:
+        - name: repository
+          emptyDir: {sizeLimit: 1Gi}
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+        - name: git-secret
+          secret: {secretName: panko-module-git, defaultMode: 0440}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: module-mirror
+  namespace: infra-runners
+spec:
+  selector: {app: module-mirror}
+  ports: [{name: git, port: 9418, targetPort: git}]

@@ -6,3 +6,6 @@ for component in runner hook gateway mirror; do
   docker build -t "panko-$component:dev" --build-arg COMPONENT="$component" -f Dockerfile.runtime .
   mise exec -- k3d image import "panko-$component:dev" -c "$cluster_name"
 done
+# The module mirror needs git-daemon and SSH, but no Go binary.
+docker build -t panko-module-mirror:dev -f cluster/Dockerfile.module-mirror .
+mise exec -- k3d image import panko-module-mirror:dev -c "$cluster_name"

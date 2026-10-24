@@ -106,28 +106,53 @@ sichern, löschen, neu aufbauen, wiederherstellen, Daten und Zugangsdaten prüfe
 
 Runner-Jobs setzen sich beim Start aus drei Teilen zusammen. Der Init-Container
 `engine` kopiert das OpenTofu-Binary aus `ENGINE_IMAGE` in ein gemeinsames Volume.
-Der Init-Container `module` holt das Modul per git-sync aus `MODULE_REPO` zum Commit
-`MODULE_REVISION`. Danach führt der Runner das kopierte Binary gegen dieses Modul aus.
+Der Init-Container `module` holt das Modul per git-sync über `MODULE_MIRROR`
+(`git://module-mirror.infra-runners.svc:9418/module.git`) zum Commit
+`MODULE_REVISION`, ohne Zugangsdaten. Danach führt der Runner das kopierte Binary gegen dieses
+Modul aus.
 Beide Images sind per Digest festgelegt, das Modul per vollständigem Commit-SHA; der
 Hook startet nicht, wenn die Revision ein Branch oder Tag ist.
 
 Provider lädt OpenTofu beim Start über den unten beschriebenen Mirror oder direkt aus der Registry. `-lockfile=readonly` prüft sie
 gegen das Lockfile des Moduls, das deshalb Prüfsummen aller Runner-Plattformen
-enthalten muss. Jobs benötigen damit Netzwerkzugriff auf GitHub und die
-Provider-Registry.
+enthalten muss. Jobs benötigen Zugriff auf den Modul-Mirror und den
+Provider-Mirror beziehungsweise die Provider-Registry. Nur der Modul-Mirror
+benötigt für das Modul Zugriff auf GitHub.
 
 Ein Modul-Update bedeutet: neuen Commit-SHA als `MODULE_REVISION` in
-`controller/deployment.yaml` eintragen und `make deploy` ausführen. Jede Database
-wird danach einmal mit der neuen Revision angewendet. Der Status hält mit
+`controller/deployment.yaml` eintragen und `make deploy` ausführen. Der Commit
+muss auf einem Branch des in `cluster/module-mirror.yaml` konfigurierten
+`MODULE_REPO` liegen, den der Mirror abholt. Dieser klont beim Start einmal
+mit `git clone --mirror` und aktualisiert danach alle 60 Sekunden mit
+`git remote update --prune`. Vor einem Rollout muss der neue Commit im Mirror
+verfügbar sein; `make deploy` startet ihn neu und wartet auf seine Bereitschaft.
+Jede Database wird danach einmal mit der neuen Revision angewendet. Der Status hält mit
 `lastAppliedRevision` fest, welche Revision zuletzt erfolgreich angewendet wurde;
 Destroy verwendet genau diese Revision. Ressourcen ohne erfasste Revision werden
 beim ersten Deployment dieses Aufbaus einmal angewendet.
 
 Der Deploy-Key ist nur lesend für das Modul-Repository freigegeben. `make deploy`
-verteilt ihn mit `admin module-secret` als Secret `panko-module-git` in jeden
-Team-Namespace, zusammen mit den Host-Schlüsseln aus `cluster/module-known-hosts`.
-Diese stammen aus GitHubs API (`gh api meta`) und müssen bei einem Schlüsselwechsel
-von GitHub aktualisiert werden.
+legt ihn mit `admin module-mirror-secret` als Secret `panko-module-git`
+ausschließlich in `infra-runners` ab, zusammen mit den Host-Schlüsseln aus
+`cluster/module-known-hosts`. Diese Host-Schlüssel stammen aus GitHubs API
+(`gh api meta`) und müssen bei einem Schlüsselwechsel von GitHub aktualisiert
+werden. Nur der Modul-Mirror mountet dieses Secret; SSH
+prüft die Host-Schlüssel strikt. Nach dem Hook-Rollout löscht das Deployment
+alte Kopien des Secrets aus den konfigurierten Team-Namespaces.
+Der Mirror stellt das Bare-Repository im Cluster über einen nur lesenden,
+unauthentifizierten Git-Dienst auf Port 9418 bereit; Push ist deaktiviert.
+Damit kann jeder Pod im Cluster den Modulcode lesen, aber keinen Schlüssel. Für eine
+persönliche Installation ist das bewusst akzeptiert; mit Egress-Regeln (Roadmap 3c)
+lässt sich der Zugriff auf Runner-Pods beschränken.
+
+Ist der Modul-Mirror ausgefallen oder fehlt die angeforderte Revision, scheitert
+der `module`-Init-Container; der Status meldet `module_fetch`. Es gibt keinen
+Fallback auf GitHub und keinen Deploy-Key im Job. Ein fehlgeschlagenes
+periodisches Update lässt den zuletzt geholten Stand weiter verfügbar. Das
+Repository liegt in einem `emptyDir` und wird nach einem Pod-Neustart neu
+geklont. Auch Admin-Migrationsjobs übernehmen `MODULE_MIRROR` aus der
+Hook-Konfiguration. Ohne `MODULE_MIRROR` bleibt der bisherige SSH-Modus mit
+`MODULE_REPO` und Team-Secrets (`admin module-secret`) verfügbar.
 
 Ein separates Lab lässt sich mit `make CLUSTER_NAME=infra-lab-go KUBECONFIG="$PWD/.local/go-fresh-kubeconfig" cluster-up bootstrap build deploy` erstellen. Für alle weiteren
 Make-Aufrufe dieselben Werte verwenden. `make cluster-down` entfernt ausschließlich

@@ -6,8 +6,16 @@ export KUBECONFIG="${KUBECONFIG:-$PWD/.local/kubeconfig}"
 kubectl create namespace infra-gateway --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f api/database.yaml -f api/state-backends.yaml
 .local/bin/admin runner-rbac | kubectl apply -f -
-# Runner Jobs fetch the module with this read-only deploy key.
-.local/bin/admin --ssh-key-file "${MODULE_SSH_KEY_FILE:-.local/module-deploy-key}" module-secret | kubectl apply -f -
+# Read the hook's literal setting locally, before applying the new Deployment.
+module_mirror=$(kubectl create --dry-run=client --validate=false -f controller/deployment.yaml -o 'jsonpath={.spec.template.spec.containers[0].env[?(@.name=="MODULE_MIRROR")].value}')
+if [ -n "$module_mirror" ]; then
+  .local/bin/admin --ssh-key-file "${MODULE_SSH_KEY_FILE:-.local/module-deploy-key}" module-mirror-secret | kubectl apply -f -
+  kubectl apply -f cluster/module-mirror.yaml
+  kubectl -n infra-runners rollout restart deploy/module-mirror
+  kubectl -n infra-runners rollout status deploy/module-mirror --timeout=180s
+else
+  .local/bin/admin --ssh-key-file "${MODULE_SSH_KEY_FILE:-.local/module-deploy-key}" module-secret | kubectl apply -f -
+fi
 # Team S3 users, buckets and approved profiles; existing keys are kept.
 s3=$(.local/bin/admin config-s3)
 if [ "$s3" = true ]; then
@@ -26,6 +34,13 @@ kubectl -n infra-runners rollout status deploy/provider-mirror --timeout=120s
 kubectl apply -f controller/deployment.yaml
 kubectl -n infra-runners rollout restart deploy/database-hook
 kubectl -n infra-runners rollout status deploy/database-hook --timeout=120s
+if [ -n "$module_mirror" ]; then
+  # The replacement hook no longer creates Jobs that mount team key copies.
+  teams=$(.local/bin/admin teams)
+  for team in $teams; do
+    kubectl -n "$team" delete secret panko-module-git --ignore-not-found
+  done
+fi
 kubectl apply -f controller/compositecontroller.yaml
 .local/bin/admin --kubeconfig "$KUBECONFIG" ensure-gateway-auth
 .local/bin/admin --kubeconfig "$KUBECONFIG" gateway-rbac | kubectl apply -f -

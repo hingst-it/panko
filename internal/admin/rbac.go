@@ -105,8 +105,17 @@ func GatewayRBAC(crds []any) (Object, error) {
 
 // ModuleSecrets distributes the read-only module credentials to every team namespace that runs Jobs.
 func ModuleSecrets(name string, key, knownHosts []byte) Object {
+	return moduleSecrets(name, key, knownHosts, Teams)
+}
+
+// ModuleMirrorSecret keeps the deploy key only in the mirror namespace.
+func ModuleMirrorSecret(name string, key, knownHosts []byte) Object {
+	return moduleSecrets(name, key, knownHosts, []string{"infra-runners"})
+}
+
+func moduleSecrets(name string, key, knownHosts []byte, namespaces []string) Object {
 	items := []any{}
-	for _, team := range Teams {
+	for _, team := range namespaces {
 		items = append(items, Object{"apiVersion": "v1", "kind": "Secret", "type": "Opaque", "metadata": Object{"name": name, "namespace": team},
 			"data": Object{"ssh": base64.StdEncoding.EncodeToString(key), "known_hosts": base64.StdEncoding.EncodeToString(knownHosts)}})
 	}

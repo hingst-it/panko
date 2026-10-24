@@ -55,7 +55,7 @@ func run() error {
 		}
 	}
 	if flags.NArg() != 1 {
-		return fmt.Errorf("usage: panko-admin [--config panko.json] [--kubeconfig PATH] teams|add-team|config-s3|pause|resume|export|import|runner-rbac|module-secret|ensure-mirror-tls|mirror-ca|s3-profiles|gateway-rbac|preflight|migrate-state|migrate-backend|ensure-postgres-auth|ensure-gateway-auth|rotate-token|ensure-installation-id|ensure-s3-auth|ensure-s3-teams")
+		return fmt.Errorf("usage: panko-admin [--config panko.json] [--kubeconfig PATH] teams|add-team|config-s3|pause|resume|export|import|runner-rbac|module-secret|module-mirror-secret|ensure-mirror-tls|mirror-ca|s3-profiles|gateway-rbac|preflight|migrate-state|migrate-backend|ensure-postgres-auth|ensure-gateway-auth|rotate-token|ensure-installation-id|ensure-s3-auth|ensure-s3-teams")
 	}
 	command := flags.Arg(0)
 	if command == "add-team" {
@@ -83,7 +83,7 @@ func run() error {
 		fmt.Println(string(jsonx.Encode(admin.RunnerRBAC())))
 		return nil
 	}
-	if command == "module-secret" {
+	if command == "module-secret" || command == "module-mirror-secret" {
 		key, err := os.ReadFile(*sshKey)
 		if err != nil {
 			return fmt.Errorf("cannot read module deploy key: %w", err)
@@ -95,7 +95,11 @@ func run() error {
 		if len(key) == 0 || len(hosts) == 0 {
 			return fmt.Errorf("module deploy key and known_hosts must not be empty")
 		}
-		fmt.Println(string(jsonx.Encode(admin.ModuleSecrets("panko-module-git", key, hosts))))
+		secrets := admin.ModuleSecrets
+		if command == "module-mirror-secret" {
+			secrets = admin.ModuleMirrorSecret
+		}
+		fmt.Println(string(jsonx.Encode(secrets("panko-module-git", key, hosts))))
 		return nil
 	}
 	if command == "s3-profiles" {
