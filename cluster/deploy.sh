@@ -9,11 +9,13 @@ kubectl apply -f api/database.yaml -f api/state-backends.yaml
 # Runner Jobs fetch the module with this read-only deploy key.
 .local/bin/admin --ssh-key-file "${MODULE_SSH_KEY_FILE:-.local/module-deploy-key}" module-secret | kubectl apply -f -
 # Team S3 users, buckets and approved profiles; existing keys are kept.
-.local/bin/admin --kubeconfig "$KUBECONFIG" ensure-s3-teams
-kubectl -n infra-backends delete job s3-onboard --ignore-not-found --wait=true
-kubectl apply -f cluster/s3-onboard.yaml
-kubectl -n infra-backends wait --for=condition=complete job/s3-onboard --timeout=180s
-.local/bin/admin s3-profiles | kubectl apply -f -
+if [ "$(.local/bin/admin config-s3)" = true ]; then
+  .local/bin/admin --kubeconfig "$KUBECONFIG" ensure-s3-teams
+  kubectl -n infra-backends delete job s3-onboard --ignore-not-found --wait=true
+  kubectl apply -f cluster/s3-onboard.yaml
+  kubectl -n infra-backends wait --for=condition=complete job/s3-onboard --timeout=180s
+  .local/bin/admin s3-profiles | kubectl apply -f -
+fi
 .local/bin/admin --kubeconfig "$KUBECONFIG" ensure-installation-id
 .local/bin/admin --kubeconfig "$KUBECONFIG" ensure-mirror-tls
 .local/bin/admin --kubeconfig "$KUBECONFIG" mirror-ca | kubectl apply -f -

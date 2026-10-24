@@ -32,6 +32,8 @@ func run() error {
 	name := flags.String("name", "", "Database to migrate")
 	stateBackend := flags.String("state-backend", "", "Target StateBackend in the Database's namespace")
 	migration := flags.String("migration-id", "", "Migration identifier; rerun with the same ID to resume")
+	configPath := flags.String("config", "panko.json", "Installation configuration with teams and optional lab parts")
+	team := flags.String("team", "", "Team to add with add-team")
 	if err := flags.Parse(os.Args[1:]); err != nil {
 		return err
 	}
@@ -48,9 +50,30 @@ func run() error {
 		}
 	}
 	if flags.NArg() != 1 {
-		return fmt.Errorf("usage: panko-admin [--kubeconfig PATH] runner-rbac|module-secret|ensure-mirror-tls|mirror-ca|s3-profiles|gateway-rbac|preflight|migrate-state|migrate-backend|ensure-postgres-auth|ensure-gateway-auth|ensure-installation-id|ensure-s3-auth|ensure-s3-teams")
+		return fmt.Errorf("usage: panko-admin [--config panko.json] [--kubeconfig PATH] teams|add-team|config-s3|runner-rbac|module-secret|ensure-mirror-tls|mirror-ca|s3-profiles|gateway-rbac|preflight|migrate-state|migrate-backend|ensure-postgres-auth|ensure-gateway-auth|ensure-installation-id|ensure-s3-auth|ensure-s3-teams")
 	}
 	command := flags.Arg(0)
+	if command == "add-team" {
+		if err := admin.AddTeam(*configPath, *team); err != nil {
+			return err
+		}
+		fmt.Printf("Team %s configured; run make deploy to create it\n", *team)
+		return nil
+	}
+	installation, err := admin.LoadConfig(*configPath)
+	if err != nil {
+		return err
+	}
+	switch command {
+	case "teams":
+		for _, name := range installation.Teams {
+			fmt.Println(name)
+		}
+		return nil
+	case "config-s3":
+		fmt.Println(installation.S3)
+		return nil
+	}
 	if command == "runner-rbac" {
 		fmt.Println(string(jsonx.Encode(admin.RunnerRBAC())))
 		return nil

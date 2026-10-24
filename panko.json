@@ -1,0 +1,7 @@
+{
+  "teams": [
+    "team-a",
+    "team-b"
+  ],
+  "s3": true
+}

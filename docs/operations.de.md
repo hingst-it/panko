@@ -30,6 +30,42 @@ Go-Aufbau, gesicherte Python-Images und geprüfter Rückwechsel: [Go-Portierung]
 Team-definierte State-Backends, Sicherungen und Migration: [State-Backends](state-backends.de.md).
 Ein bestehendes Lab braucht für den S3-Gateway dieser Funktion einmalig `make bootstrap deploy`.
 
+## Teams und Konfiguration
+
+`panko.json` im Repository legt fest, welche Teams es gibt und ob das Lab-S3 läuft:
+
+```json
+{
+  "teams": ["team-a", "team-b"],
+  "s3": true
+}
+```
+
+Teamnamen sind DNS-Labels mit höchstens 40 Zeichen; Präfixe wie `infra-`, `kube-` und
+`panko-` sind reserviert. Alle Generatoren lesen diese Datei: Namespaces, RBAC,
+Gateway-Tokens, Modul-Schlüssel, S3-Benutzer und Profile. Ein Team kommt hinzu mit
+
+```sh
+.local/bin/admin add-team --team home
+make deploy
+```
+
+`make deploy` ergänzt fehlende Team-Tokens im Secret `gateway-auth` und in
+`.local/team-tokens.json`; vorhandene Tokens bleiben unverändert. Geht die lokale Datei
+verloren, stellt `make deploy` sie aus dem Secret wieder her. Teams zu entfernen wird
+nicht unterstützt; ihre Ressourcen und States müssten vorher gelöscht werden.
+
+Mit `"s3": false` installieren `make bootstrap` und `make deploy` weder den S3-Gateway
+noch Team-Profile; Ressourcen verwenden dann das Kubernetes-Backend.
+
+### Upgrade
+
+Ein Upgrade von Panko selbst: neuen Stand auschecken, dann `make build deploy`. Images
+werden neu gebaut und ausgerollt; bestehende Ressourcen behalten Bindung, State und
+Status und werden nicht erneut angewendet. Nur eine geänderte `MODULE_REVISION` wendet
+jede Ressource einmal mit dem neuen Modul an. Neue Lab-Bestandteile wie der S3-Gateway
+erfordern zusätzlich `make bootstrap`.
+
 ## Engine und Modul
 
 Runner-Jobs setzen sich beim Start aus drei Teilen zusammen. Der Init-Container

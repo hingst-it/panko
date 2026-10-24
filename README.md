@@ -57,7 +57,7 @@ flowchart LR
 
 ## Quick start
 
-You need a running Docker engine and [mise](https://mise.jdx.dev/). Tool versions are pinned in [mise.toml](mise.toml). Runner jobs fetch the module from the private repository `hingst-it/panko-database`; place its read-only deploy key at `.local/module-deploy-key` (mode 0600) or point `MODULE_SSH_KEY_FILE` to it. Run these commands from the repository root:
+You need a running Docker engine and [mise](https://mise.jdx.dev/). Tool versions are pinned in [mise.toml](mise.toml). Teams and optional lab parts are configured in [panko.json](panko.json). Runner jobs fetch the module from the private repository `hingst-it/panko-database`; place its read-only deploy key at `.local/module-deploy-key` (mode 0600) or point `MODULE_SSH_KEY_FILE` to it. Run these commands from the repository root:
 
 ```sh
 mise trust

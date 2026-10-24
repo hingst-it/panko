@@ -34,7 +34,7 @@ lint:
 	$(PYTHON) -m ruff check test tools
 migrate-state: build-go
 	.local/bin/admin --kubeconfig "$(KUBECONFIG)" migrate-state
-clean:
+clean: build-go
 	mise exec -- bash cluster/clean.sh
 .PHONY: gateway-rbac gateway-forward test-gateway
 gateway-rbac: build-go
