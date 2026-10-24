@@ -78,6 +78,13 @@ spec:
                       reason: {type: string}
                       message: {type: string, maxLength: 300}
                       lastTransitionTime: {type: string, format: date-time}
+                baseline:
+                  type: object
+                  description: The checkpoint handed out with the claim, so retries and commits compare against the same state.
+                  properties:
+                    lineage: {type: string, maxLength: 128}
+                    serial: {type: integer, format: int64, minimum: 0}
+                    digest: {type: string, maxLength: 64}
                 lease:
                   type: object
                   properties:

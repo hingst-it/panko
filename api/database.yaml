@@ -136,6 +136,10 @@ spec:
                   type: string
                   maxLength: 40
                   description: Remote runner pool bound before the first execution; empty means in-cluster Jobs.
+                moduleRepository:
+                  type: string
+                  maxLength: 2048
+                  description: Module repository a remote runner pool fetches from, bound with the pool.
                 planRequest:
                   type: string
                   description: Last explicit drift check request token that was started.

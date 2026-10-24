@@ -49,11 +49,12 @@ func Terminal(child Object) string {
 	return ""
 }
 func Children(r Request) []Object {
-	// Jobs and Runs share names, annotations and serialization; a resource only ever has one kind.
+	// Jobs and Runs share names, annotations and serialization, so both kinds are one list; the key
+	// keeps a Job and a Run of the same name apart.
 	items := map[string]Object{}
 	for _, key := range []string{"Job.batch/v1", RunKey} {
 		for name, child := range r.Children[key] {
-			items[name] = child
+			items[name+"\x00"+key] = child
 		}
 	}
 	names := make([]string, 0, len(items))
@@ -82,8 +83,8 @@ type JobConfig struct {
 	Rollout string
 	// DriftInterval schedules a read-only plan for Ready resources; zero disables scheduled checks.
 	DriftInterval time.Duration
-	// Pools maps a team namespace to its remote runner pool (RUNNER_POOLS); new resources bind it.
-	Pools    map[string]Pool
+	// Pools defines the remote runner pools and which team new resources bind to (RUNNER_POOLS).
+	Pools    Pools
 	poolsErr error
 }
 
@@ -465,17 +466,19 @@ func bind(r Request, children []Object, phase string, generation int64, finalize
 	// the repository root and in-cluster Jobs, and later configuration changes only affect new resources.
 	if config := LoadJobConfig(); !statebackend.Executed(p, len(children)) {
 		modulePath := config.ModulePath
-		if pool, ok := config.Pools[jsonx.Str(meta["namespace"])]; ok {
+		if name, ok := config.Pools.Teams[jsonx.Str(meta["namespace"])]; ok {
 			// Remote agents cannot reach the Kubernetes backend in the team namespace.
 			if bound["type"] != "s3" {
-				message := "runner pool " + pool.Name + " requires an S3 state backend"
+				message := "runner pool " + name + " requires an S3 state backend"
 				response := result(p, "Failed", generation, "State backend: "+message, retainAll(children), "", finalized, nil)
 				response.Status["stateBackendError"] = message
 				return nil, &response
 			}
-			response.Status["runnerPool"] = pool.Name
-			if pool.Module != nil {
-				modulePath = pool.Module.Path
+			var repository string
+			repository, modulePath = moduleSource(config.Pools.Pools[name], config)
+			response.Status["runnerPool"] = name
+			if repository != "" {
+				response.Status["moduleRepository"] = repository
 			}
 		}
 		if modulePath != "" {
@@ -620,6 +623,8 @@ func Reconcile(r Request) (Response, error) {
 		return Response{}, err
 	}
 	children := Children(r)
+	p = recoverBinding(p, children)
+	r.Parent = p
 	if r.Finalizing {
 		return finalize(r, children, meta.Generation, hash)
 	}

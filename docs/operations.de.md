@@ -107,7 +107,10 @@ laufen. Teams ohne Pool behalten Jobs im Cluster; beides läuft nebeneinander.
 
 `make deploy` schreibt daraus die ConfigMap `panko-runner-pools`, die der Hook liest, und
 verweigert eine Konfiguration, die einen Pool entfernt, an den noch Ressourcen gebunden
-sind (`admin check-pools`). Eine neue Ressource eines Pool-Teams bindet den Pool zusammen mit
+sind (`admin check-pools`, über alle Namespaces). Ein Team in einen anderen Pool zu
+verschieben ist erlaubt; gebundene Ressourcen behalten ihren Pool samt Modul-Repository.
+`admin pause` lässt den Endpunkt keine neuen Runs mehr ausgeben und wartet, bis
+übernommene Runs abgeschlossen sind. Eine neue Ressource eines Pool-Teams bindet den Pool zusammen mit
 dem State-Backend (`status.runnerPool`); bestehende Ressourcen bleiben im Cluster. Pool-
 Ressourcen brauchen ein S3-State-Backend, weil Agenten das Kubernetes-Backend nicht
 erreichen. Ohne eigenes Modul verwendet der Pool `MODULE_REPO`; der Modul-Mirror im Cluster

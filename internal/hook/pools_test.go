@@ -11,7 +11,7 @@ const poolRevision = "2222222222222222222222222222222222222222"
 
 func withPool(t *testing.T, module string) {
 	external(t)
-	t.Setenv("RUNNER_POOLS", `{"team-a":{"name":"edge"`+module+`}}`)
+	t.Setenv("RUNNER_POOLS", `{"pools":{"edge":{`+module+`}},"teams":{"team-a":"edge"}}`)
 	if err := LoadJobConfig().Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func finishedRun(run Object, condition string, report Object) Object {
 	return done
 }
 func TestRemotePoolCreatesRunsInsteadOfJobs(t *testing.T) {
-	withPool(t, `,"module":{"repository":"https://example.com/modules.git","revision":"`+poolRevision+`","path":"test/modules/aws-s3"}`)
+	withPool(t, `"module":{"repository":"https://example.com/modules.git","revision":"`+poolRevision+`","path":"test/modules/aws-s3"}`)
 	p := remote(t)
 	if p["status"].(Object)["modulePath"] != "test/modules/aws-s3" {
 		t.Fatal("pool module path not bound")
@@ -102,15 +102,21 @@ func TestRemotePoolRequiresS3AndKeepsOtherTeamsInCluster(t *testing.T) {
 }
 func TestRemotePoolWithoutModuleSourceOrConfigurationFails(t *testing.T) {
 	withPool(t, "")
-	p := remote(t)
 	// The installation only names the in-cluster mirror, which agents cannot reach.
 	t.Setenv("MODULE_REPO", "")
 	t.Setenv("MODULE_MIRROR", "git://module-mirror.infra-runners.svc:9418/module.git")
-	if _, err := Reconcile(Request{Parent: p}); err == nil || !strings.Contains(err.Error(), "needs its own module or MODULE_REPO") {
+	unreachable := remote(t)
+	if _, err := Reconcile(Request{Parent: unreachable}); err == nil || !strings.Contains(err.Error(), "needs its own module or MODULE_REPO") {
 		t.Fatal("Run created without a reachable module source", err)
 	}
 	t.Setenv("MODULE_REPO", "git@example.com:panko/module.git")
-	t.Setenv("RUNNER_POOLS", `{"team-b":{"name":"other"}}`)
+	p := remote(t)
+	// The bound repository stays, also when the installation's repository changes later.
+	t.Setenv("MODULE_REPO", "git@example.com:panko/moved.git")
+	if r, _ := Reconcile(Request{Parent: p}); jsonx.Obj(jsonx.Obj(r.Children[0]["spec"])["module"])["repository"] != "git@example.com:panko/module.git" {
+		t.Fatal("Run fetches the module from a repository the resource was not bound to")
+	}
+	t.Setenv("RUNNER_POOLS", `{"pools":{"other":{}},"teams":{"team-b":"other"}}`)
 	if _, err := Reconcile(Request{Parent: p}); err == nil || !strings.Contains(err.Error(), "runner pool edge is not configured") {
 		t.Fatal("bound pool removed from the configuration did not stop executions", err)
 	}
@@ -120,10 +126,33 @@ func TestRemotePoolWithoutModuleSourceOrConfigurationFails(t *testing.T) {
 	}
 }
 func TestRunnerPoolsValidated(t *testing.T) {
-	for _, value := range []string{`[]`, `{"team-a":{"name":"Edge"}}`, `{"team-a":{"name":"edge","module":{"repository":"r","revision":"main"}}}`, `{"team-a":{"name":"edge","module":{"repository":"r","revision":"` + poolRevision + `","path":"../x"}}}`} {
+	for _, value := range []string{`[]`, `{"team-a":{"name":"edge"}}`, `{"pools":{"Edge":{}}}`, `{"pools":{"edge-":{}}}`, `{"pools":{},"teams":{"team-a":"edge"}}`,
+		`{"pools":{"edge":{"module":{"repository":"r","revision":"main"}}}}`, `{"pools":{"edge":{"module":{"repository":"r","revision":"` + poolRevision + `","path":"../x"}}}}`} {
 		t.Setenv("RUNNER_POOLS", value)
 		if LoadJobConfig().Validate() == nil {
 			t.Errorf("accepted RUNNER_POOLS %s", value)
 		}
+	}
+}
+func TestStaleSnapshotRecoversTheBindingFromItsExecutions(t *testing.T) {
+	withPool(t, `"module":{"repository":"https://example.com/modules.git","revision":"`+poolRevision+`","path":"test/modules/aws-s3"}`)
+	p := remote(t)
+	r, _ := Reconcile(Request{Parent: p})
+	run := finishedRun(r.Children[0], "Complete", Object{"message": "Completed"})
+	// Metacontroller passes a snapshot from before the binding, together with the finished Run.
+	stale := unbound("minio")
+	got, _ := Reconcile(Request{Parent: stale, Children: map[string]map[string]Object{RunKey: {"run": run}}, Related: catalog()})
+	if got.Status["runnerPool"] != "edge" || jsonx.Obj(got.Status["stateBackend"])["type"] != "s3" || got.Status["moduleRepository"] != "https://example.com/modules.git" || got.Status["modulePath"] != "test/modules/aws-s3" {
+		t.Fatal("binding not recovered from the Run", got.Status)
+	}
+	if teardown, err := Reconcile(Request{Parent: stale, Finalizing: true, Children: map[string]map[string]Object{RunKey: {"run": run}}}); err != nil || (len(teardown.Children) > 0 && teardown.Children[0]["kind"] != "Run") {
+		t.Fatal("teardown from a stale snapshot left the remote pool", err, teardown.Children)
+	}
+}
+func TestJobAndRunOfTheSameNameStayApart(t *testing.T) {
+	job := Object{"apiVersion": "batch/v1", "kind": "Job", "metadata": Object{"name": "same"}}
+	run := Object{"apiVersion": "platform.example.com/v1", "kind": "Run", "metadata": Object{"name": "same"}}
+	if children := Children(Request{Children: map[string]map[string]Object{"Job.batch/v1": {"same": job}, RunKey: {"same": run}}}); len(children) != 2 {
+		t.Fatal("a Job and a Run of the same name collapsed", children)
 	}
 }

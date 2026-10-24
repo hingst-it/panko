@@ -19,7 +19,6 @@ type RunnerPool struct {
 	Module *hook.PoolModule `json:"module,omitempty"`
 }
 
-var poolName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,39}$`)
 var commit = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
 func (c Config) validatePools() error {
@@ -29,8 +28,8 @@ func (c Config) validatePools() error {
 	}
 	names, assigned := map[string]bool{}, map[string]string{}
 	for _, pool := range c.RunnerPools {
-		if !poolName.MatchString(pool.Name) || names[pool.Name] {
-			return fmt.Errorf("runner pool %q needs a unique name of lowercase letters, digits and hyphens", pool.Name)
+		if !hook.PoolName.MatchString(pool.Name) || names[pool.Name] {
+			return fmt.Errorf("runner pool %q needs a unique name of lowercase letters, digits and inner hyphens", pool.Name)
 		}
 		names[pool.Name] = true
 		for _, team := range pool.Teams {
@@ -59,36 +58,39 @@ func (c Config) validatePools() error {
 	return nil
 }
 
-// RunnerPools is the hook's view of the pools: each team namespace with its pool.
+// RunnerPoolsConfigMap is the hook's view: every declared pool, also one without teams that
+// resources are still bound to, and separately which team new resources bind to which pool.
 func (c Config) RunnerPoolsConfigMap() Object {
-	teams := map[string]hook.Pool{}
+	view := hook.Pools{Pools: map[string]hook.Pool{}, Teams: map[string]string{}}
 	for _, pool := range c.RunnerPools {
+		view.Pools[pool.Name] = hook.Pool{Module: pool.Module}
 		for _, team := range pool.Teams {
-			teams[team] = hook.Pool{Name: pool.Name, Module: pool.Module}
+			view.Teams[team] = pool.Name
 		}
 	}
 	return Object{"apiVersion": "v1", "kind": "ConfigMap", "metadata": Object{"name": "panko-runner-pools", "namespace": "infra-runners"},
-		"data": Object{"pools.json": string(jsonx.Encode(teams))}}
+		"data": Object{"pools.json": string(jsonx.Encode(view))}}
 }
 
-// CheckPools refuses a configuration that removes a pool, or moves a team away from it, while
-// resources are still bound to it; those resources would otherwise stop or change their runner.
+// CheckPools refuses a configuration that no longer declares a pool resources are bound to, in
+// any namespace, also of teams that were removed; those resources would stop executing. Moving a
+// team to another pool is fine: bound resources keep their pool. A resource bound by the old hook
+// after this check fails closed in the new one and shows up in the next check.
 func (m *Migrator) CheckPools(ctx context.Context, c Config) error {
 	pools := map[string]bool{}
 	for _, pool := range c.RunnerPools {
 		pools[pool.Name] = true
 	}
-	for _, team := range c.Teams {
-		dbs, err := m.get(ctx, "/apis/platform.example.com/v1/namespaces/"+team+"/databases")
-		if err != nil {
-			return err
-		}
-		for _, item := range jsonx.Array(dbs["items"]) {
-			db := jsonx.Obj(item)
-			bound := jsonx.Str(jsonx.Obj(db["status"])["runnerPool"])
-			if bound != "" && !pools[bound] {
-				return fmt.Errorf("database %s/%s is bound to runner pool %s, which the configuration no longer declares", team, jsonx.Str(jsonx.Obj(db["metadata"])["name"]), bound)
-			}
+	dbs, err := m.items(ctx, "/apis/platform.example.com/v1/databases")
+	if err != nil {
+		return err
+	}
+	for _, item := range dbs {
+		db := jsonx.Obj(item)
+		meta := jsonx.Obj(db["metadata"])
+		bound := jsonx.Str(jsonx.Obj(db["status"])["runnerPool"])
+		if bound != "" && !pools[bound] {
+			return fmt.Errorf("database %s/%s is bound to runner pool %s, which the configuration no longer declares", jsonx.Str(meta["namespace"]), jsonx.Str(meta["name"]), bound)
 		}
 	}
 	return nil
