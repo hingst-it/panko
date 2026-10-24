@@ -29,7 +29,8 @@ jobs:
           mkdir -p .local
           mise exec -- k3d cluster create panko-ci-smoke --agents 1 \
             --kubeconfig-update-default=false --kubeconfig-switch-context=false \
-            --kubeconfig-output "$PWD/.local/runner-smoke-kubeconfig" --timeout 180s
+            --timeout 180s
+          mise exec -- k3d kubeconfig get panko-ci-smoke > .local/runner-smoke-kubeconfig
           mise exec -- kubectl --kubeconfig .local/runner-smoke-kubeconfig wait \
             --for=condition=Ready nodes --all --timeout=180s
           mise exec -- kubectl --kubeconfig .local/runner-smoke-kubeconfig get nodes
