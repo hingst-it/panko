@@ -67,6 +67,8 @@ func Children(r Request) []Object {
 type JobConfig struct {
 	RunnerImage, EngineImage, EngineBinary, GitSyncImage, ModuleRepo, ModuleRevision, ModuleSecret string
 	ProviderMirror, ModuleMirror                                                                   string
+	// ModulePath is the module's directory inside the repository; empty means the repository root.
+	ModulePath string
 	// Backends gates team-defined state backends; the Kubernetes fallback is always available.
 	Backends statebackend.Settings
 	// Rollout "manual" keeps applied resources on their revision until upgrade-module names the configured one.
@@ -88,7 +90,7 @@ func JobConfigFrom(lookup func(string) string) JobConfig {
 		return fallback
 	}
 	return JobConfig{RunnerImage: value("RUNNER_IMAGE", "panko-runner:dev"), EngineImage: lookup("ENGINE_IMAGE"), EngineBinary: value("ENGINE_BINARY", "/usr/local/bin/tofu"),
-		GitSyncImage: lookup("GIT_SYNC_IMAGE"), ModuleRepo: lookup("MODULE_REPO"), ModuleRevision: lookup("MODULE_REVISION"), ModuleSecret: value("MODULE_SECRET", "panko-module-git"),
+		GitSyncImage: lookup("GIT_SYNC_IMAGE"), ModuleRepo: lookup("MODULE_REPO"), ModuleRevision: lookup("MODULE_REVISION"), ModuleSecret: value("MODULE_SECRET", "panko-module-git"), ModulePath: lookup("MODULE_PATH"),
 		ProviderMirror: lookup("PROVIDER_MIRROR"), ModuleMirror: lookup("MODULE_MIRROR"), Backends: statebackend.Settings{External: lookup("EXTERNAL_STATE_BACKENDS") == "enabled", Installation: lookup("INSTALLATION_ID")},
 		Rollout: value("MODULE_ROLLOUT", "auto"), DriftInterval: duration(lookup("DRIFT_CHECK_INTERVAL"))}
 }
@@ -123,6 +125,9 @@ func (c JobConfig) Validate() error {
 	// A moving branch or tag would change the module without a new apply.
 	if !revisionPattern.MatchString(c.ModuleRevision) {
 		return fmt.Errorf("MODULE_REVISION must be a full commit SHA")
+	}
+	if err := resource.ModulePath(c.ModulePath); err != nil {
+		return fmt.Errorf("MODULE_PATH: %w", err)
 	}
 	if !strings.HasPrefix(c.EngineBinary, "/") {
 		return fmt.Errorf("ENGINE_BINARY must be an absolute path")
@@ -207,6 +212,11 @@ func CreateJobWith(config JobConfig, parent Object, action, hash, revision strin
 			c["volumeMounts"] = withoutSecret(jsonx.Array(c["volumeMounts"]))
 		}
 		pod["volumes"] = withoutSecret(jsonx.Array(pod["volumes"]))
+	}
+	if config.ModulePath != "" {
+		pod := jsonx.Obj(jsonx.Obj(jsonx.Obj(job["spec"])["template"])["spec"])
+		container := jsonx.Obj(jsonx.Array(pod["containers"])[0])
+		container["env"] = append(jsonx.Array(container["env"]), Object{"name": "PANKO_MODULE_PATH", "value": config.ModulePath})
 	}
 	if config.ProviderMirror != "" {
 		pod := jsonx.Obj(jsonx.Obj(jsonx.Obj(job["spec"])["template"])["spec"])

@@ -32,6 +32,8 @@ type Runner struct {
 	ResultFile               string
 	Credentials              func() (string, []byte, error)
 	ModuleDir, WorkDir, Tofu string
+	// ModulePath selects the module's directory inside the checkout; empty means its root.
+	ModulePath               string
 	ModuleRevision           string
 	Output, ErrorOutput, Log io.Writer
 	Process                  ProcessFunc
@@ -103,7 +105,7 @@ func (r *Runner) execute(ctx context.Context, action string, snapshot resource.S
 	if err := r.backendCredentials(ctx, m.Namespace, r.Backend, values); err != nil {
 		return nil, stage("credentials", err)
 	}
-	if err := copyModule(r.ModuleDir, r.WorkDir); err != nil {
+	if err := copyModule(r.ModuleDir, r.ModulePath, r.WorkDir); err != nil {
 		return nil, stage("module", err)
 	}
 	if err := r.mirrorEnvironment(ctx, values); err != nil {
@@ -242,11 +244,25 @@ func environment(base []string, values map[string]string) []string {
 	}
 	return result
 }
-func copyModule(source, destination string) error {
+func copyModule(checkout, modulePath, destination string) error {
+	if err := resource.ModulePath(modulePath); err != nil {
+		return err
+	}
 	// git-sync publishes the checkout through a symlink; WalkDir does not follow a symlinked root.
-	source, err := filepath.EvalSymlinks(source)
+	root, err := filepath.EvalSymlinks(checkout)
 	if err != nil {
 		return err
+	}
+	source, err := filepath.EvalSymlinks(filepath.Join(root, filepath.FromSlash(modulePath)))
+	if err != nil {
+		return err
+	}
+	// A symlinked directory inside the repository must not lead out of the checkout.
+	if inside, err := filepath.Rel(root, source); err != nil || inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("module path leaves the module repository")
+	}
+	if info, err := os.Stat(source); err != nil || !info.IsDir() {
+		return fmt.Errorf("module path is not a directory")
 	}
 	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {

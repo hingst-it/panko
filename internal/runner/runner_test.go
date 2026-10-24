@@ -297,7 +297,7 @@ func TestCopyModuleFollowsSyncLinkAndSkipsGit(t *testing.T) {
 		t.Fatal(err)
 	}
 	work := filepath.Join(t.TempDir(), "module")
-	if err := copyModule(filepath.Join(root, "current"), work); err != nil {
+	if err := copyModule(filepath.Join(root, "current"), "", work); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"main.tf", "modules/inner.tf"} {
@@ -307,6 +307,36 @@ func TestCopyModuleFollowsSyncLinkAndSkipsGit(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(work, ".git")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("git metadata copied into the work directory")
+	}
+}
+func TestCopyModuleFromPathInsideCheckoutOnly(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	for name, content := range map[string]string{"main.tf": "root", "test/modules/aws-s3/main.tf": "bucket", "test/modules/aws-s3/override.tf": ""} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Remove(filepath.Join(root, "test/modules/aws-s3/override.tf")); err != nil {
+		t.Fatal(err)
+	}
+	work := filepath.Join(t.TempDir(), "module")
+	if err := copyModule(root, "test/modules/aws-s3", work); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(filepath.Join(work, "main.tf")); err != nil || string(data) != "bucket" {
+		t.Fatal("module directory not copied as the module root", string(data), err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "escape")); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"escape", "../x", "missing", "main.tf"} {
+		if copyModule(root, path, filepath.Join(t.TempDir(), "module")) == nil {
+			t.Errorf("module path %q accepted", path)
+		}
 	}
 }
 func TestRecordedBackendMayListUnsetAttributes(t *testing.T) {
