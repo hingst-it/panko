@@ -127,9 +127,29 @@ func (a *App) doctor(ctx context.Context, o options) int {
 		ok, _ = ready("metacontroller", "deployments", "metacontroller")
 	}
 	check("metacontroller/metacontroller", ok, "statefulset or deployment must finish its rollout")
-	for _, team := range config.Teams {
-		_, err := get("/api/v1/namespaces/" + url.PathEscape(team) + "/secrets/panko-module-git")
-		check(team+"/panko-module-git", err == nil, "run make deploy with the module deploy key")
+	// With the module mirror only infra-runners holds the key; otherwise every team namespace does.
+	hookEnv := map[string]string{}
+	if hookDeployment, err := get("/apis/apps/v1/namespaces/infra-runners/deployments/database-hook"); err == nil {
+		for _, c := range jsonx.Array(jsonx.Obj(jsonx.Obj(jsonx.Obj(hookDeployment["spec"])["template"])["spec"])["containers"]) {
+			for _, item := range jsonx.Array(jsonx.Obj(c)["env"]) {
+				hookEnv[jsonx.Str(jsonx.Obj(item)["name"])] = jsonx.Str(jsonx.Obj(item)["value"])
+			}
+		}
+	}
+	if hookEnv["MODULE_MIRROR"] != "" {
+		_, err := get("/api/v1/namespaces/infra-runners/secrets/panko-module-git")
+		check("infra-runners/panko-module-git", err == nil, "run make deploy with the module deploy key")
+		ok, _ := ready("infra-runners", "deployments", "module-mirror")
+		check("infra-runners/module-mirror", ok, "the module mirror must finish its rollout")
+	} else {
+		for _, team := range config.Teams {
+			_, err := get("/api/v1/namespaces/" + url.PathEscape(team) + "/secrets/panko-module-git")
+			check(team+"/panko-module-git", err == nil, "run make deploy with the module deploy key")
+		}
+	}
+	if hookEnv["PROVIDER_MIRROR"] != "" {
+		ok, _ := ready("infra-runners", "deployments", "provider-mirror")
+		check("infra-runners/provider-mirror", ok, "the provider mirror must finish its rollout")
 	}
 	secret, err := get("/api/v1/namespaces/infra-gateway/secrets/gateway-auth")
 	var tokens map[string]string

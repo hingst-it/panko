@@ -563,3 +563,33 @@ func TestPlanWaitReportsDrift(t *testing.T) {
 		t.Fatalf("got %d %s %s", code, out, errs)
 	}
 }
+func TestDoctorChecksModuleMirrorInsteadOfTeamKeys(t *testing.T) {
+	a, base, out, errs := setup(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
+	dir := t.TempDir()
+	config, tokens := filepath.Join(dir, "panko.json"), filepath.Join(dir, "tokens.json")
+	os.WriteFile(config, []byte(`{"teams":["team-a"],"s3":false}`), 0600)
+	os.WriteFile(tokens, []byte(`{"team-a":"`+testToken+`"}`), 0600)
+	readyDeployment := jsonx.Object{"metadata": jsonx.Object{"generation": 1}, "spec": jsonx.Object{"replicas": 1}, "status": jsonx.Object{"observedGeneration": 1, "readyReplicas": 1, "updatedReplicas": 1}}
+	a.NewKube = func(string, time.Duration) (kube.API, error) {
+		return fakeKube(func(ctx context.Context, method, path string, body any, ct string) (jsonx.Object, error) {
+			switch {
+			case path == "/version", path == "/api/v1/namespaces/infra-runners/secrets/panko-module-git":
+				return jsonx.Object{}, nil
+			case strings.HasSuffix(path, "/deployments/database-hook"):
+				hook := jsonx.Clone(readyDeployment)
+				jsonx.Obj(hook["spec"])["template"] = jsonx.Object{"spec": jsonx.Object{"containers": []any{jsonx.Object{"env": []any{jsonx.Object{"name": "MODULE_MIRROR", "value": "git://m/module.git"}}}}}}
+				return hook, nil
+			case strings.HasSuffix(path, "/gateway-auth"):
+				return jsonx.Object{"data": jsonx.Object{"tokens.json": base64.StdEncoding.EncodeToString([]byte(`{"team-a":"` + testToken + `"}`))}}, nil
+			case strings.Contains(path, "statefulsets/metacontroller"):
+				return nil, &kube.Error{Code: 404}
+			case strings.Contains(path, "/deployments/"):
+				return readyDeployment, nil
+			}
+			return nil, &kube.Error{Code: 404}
+		}), nil
+	}
+	if code := run(t, a, base, "doctor", "--config", config, "--tokens-file", tokens); code != 0 || !strings.Contains(out.String(), "ok infra-runners/module-mirror") || strings.Contains(out.String(), "team-a/panko-module-git") {
+		t.Fatal(code, out.String(), errs.String())
+	}
+}
