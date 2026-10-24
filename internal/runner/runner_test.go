@@ -430,3 +430,25 @@ func TestJSONOutputIsNotForwardedRaw(t *testing.T) {
 		t.Fatal("diagnostic detail or change counts lost")
 	}
 }
+func TestRestoredIdentityAddressesCheckpointAndState(t *testing.T) {
+	r, s, _ := setup(t)
+	s.Metadata.Identity = "original-uid"
+	r.Backend = Object{"type": "s3", "credentialsSecret": "creds", "config": Object{"bucket": "b", "key": "i/original-uid/terraform.tfstate", "region": "r", "use_lockfile": true}}
+	f, c := &tofu{written: stateJSON("L1", 2)}, &cluster{}
+	r.API, r.Process = fakeAPI(c.api), f.run
+	if err := r.Run(context.Background(), "apply", s, "job-1"); err != nil {
+		t.Fatal("binding of the original identity refused: ", err)
+	}
+	for _, call := range c.calls {
+		if strings.Contains(call, "panko-checkpoint-abc") {
+			t.Fatal("checkpoint addressed by the new UID: " + call)
+		}
+	}
+	found := false
+	for _, call := range c.calls {
+		found = found || strings.Contains(call, "panko-checkpoint-original-uid")
+	}
+	if !found {
+		t.Fatal("checkpoint not addressed by the original identity")
+	}
+}

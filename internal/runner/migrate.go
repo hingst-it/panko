@@ -22,7 +22,7 @@ func (r *Runner) migrate(ctx context.Context, snapshot resource.Snapshot) error 
 	m := snapshot.Metadata
 	stateNamespace := "panko-state-" + m.Namespace
 	for _, binding := range []Object{r.Backend, r.Target} {
-		if err := statebackend.Validate(binding, m.Namespace, m.Name, m.UID); err != nil {
+		if err := statebackend.Validate(binding, m.Namespace, m.Name, m.Key()); err != nil {
 			return err
 		}
 	}
@@ -124,14 +124,14 @@ func (r *Runner) migrate(ctx context.Context, snapshot resource.Snapshot) error 
 	if !current.present {
 		return SafetyError{"source backend holds no state to migrate"}
 	}
-	checkpoint, err := r.loadCheckpoint(ctx, stateNamespace, m.UID)
+	checkpoint, err := r.loadCheckpoint(ctx, stateNamespace, m.Key())
 	if err != nil {
 		return err
 	}
 	if err := checkpoint.allows(current); err != nil {
 		return err
 	}
-	if err := r.backup(ctx, stateNamespace, m.UID, data); err != nil {
+	if err := r.backup(ctx, stateNamespace, m.Key(), data); err != nil {
 		return err
 	}
 	_, existing, err := pull(target)
@@ -162,7 +162,7 @@ func (r *Runner) migrate(ctx context.Context, snapshot resource.Snapshot) error 
 		return errors.Join(err, SafetyError{"source state changed during migration"})
 	}
 	// The resource stays frozen until the binding switches, so no Job uses the source with this checkpoint.
-	if err := r.saveCheckpoint(ctx, stateNamespace, m.UID, copied); err != nil {
+	if err := r.saveCheckpoint(ctx, stateNamespace, m.Key(), copied); err != nil {
 		return err
 	}
 	if r.Output != nil {

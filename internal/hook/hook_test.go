@@ -462,3 +462,19 @@ func TestSupersededAndInterruptedJobsKeepTheirRecord(t *testing.T) {
 		t.Fatal("apply that finished during deletion not recorded", d.Status["lastExecution"])
 	}
 }
+func TestRestoredIdentityReachesTheSnapshotOnly(t *testing.T) {
+	p := parent()
+	r, _ := Reconcile(Request{Parent: p})
+	if strings.Contains(envValue(r.Children[0], "PANKO_RESOURCE"), "identity") {
+		t.Fatal("identity added for an ordinary resource")
+	}
+	jsonx.Obj(p["status"])["identity"] = "original-uid"
+	r, _ = Reconcile(Request{Parent: p})
+	if !strings.Contains(envValue(r.Children[0], "PANKO_RESOURCE"), `"identity":"original-uid"`) || !strings.Contains(envValue(r.Children[0], "PANKO_RESOURCE"), `"uid":"abc"`) {
+		t.Fatal("restored identity missing or real UID replaced")
+	}
+	fresh := unbound("")
+	if b, _ := Reconcile(Request{Parent: fresh}); b.Status["identity"] != "abc" {
+		t.Fatal("binding did not record the identity", b.Status)
+	}
+}

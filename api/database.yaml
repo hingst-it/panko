@@ -125,6 +125,9 @@ spec:
                 stateBackendError:
                   type: string
                   description: Why no state backend could be bound yet.
+                identity:
+                  type: string
+                  description: Stable identity for names, state keys and checkpoints; the original UID after a restore.
                 lastExecution:
                   type: object
                   description: Outcome of the most recent finished Job; kept after the Job expires.

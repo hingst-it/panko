@@ -36,6 +36,11 @@ migrate-state: build-go
 	.local/bin/admin --kubeconfig "$(KUBECONFIG)" migrate-state
 clean: build-go
 	mise exec -- bash cluster/clean.sh
+.PHONY: backup restore
+backup: build-go
+	mise exec -- bash cluster/backup.sh
+restore: build-go
+	mise exec -- bash cluster/restore.sh
 .PHONY: gateway-rbac gateway-forward test-gateway
 gateway-rbac: build-go
 	.local/bin/admin --kubeconfig "$(KUBECONFIG)" gateway-rbac | kubectl apply -f -

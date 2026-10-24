@@ -83,7 +83,7 @@ func (r *Runner) emit(event Event) {
 func (r *Runner) execute(ctx context.Context, action string, snapshot resource.Snapshot) (*Changes, error) {
 	m := snapshot.Metadata
 	stateNamespace := "panko-state-" + m.Namespace
-	if err := statebackend.Validate(r.Backend, m.Namespace, m.Name, m.UID); err != nil {
+	if err := statebackend.Validate(r.Backend, m.Namespace, m.Name, m.Key()); err != nil {
 		return nil, stage("binding", err)
 	}
 	admin, err := r.API.Request(ctx, "GET", "/api/v1/namespaces/infra-backends/secrets/postgres-admin", nil, "")
@@ -144,7 +144,7 @@ func (r *Runner) execute(ctx context.Context, action string, snapshot resource.S
 	if err != nil {
 		return nil, stage("checkpoint", err)
 	}
-	checkpoint, err := r.loadCheckpoint(ctx, stateNamespace, m.UID)
+	checkpoint, err := r.loadCheckpoint(ctx, stateNamespace, m.Key())
 	if err != nil {
 		return nil, stage("checkpoint", err)
 	}
@@ -157,7 +157,7 @@ func (r *Runner) execute(ctx context.Context, action string, snapshot resource.S
 	// Record what the backend holds now, also after a failed command that may have written partial state.
 	after, pullErr := pull()
 	if pullErr == nil && after.present {
-		pullErr = r.saveCheckpoint(ctx, stateNamespace, m.UID, after)
+		pullErr = r.saveCheckpoint(ctx, stateNamespace, m.Key(), after)
 	}
 	if err := errors.Join(actionErr, stage("state_record", pullErr)); err != nil {
 		return counter.changes, err
@@ -174,7 +174,7 @@ func (r *Runner) execute(ctx context.Context, action string, snapshot resource.S
 		}
 	}
 	// External backends keep the empty state for audit and recovery; the checkpoint goes last.
-	if err := r.deleteIgnoringMissing(ctx, checkpointPath(stateNamespace, m.UID)); err != nil {
+	if err := r.deleteIgnoringMissing(ctx, checkpointPath(stateNamespace, m.Key())); err != nil {
 		return counter.changes, stage("cleanup", err)
 	}
 	if r.Output != nil {

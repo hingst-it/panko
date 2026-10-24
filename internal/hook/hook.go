@@ -125,6 +125,10 @@ func CreateJobWith(config JobConfig, parent Object, action, hash, revision strin
 	prefix = strings.TrimRight(prefix, "-.")
 	name := "db-" + prefix + "-" + hex.EncodeToString(d[:])[:24] + "-" + action
 	snapshot := Object{"metadata": Object{"name": meta.Name, "namespace": meta.Namespace, "uid": meta.UID, "generation": meta.Generation}, "spec": parent["spec"]}
+	// Only a restore records an identity other than the UID; the module then keeps the original names.
+	if identity := jsonx.Str(jsonx.Obj(parent["status"])["identity"]); identity != "" && identity != meta.UID {
+		jsonx.Obj(snapshot["metadata"])["identity"] = identity
+	}
 	engine := "/engine/" + path.Base(config.EngineBinary)
 	restricted := Object{"allowPrivilegeEscalation": false, "readOnlyRootFilesystem": true, "capabilities": Object{"drop": []any{"ALL"}}}
 	// git-sync needs its image's own passwd entry for SSH; the pod fsGroup grants it the key.
@@ -302,6 +306,9 @@ func bind(r Request, children []Object, phase string, generation int64, finalize
 	response := result(p, phase, generation, "State backend bound; execution follows", retainAll(children), "", finalized, nil)
 	delete(response.Status, "stateBackendError")
 	response.Status["stateBackend"] = bound
+	if _, ok := response.Status["identity"]; !ok {
+		response.Status["identity"] = jsonx.Str(meta["uid"])
+	}
 	return nil, &response
 }
 func finalize(r Request, children []Object, generation int64, hash string) (Response, error) {

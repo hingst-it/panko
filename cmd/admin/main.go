@@ -38,6 +38,7 @@ func run() error {
 	}
 	configPath := flags.String("config", defaultConfig, "Installation configuration with teams and optional lab parts (env PANKO_CONFIG)")
 	team := flags.String("team", "", "Team for add-team or rotate-token")
+	dir := flags.String("dir", "", "Backup directory for export and import")
 	if err := flags.Parse(os.Args[1:]); err != nil {
 		return err
 	}
@@ -54,7 +55,7 @@ func run() error {
 		}
 	}
 	if flags.NArg() != 1 {
-		return fmt.Errorf("usage: panko-admin [--config panko.json] [--kubeconfig PATH] teams|add-team|config-s3|runner-rbac|module-secret|ensure-mirror-tls|mirror-ca|s3-profiles|gateway-rbac|preflight|migrate-state|migrate-backend|ensure-postgres-auth|ensure-gateway-auth|rotate-token|ensure-installation-id|ensure-s3-auth|ensure-s3-teams")
+		return fmt.Errorf("usage: panko-admin [--config panko.json] [--kubeconfig PATH] teams|add-team|config-s3|pause|resume|export|import|runner-rbac|module-secret|ensure-mirror-tls|mirror-ca|s3-profiles|gateway-rbac|preflight|migrate-state|migrate-backend|ensure-postgres-auth|ensure-gateway-auth|rotate-token|ensure-installation-id|ensure-s3-auth|ensure-s3-teams")
 	}
 	command := flags.Arg(0)
 	if command == "add-team" {
@@ -102,7 +103,7 @@ func run() error {
 		return nil
 	}
 	clusterCommands := map[string]bool{"ensure-mirror-tls": true, "mirror-ca": true, "gateway-rbac": true, "preflight": true, "migrate-state": true, "migrate-backend": true, "ensure-postgres-auth": true,
-		"ensure-gateway-auth": true, "rotate-token": true, "ensure-installation-id": true, "ensure-s3-auth": true, "ensure-s3-teams": true}
+		"ensure-gateway-auth": true, "rotate-token": true, "pause": true, "resume": true, "export": true, "import": true, "ensure-installation-id": true, "ensure-s3-auth": true, "ensure-s3-teams": true}
 	if !clusterCommands[command] {
 		return fmt.Errorf("unknown admin command")
 	}
@@ -140,6 +141,18 @@ func run() error {
 		return m.Preflight(ctx)
 	}
 	switch command {
+	case "pause":
+		return m.Pause(ctx)
+	case "resume":
+		return m.Resume(ctx)
+	case "export", "import":
+		if *dir == "" {
+			return fmt.Errorf("%s requires --dir", command)
+		}
+		if command == "export" {
+			return m.Export(ctx, *dir)
+		}
+		return m.Import(ctx, *dir)
 	case "ensure-mirror-tls":
 		return m.EnsureMirrorTLS(ctx)
 	case "mirror-ca":

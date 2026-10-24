@@ -14,7 +14,18 @@ type Identity struct {
 	Namespace  string `json:"namespace"`
 	UID        string `json:"uid"`
 	Generation int64  `json:"generation"`
+	// Identity is the original UID of a restored resource; names, state keys and checkpoints follow it.
+	Identity string `json:"identity,omitempty"`
 }
+
+// Key is the stable identity of the resource across backup and restore.
+func (i Identity) Key() string {
+	if i.Identity != "" {
+		return i.Identity
+	}
+	return i.UID
+}
+
 type Snapshot struct {
 	Metadata Identity     `json:"metadata"`
 	Spec     jsonx.Object `json:"spec"`

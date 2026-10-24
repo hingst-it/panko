@@ -66,6 +66,38 @@ Status und werden nicht erneut angewendet. Nur eine geänderte `MODULE_REVISION`
 jede Ressource einmal mit dem neuen Modul an. Neue Lab-Bestandteile wie der S3-Gateway
 erfordern zusätzlich `make bootstrap`.
 
+## Sicherung und Wiederherstellung
+
+```sh
+make backup BACKUP_DIR=.local/backup-20261024
+make restore BACKUP_DIR=.local/backup-20261024   # in eine frisch installierte Umgebung
+```
+
+`make backup` stoppt Hook und Gateway, wartet, bis kein Runner-Job mehr läuft, und schreibt
+in ein neues, privates Verzeichnis:
+
+| Datei | Inhalt |
+| --- | --- |
+| `cluster.json` | Databases mit Spec, Status und Identität, StateBackends, BackendProfiles, State- und Checkpoint-Secrets, Zugangsdaten (PostgreSQL-Admin, S3, Gateway-Tokens) und die Installations-ID |
+| `postgres.sql` | `pg_dumpall` aller Datenbanken und Rollen |
+| `s3.tar` | Daten und Benutzer des Lab-S3, falls aktiviert |
+
+Danach laufen Hook und Gateway wieder an. Das Verzeichnis enthält Zugangsdaten und
+Datenbankinhalte und gehört nicht ins Repository oder auf geteilte Ablagen.
+
+`make restore` erwartet eine frische Installation (`make cluster-up bootstrap build deploy`)
+und verweigert das Überschreiben vorhandener Databases. Es stoppt Hook und Gateway,
+spielt Zugangsdaten, Installations-ID, States, Checkpoints und Databases ein, stellt
+Datenbankinhalte und S3-Daten wieder her und gleicht `.local/team-tokens.json` mit dem
+wiederhergestellten Secret ab. Neu angelegte Databases erhalten von Kubernetes eine neue
+UID; `status.identity` behält die ursprüngliche, sodass Namen, State-Schlüssel und
+Checkpoints unverändert bleiben. Nach dem Start wendet jede Database einmal gegen ihren
+wiederhergestellten State an, ohne Datenbanken oder Rollen neu anzulegen.
+
+`test/restore_rehearsal.sh` probt den Ablauf vollständig: Lab mit Daten anlegen,
+sichern, löschen, neu aufbauen, wiederherstellen, Daten und Zugangsdaten prüfen,
+ändern und löschen.
+
 ## Engine und Modul
 
 Runner-Jobs setzen sich beim Start aus drei Teilen zusammen. Der Init-Container
