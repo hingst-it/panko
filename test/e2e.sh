@@ -13,3 +13,4 @@ if [ "$s3" = true ]; then
   python3 test/state_backend_e2e.py
 fi
 python3 test/failures_e2e.py
+python3 test/mirror_e2e.py
