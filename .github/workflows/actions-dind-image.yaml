@@ -34,16 +34,16 @@ jobs:
           file: .github/runner/Dockerfile.dind
           platforms: linux/amd64
           load: true
-          tags: ghcr.io/hingst-it/panko-actions-runner:dind-29.9.2-2
+          tags: ghcr.io/hingst-it/panko-actions-runner:dind-29.9.2-3
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.licenses=Apache-2.0
       - name: Verify guest filesystem tools
         run: |
-          docker run --rm --entrypoint sh ghcr.io/hingst-it/panko-actions-runner:dind-29.9.2-2 -ec '
+          docker run --rm --entrypoint sh ghcr.io/hingst-it/panko-actions-runner:dind-29.9.2-3 -ec '
             command -v mkfs.ext4
             command -v losetup
             test -x /usr/local/bin/dockerd-kata
           '
       - name: Publish verified image
-        run: docker push ghcr.io/hingst-it/panko-actions-runner:dind-29.9.2-2
+        run: docker push ghcr.io/hingst-it/panko-actions-runner:dind-29.9.2-3

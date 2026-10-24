@@ -13,4 +13,7 @@ fi
 # kubelet in a nested k3d node requires the guest's kernel log device.
 [ -e /dev/kmsg ] || mknod /dev/kmsg c 1 11
 mount -t ext4 -o loop,noatime /docker-storage/docker.ext4 /var/lib/docker
+# Keep the guest's binfmt superblock alive after the QEMU installer exits.
+# Otherwise its registrations disappear with that short-lived container.
+mountpoint -q /proc/sys/fs/binfmt_misc || mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc
 exec /usr/local/bin/dockerd-entrypoint.sh "$@"
