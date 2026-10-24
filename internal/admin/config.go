@@ -18,6 +18,8 @@ type Config struct {
 	// Egress restricts runner pods to Panko's components and EgressTargets; the mirrors become required.
 	Egress        bool           `json:"egress,omitempty"`
 	EgressTargets []EgressTarget `json:"egressTargets,omitempty"`
+	// RunnerPools assign teams to remote agents; teams without a pool keep in-cluster Jobs.
+	RunnerPools []RunnerPool `json:"runnerPools,omitempty"`
 }
 
 // Same pattern as Database spec.owner, because the team is the default owner of its resources.
@@ -54,7 +56,7 @@ func (c Config) Validate() error {
 		}
 		seen[team] = true
 	}
-	return nil
+	return c.validatePools()
 }
 
 // LoadConfig reads and validates the configuration and makes its teams the generators' input.

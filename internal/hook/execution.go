@@ -36,6 +36,9 @@ const maxMessage = 300
 // report reads what a Job's pods tell about its outcome: failed init containers, the runner's
 // termination message, or kubelet reasons. Unknown codes and oversized messages are dropped.
 func report(job Object, pods map[string]Object) (code, message string, changes Object) {
+	if job["kind"] == "Run" {
+		return runReport(job)
+	}
 	name := jsonx.Str(jsonx.Obj(job["metadata"])["name"])
 	for _, pod := range pods {
 		labels := jsonx.Obj(jsonx.Obj(pod["metadata"])["labels"])
@@ -92,6 +95,28 @@ func report(job Object, pods map[string]Object) (code, message string, changes O
 		}
 	}
 	return "", "", nil
+}
+
+// runReport reads a Run's outcome, written by the runner endpoint after validating the agent's
+// commit. It gets the same bounds as a termination message, because the endpoint is a separate service.
+func runReport(run Object) (code, message string, changes Object) {
+	r := jsonx.Obj(jsonx.Obj(run["status"])["report"])
+	code, message = jsonx.Str(r["code"]), jsonx.Str(r["message"])
+	if _, known := failures[code]; code != "" && !known {
+		return "", "", nil
+	}
+	if len(message) > maxMessage {
+		message = message[:maxMessage]
+	}
+	if c := jsonx.Obj(r["changes"]); c != nil {
+		changes = Object{}
+		for _, key := range []string{"add", "change", "remove"} {
+			if value, ok := c[key]; ok {
+				changes[key] = value
+			}
+		}
+	}
+	return code, message, changes
 }
 
 // Execution summarizes a finished Job for status so the outcome survives the Job's TTL.

@@ -4,7 +4,7 @@ export KUBECONFIG="${KUBECONFIG:-$PWD/.local/kubeconfig}"
 # Refuse an unsafe backend switch when legacy states still exist.
 .local/bin/admin --kubeconfig "$KUBECONFIG" preflight
 kubectl create namespace infra-gateway --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -f api/database.yaml -f api/state-backends.yaml
+kubectl apply -f api/database.yaml -f api/state-backends.yaml -f api/run.yaml
 .local/bin/admin runner-rbac | kubectl apply -f -
 # Read the hook's literal setting locally, before applying the new Deployment.
 module_mirror=$(kubectl create --dry-run=client --validate=false -f controller/deployment.yaml -o 'jsonpath={.spec.template.spec.containers[0].env[?(@.name=="MODULE_MIRROR")].value}')
@@ -38,6 +38,9 @@ fi
 kubectl apply -f cluster/provider-mirror.yaml
 kubectl -n infra-runners rollout restart deploy/provider-mirror
 kubectl -n infra-runners rollout status deploy/provider-mirror --timeout=120s
+# Pools are read before the hook restarts; dropping a pool that resources still use is refused.
+.local/bin/admin --kubeconfig "$KUBECONFIG" check-pools
+.local/bin/admin runner-pools | kubectl apply -f -
 kubectl apply -f controller/deployment.yaml
 kubectl -n infra-runners rollout restart deploy/database-hook
 kubectl -n infra-runners rollout status deploy/database-hook --timeout=120s

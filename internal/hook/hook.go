@@ -49,7 +49,13 @@ func Terminal(child Object) string {
 	return ""
 }
 func Children(r Request) []Object {
-	items := r.Children["Job.batch/v1"]
+	// Jobs and Runs share names, annotations and serialization; a resource only ever has one kind.
+	items := map[string]Object{}
+	for _, key := range []string{"Job.batch/v1", RunKey} {
+		for name, child := range r.Children[key] {
+			items[name] = child
+		}
+	}
 	names := make([]string, 0, len(items))
 	for name := range items {
 		names = append(names, name)
@@ -76,6 +82,9 @@ type JobConfig struct {
 	Rollout string
 	// DriftInterval schedules a read-only plan for Ready resources; zero disables scheduled checks.
 	DriftInterval time.Duration
+	// Pools maps a team namespace to its remote runner pool (RUNNER_POOLS); new resources bind it.
+	Pools    map[string]Pool
+	poolsErr error
 }
 
 var revisionPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
@@ -90,10 +99,12 @@ func JobConfigFrom(lookup func(string) string) JobConfig {
 		}
 		return fallback
 	}
-	return JobConfig{RunnerImage: value("RUNNER_IMAGE", "panko-runner:dev"), EngineImage: lookup("ENGINE_IMAGE"), EngineBinary: value("ENGINE_BINARY", "/usr/local/bin/tofu"),
+	c := JobConfig{RunnerImage: value("RUNNER_IMAGE", "panko-runner:dev"), EngineImage: lookup("ENGINE_IMAGE"), EngineBinary: value("ENGINE_BINARY", "/usr/local/bin/tofu"),
 		GitSyncImage: lookup("GIT_SYNC_IMAGE"), ModuleRepo: lookup("MODULE_REPO"), ModuleRevision: lookup("MODULE_REVISION"), ModuleSecret: value("MODULE_SECRET", "panko-module-git"), ModulePath: lookup("MODULE_PATH"),
 		ProviderMirror: lookup("PROVIDER_MIRROR"), ModuleMirror: lookup("MODULE_MIRROR"), Backends: statebackend.Settings{External: lookup("EXTERNAL_STATE_BACKENDS") == "enabled", Installation: lookup("INSTALLATION_ID")},
 		Rollout: value("MODULE_ROLLOUT", "auto"), DriftInterval: duration(lookup("DRIFT_CHECK_INTERVAL"))}
+	c.Pools, c.poolsErr = pools(lookup("RUNNER_POOLS"))
+	return c
 }
 
 // duration parses an optional duration; an invalid value becomes negative and fails validation.
@@ -129,6 +140,9 @@ func (c JobConfig) Validate() error {
 	}
 	if err := resource.ModulePath(c.ModulePath); err != nil {
 		return fmt.Errorf("MODULE_PATH: %w", err)
+	}
+	if c.poolsErr != nil {
+		return c.poolsErr
 	}
 	if !strings.HasPrefix(c.EngineBinary, "/") {
 		return fmt.Errorf("ENGINE_BINARY must be an absolute path")
@@ -229,6 +243,10 @@ func CreateJobWith(config JobConfig, parent Object, action, hash, revision strin
 		container["volumeMounts"] = append(jsonx.Array(container["volumeMounts"]), Object{"name": "mirror-ca", "mountPath": "/mirror-ca", "readOnly": true})
 		pod["volumes"] = append(jsonx.Array(pod["volumes"]), Object{"name": "mirror-ca", "configMap": Object{"name": "panko-mirror-ca", "optional": true}})
 	}
+	// A resource bound to a remote pool gets a Run with the same identity instead of the Job.
+	if boundPool(parent) != "" {
+		return createRun(config, job, parent, action, hash, revision, backend, generation, attempt, retry, snapshot)
+	}
 	return job, nil
 }
 func Retain(child Object) Object {
@@ -237,6 +255,9 @@ func Retain(child Object) Object {
 		if value, ok := jsonx.Obj(child["metadata"])[key]; ok {
 			meta[key] = value
 		}
+	}
+	if child["kind"] == "Run" {
+		return jsonx.Clone(Object{"apiVersion": "platform.example.com/v1", "kind": "Run", "metadata": meta, "spec": child["spec"]})
 	}
 	return jsonx.Clone(Object{"apiVersion": "batch/v1", "kind": "Job", "metadata": meta, "spec": child["spec"]})
 }
@@ -354,15 +375,16 @@ func isPlan(c Object) bool { return Ann(c)[Prefix+"action"] == "plan" }
 // revision it was last moved to, even if that apply failed, until upgrade-module names the configured one.
 func revisionFor(parent Object, config JobConfig) string {
 	status := jsonx.Obj(parent["status"])
-	if config.Rollout != "manual" || annotation(parent, "upgrade-module") == config.ModuleRevision {
-		return config.ModuleRevision
+	configured := configuredRevision(parent, config)
+	if config.Rollout != "manual" || annotation(parent, "upgrade-module") == configured {
+		return configured
 	}
 	for _, key := range []string{"rolloutRevision", "lastAppliedRevision"} {
 		if revision := jsonx.Str(status[key]); revision != "" {
 			return revision
 		}
 	}
-	return config.ModuleRevision
+	return configured
 }
 
 // planRecord summarizes a finished read-only plan; drift means OpenTofu would change something.
@@ -439,10 +461,28 @@ func bind(r Request, children []Object, phase string, generation int64, finalize
 	response := result(p, phase, generation, "State backend bound; execution follows", retainAll(children), "", finalized, nil)
 	delete(response.Status, "stateBackendError")
 	response.Status["stateBackend"] = bound
-	// The module path is bound with the backend: resources that ran before keep the repository root,
-	// and a later MODULE_PATH change only affects new resources.
-	if modulePath := LoadJobConfig().ModulePath; modulePath != "" && !statebackend.Executed(p, len(children)) {
-		response.Status["modulePath"] = modulePath
+	// The module path and the runner pool are bound with the backend: resources that ran before keep
+	// the repository root and in-cluster Jobs, and later configuration changes only affect new resources.
+	if config := LoadJobConfig(); !statebackend.Executed(p, len(children)) {
+		modulePath := config.ModulePath
+		if pool, ok := config.Pools[jsonx.Str(meta["namespace"])]; ok {
+			// Remote agents cannot reach the Kubernetes backend in the team namespace.
+			if bound["type"] != "s3" {
+				message := "runner pool " + pool.Name + " requires an S3 state backend"
+				response := result(p, "Failed", generation, "State backend: "+message, retainAll(children), "", finalized, nil)
+				response.Status["stateBackendError"] = message
+				return nil, &response
+			}
+			response.Status["runnerPool"] = pool.Name
+			if pool.Module != nil {
+				modulePath = pool.Module.Path
+			}
+		}
+		if modulePath != "" {
+			response.Status["modulePath"] = modulePath
+		} else {
+			delete(response.Status, "modulePath")
+		}
 	}
 	if _, ok := response.Status["identity"]; !ok {
 		response.Status["identity"] = jsonx.Str(meta["uid"])
@@ -561,7 +601,7 @@ func finalizeJobs(r Request, children []Object, generation int64, hash string) (
 	// Destroy with the module that created the state; resources applied before revisions were tracked use the configured one.
 	revision := jsonx.Str(jsonx.Obj(parent["status"])["lastAppliedRevision"])
 	if revision == "" {
-		revision = LoadJobConfig().ModuleRevision
+		revision = configuredRevision(parent, LoadJobConfig())
 	}
 	child, err := CreateJob(parent, "destroy", hash, revision, backend, generation, a, token)
 	if err != nil {
