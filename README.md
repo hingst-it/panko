@@ -180,4 +180,6 @@ Panko grows out of an appreciation for open source and the people who make infra
 
 For a change, explain the infrastructure workflow it improves and how you checked it. The lifecycle and gateway tests above are useful starting points when changing runtime behavior.
 
-The repository does not yet include a license file; an explicit open-source license still needs to be selected and added by the maintainers.
+## License
+
+Panko is licensed under the [Apache License 2.0](LICENSE) (SPDX identifier: `Apache-2.0`).
