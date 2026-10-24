@@ -179,7 +179,10 @@ Jede Database wird danach einmal mit der neuen Revision angewendet. Der Status h
 Destroy verwendet genau diese Revision. Ressourcen ohne erfasste Revision werden
 beim ersten Deployment dieses Aufbaus einmal angewendet.
 
-Der Deploy-Key ist nur lesend für das Modul-Repository freigegeben. `make deploy`
+Das öffentliche Beispielmodul wird standardmäßig über HTTPS geladen, ohne
+Deploy-Key oder GitHub-Konto. Für ein privates Modul wird `MODULE_REPO` in
+`cluster/module-mirror.yaml` auf eine SSH-URL gesetzt. Dann ist der
+Deploy-Key nur lesend für das Modul-Repository freigegeben. `make deploy`
 legt ihn mit `admin module-mirror-secret` als Secret `panko-module-git`
 ausschließlich in `infra-runners` ab, zusammen mit den Host-Schlüsseln aus
 `cluster/module-known-hosts`. Diese Host-Schlüssel stammen aus GitHubs API

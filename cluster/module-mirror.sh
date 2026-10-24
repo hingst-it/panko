@@ -2,7 +2,11 @@
 set -eu
 : "${MODULE_REPO:?MODULE_REPO is required}"
 export HOME=/tmp GIT_TERMINAL_PROMPT=0
-export GIT_SSH_COMMAND='ssh -F /dev/null -i /etc/git-secret/ssh -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/etc/git-secret/known_hosts -o BatchMode=yes'
+case "$MODULE_REPO" in
+  git@*|ssh://*)
+    export GIT_SSH_COMMAND='ssh -F /dev/null -i /etc/git-secret/ssh -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/etc/git-secret/known_hosts -o BatchMode=yes'
+    ;;
+esac
 
 # An emptyDir starts clean with each Pod. Never serve a partially cloned repository.
 git clone --mirror "$MODULE_REPO" /repositories/module.git

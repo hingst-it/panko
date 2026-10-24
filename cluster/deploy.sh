@@ -9,7 +9,14 @@ kubectl apply -f api/database.yaml -f api/state-backends.yaml
 # Read the hook's literal setting locally, before applying the new Deployment.
 module_mirror=$(kubectl create --dry-run=client --validate=false -f controller/deployment.yaml -o 'jsonpath={.spec.template.spec.containers[0].env[?(@.name=="MODULE_MIRROR")].value}')
 if [ -n "$module_mirror" ]; then
-  .local/bin/admin --ssh-key-file "${MODULE_SSH_KEY_FILE:-.local/module-deploy-key}" module-mirror-secret | kubectl apply -f -
+  module_repo=$(kubectl create --dry-run=client --validate=false -f cluster/module-mirror.yaml -o 'jsonpath={.spec.template.spec.containers[0].env[?(@.name=="MODULE_REPO")].value}')
+  case "$module_repo" in
+    https://*) ;; # Public module: no deploy key or Kubernetes Secret needed.
+    git@*|ssh://*)
+      .local/bin/admin --ssh-key-file "${MODULE_SSH_KEY_FILE:-.local/module-deploy-key}" module-mirror-secret | kubectl apply -f -
+      ;;
+    *) echo 'module mirror requires an HTTPS or SSH MODULE_REPO' >&2; exit 1 ;;
+  esac
   kubectl apply -f cluster/module-mirror.yaml
   kubectl -n infra-runners rollout restart deploy/module-mirror
   kubectl -n infra-runners rollout status deploy/module-mirror --timeout=180s

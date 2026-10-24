@@ -19,7 +19,7 @@ spec:
           image: panko-module-mirror:dev
           imagePullPolicy: Never
           env:
-            - {name: MODULE_REPO, value: "git@github.com:hingst-it/panko-database.git"}
+            - {name: MODULE_REPO, value: "https://github.com/hingst-it/panko-database.git"}
           ports: [{name: git, containerPort: 9418}]
           readinessProbe:
             exec:
@@ -43,7 +43,7 @@ spec:
         - name: tmp
           emptyDir: {sizeLimit: 64Mi}
         - name: git-secret
-          secret: {secretName: panko-module-git, defaultMode: 0440}
+          secret: {secretName: panko-module-git, defaultMode: 0440, optional: true}
 ---
 apiVersion: v1
 kind: Service

@@ -10,7 +10,7 @@ import (
 
 // Exercise the deployment script offline: no cluster, credentials, or image pulls.
 func TestModuleMirrorDeploy(t *testing.T) {
-	for _, mode := range []string{"mirror", "ssh", "unready"} {
+	for _, mode := range []string{"mirror", "public", "ssh", "unready"} {
 		t.Run(mode, func(t *testing.T) {
 			dir := t.TempDir()
 			write := func(name, contents string) {
@@ -28,6 +28,8 @@ printf 'kubectl %s\n' "$*" >> "$DEPLOY_LOG"
 case "$*" in
   'create --dry-run=client --validate=false -f controller/deployment.yaml'*)
     if [ "$DEPLOY_MODE" != ssh ]; then printf 'git://module-mirror.infra-runners.svc:9418/module.git'; fi ;;
+  'create --dry-run=client --validate=false -f cluster/module-mirror.yaml'*)
+    if [ "$DEPLOY_MODE" = public ]; then printf 'https://github.com/hingst-it/panko-database.git'; else printf 'git@github.com:hingst-it/panko-database.git'; fi ;;
   *'rollout status deploy/module-mirror'*) [ "$DEPLOY_MODE" != unready ] || exit 1 ;;
 esac
 `)
@@ -62,7 +64,8 @@ esac
 				}
 				return
 			}
-			if !strings.Contains(calls, " module-mirror-secret\n") || strings.Contains(calls, " module-secret\n") || mirror < 0 {
+			wantsKey := mode != "public"
+			if strings.Contains(calls, " module-mirror-secret\n") != wantsKey || strings.Contains(calls, " module-secret\n") || mirror < 0 {
 				t.Fatalf("wrong mirror deployment: %s", calls)
 			}
 			if mode == "unready" {

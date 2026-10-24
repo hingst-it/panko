@@ -31,7 +31,7 @@ That is where **Panko** comes in: a thin wrapper between the people requesting i
 
 The ambition is simple: keep the joy of Terraform coding as infrastructure becomes a shared service. Build on open-source tools, keep the moving parts small, and make the path from a request to a resource easy to follow.
 
-**Current status:** Panko is a working local prototype. It provisions PostgreSQL databases with OpenTofu in a k3d cluster and exposes a team-scoped REST API. Supporting larger deployments is the design goal; production readiness and large-scale performance have not been established. The runner currently uses OpenTofu; Terraform CLI execution is not tested or configured.
+**Current status:** v0.0.1 is the first public experimental release for local evaluation and personal installations. It provisions PostgreSQL databases with OpenTofu in a k3d cluster and exposes a team-scoped REST API. APIs and configuration may change. Production readiness and large-scale performance have not been established; Terraform CLI execution is not tested or configured. See the [changelog](CHANGELOG.md) and [release notes](docs/release-notes/v0.0.1.md).
 
 ## How it works
 
@@ -58,21 +58,37 @@ flowchart LR
 
 ## Quick start
 
-You need a running Docker engine and [mise](https://mise.jdx.dev/). Tool versions are pinned in [mise.toml](mise.toml). Teams and optional lab parts are configured in [panko.json](panko.json). Runner jobs fetch the module from the private repository `hingst-it/panko-database`; place its read-only deploy key at `.local/module-deploy-key` (mode 0600) or point `MODULE_SSH_KEY_FILE` to it. Run these commands from the repository root:
+Follow the [complete quickstart](docs/quickstart.md) to install the CLI and deploy
+the lab. For help from an AI assistant, use the [agent installation guide](docs/agent-install.md).
+
+Install the CLI with **one** of these methods:
 
 ```sh
-mise trust
-mise install
-mise exec -- python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements-dev.txt
-make cluster-up
-make bootstrap
-make build
-make deploy
-make test
+brew install hingst-it/tap/panko
+# Or:
+mise use -g github:hingst-it/panko@0.0.1
+# Or:
+asdf plugin add panko https://github.com/hingst-it/asdf-panko.git
+asdf install panko 0.0.1
+asdf set -u panko 0.0.1
 ```
 
-This creates the `infra-lab` k3d cluster, bootstraps PostgreSQL and Metacontroller, builds the runner and gateway images, deploys Panko, and runs the database lifecycle tests. Commands use `.local/kubeconfig` and leave your existing Kubernetes contexts unchanged. Initial setup and image builds require internet access.
+Installing the CLI does not deploy the Kubernetes services. For the local lab,
+you need Docker, git, make, and [mise](https://mise.jdx.dev/) on macOS or Linux.
+Tool versions are pinned in [mise.toml](mise.toml); teams and optional lab parts
+are configured in [panko.json](panko.json). The example module is fetched over
+public HTTPS, with no deploy key or GitHub account required. From a fresh checkout:
+
+```sh
+git clone --branch v0.0.1 --depth 1 https://github.com/hingst-it/panko.git panko-0.0.1
+cd panko-0.0.1
+mise trust
+mise install
+export CLUSTER_NAME=panko-quickstart
+make cluster-up bootstrap build deploy
+```
+
+This creates the `panko-quickstart` k3d cluster, bootstraps PostgreSQL and Metacontroller, builds the service images, and deploys Panko. Commands use `.local/kubeconfig` and leave existing default Kubernetes contexts unchanged. Initial setup and image builds require internet access. The optional full test suite additionally requires a Python `.venv` with `requirements-dev.txt` installed.
 
 ### Request a database
 
@@ -162,6 +178,8 @@ Explore the API at [Swagger UI](http://127.0.0.1:8081/docs) or retrieve the [Ope
 | [docs/local-lab.de.md](docs/local-lab.de.md) | Original German technical guide and implementation/verification notes. |
 | [docs/state-backends.de.md](docs/state-backends.de.md) | Team-defined state backends, safety checks, lab S3 and migration. |
 | [docs/roadmap.de.md](docs/roadmap.de.md) | Roadmap towards a first usable personal version and beyond. |
+| [docs/releases.md](docs/releases.md) | Tag releases, required CI checks, binary archives and GHCR images. |
+| [docs/quickstart.md](docs/quickstart.md) / [docs/agent-install.md](docs/agent-install.md) | Public installation and instructions for AI-assisted setup. |
 | [docs/brand/](docs/brand/) | Logos, wordmarks, monochrome variants, icons, and social artwork. |
 
 ## Scope and limitations

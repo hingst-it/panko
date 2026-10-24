@@ -224,14 +224,16 @@ Team-Namespaces, die Teamgrenze setzt der Gateway durch.
 
 ## Bekannte Grenzen
 
-- Lokales Labor mit einem Postgres und PVC: keine Hochverfügbarkeit, Backups,
+- Lokales Labor mit einem Postgres und PVC: keine Hochverfügbarkeit,
   TLS zu Postgres oder produktionsreife Mandantenisolation im Datenbankserver.
+  Sicherung und geprobte Wiederherstellung sind über `make backup` und
+  `make restore` dokumentiert; siehe `operations.de.md`.
 - Kubernetes-State-Secrets enthalten Login-Passwörter; Secret-Größe maximal 1 MiB.
   Runner verwalten ausschließlich den State ihres Teams, teilen sich aber weiterhin
   den PostgreSQL-Adminzugang.
   Die Metacontroller-Installation verwendet die breiten Standardrechte des Charts.
-- Nur die beiden konfigurierten Team-Namespaces sind provisioniert. Weitere Teams
-  benötigen explizite Namespace-/RBAC-Konfiguration und ein Token. Exponierte APIs
+- Teams sind in `panko.json` konfiguriert; Deployment erzeugt Namespaces, RBAC
+  und Token für diese Teams. Exponierte APIs
   sind namespaced und verwenden `spec`; keine clusterweiten Team-Routen.
 - Applies erfolgen bei Spec-/Generationsänderungen. Ein verlorenes Secret oder
   externe Drift löst derzeit keinen periodischen Apply aus. Kein automatischer
@@ -241,8 +243,9 @@ Team-Namespaces, die Teamgrenze setzt der Gateway durch.
 - Gleichzeitige Änderungen werden als Merge Patches verarbeitet; kein ETag-Vertrag.
   Listen sind für das kleine Labor ungepaginiert. Swagger lädt UI-Dateien vom CDN.
 - Images verwenden lokale `:dev`-Tags; `make build && make deploy` importiert und
-  startet die Dienste neu. Bestehende Jobs werden nicht verändert. Provider sind
-  im Image enthalten; der erstmalige Image-Build und lokale Tests brauchen Internet.
+  startet die Dienste neu. Bestehende Jobs werden nicht verändert. Provider werden
+  über den Pull-Through-Mirror oder direkt geladen; der erstmalige Image-Build
+  und lokale Tests brauchen Internet.
 
 Phase 7 geprüft: curl-CRUD bis Ready und zurück bis zur vollständigen Löschung,
 Login mit den provisionierten Credentials, Schema-/CEL-Fehler mit Feldpfaden,
