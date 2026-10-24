@@ -10,5 +10,7 @@ if [ ! -s /docker-storage/docker.ext4 ]; then
 fi
 [ -e /dev/loop-control ] || mknod /dev/loop-control c 10 237
 [ -e /dev/loop0 ] || mknod /dev/loop0 b 7 0
+# kubelet in a nested k3d node requires the guest's kernel log device.
+[ -e /dev/kmsg ] || mknod /dev/kmsg c 1 11
 mount -t ext4 -o loop,noatime /docker-storage/docker.ext4 /var/lib/docker
 exec /usr/local/bin/dockerd-entrypoint.sh "$@"
