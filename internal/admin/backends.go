@@ -117,6 +117,10 @@ func (m *Migrator) MigrateBackend(ctx context.Context, b BackendMigration) error
 	if source == nil {
 		return fmt.Errorf("database has no bound state backend yet")
 	}
+	// Migration runs as an in-cluster Job; remote resources' backends are not reachable from here.
+	if pool := jsonx.Str(jsonx.Obj(db["status"])["runnerPool"]); pool != "" {
+		return fmt.Errorf("database is bound to runner pool %s; migrating its state backend is not supported yet", pool)
+	}
 	recordPath := secretsPath("panko-state-"+b.Namespace) + "/panko-migration-" + uid
 	record, err := m.loadRecord(ctx, recordPath)
 	if err != nil {

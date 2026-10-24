@@ -251,7 +251,7 @@ func (m *Migrator) Import(ctx context.Context, dir string) error {
 // apply also recreates connection Secrets, which are not part of the backup.
 func restorableStatus(old Object) Object {
 	status := Object{"phase": "Pending", "message": "Restored; apply follows"}
-	for _, key := range []string{"identity", "stateBackend", "modulePath", "lastAppliedRevision", "connectionSecretRef"} {
+	for _, key := range []string{"identity", "stateBackend", "modulePath", "runnerPool", "lastAppliedRevision", "connectionSecretRef"} {
 		if value, ok := old[key]; ok {
 			status[key] = value
 		}

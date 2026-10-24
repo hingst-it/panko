@@ -129,8 +129,9 @@ geprüft; die Punkte unten enthalten dessen Befunde.
 
 **Pools und Bindung**
 
-- Runner-Pools deklariert der Betreiber in `panko.json`: Name, erlaubte Teams, Labels.
-  Ohne Pool bleibt der Job im Cluster der Standard.
+- Runner-Pools deklariert der Betreiber in `panko.json`: Name, erlaubte Teams und optional
+  ein eigenes Modul (Repository, Revision, Pfad), etwa für eine andere Cloud. Ohne Pool bleibt
+  der Job im Cluster der Standard; Teams mit und ohne Pool laufen nebeneinander.
 - Eine Ressource bindet ihren Pool einmalig, wie das State-Backend (`status.stateBackend`).
   Team-Vorgaben gelten nur für neue Ressourcen. Ein Pool lässt sich nicht entfernen oder
   umhängen, solange Ressourcen an ihn gebunden sind; ein Wechsel ist eine bewusste Migration.

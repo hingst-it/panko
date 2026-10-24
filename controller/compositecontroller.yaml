@@ -13,6 +13,11 @@ spec:
       resource: jobs
       updateStrategy:
         method: OnDelete
+    # Executions of resources bound to a remote runner pool; the runner endpoint owns their status.
+    - apiVersion: platform.example.com/v1
+      resource: runs
+      updateStrategy:
+        method: OnDelete
   hooks:
     # Selects the StateBackend and BackendProfiles a Database needs; the hook itself has no API access.
     customize:
