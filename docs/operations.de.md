@@ -88,6 +88,11 @@ Einstellung standardmäßig aus. `"egress": false` entfernt die Policies beim n�
 Deployment wieder. `test/egress_e2e.py` prüft beide Seiten: Provisionierung und
 deklarierte Ziele funktionieren, Gateway und Internet sind gesperrt.
 
+Policy-Controller wie kube-router (k3s/k3d) installieren die Regeln eines neuen Pods
+asynchron, typischerweise wenige Sekunden nach dem Start. In diesem Fenster ist ein
+Runner-Pod noch unbeschränkt; die Regeln sind eine Härtung, keine Garantie ab der
+ersten Sekunde.
+
 ## Drift-Prüfung und Modul-Rollouts
 
 `panko plan NAME --wait` (oder `POST .../{name}/plan`) startet für eine Ressource im
