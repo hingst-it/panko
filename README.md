@@ -137,6 +137,7 @@ Explore the API at [Swagger UI](http://127.0.0.1:8081/docs) or retrieve the [Ope
 | [test/](test/) | Controller checks and cluster-backed lifecycle/API tests. |
 | [docs/local-lab.de.md](docs/local-lab.de.md) | Original German technical guide and implementation/verification notes. |
 | [docs/state-backends.de.md](docs/state-backends.de.md) | Team-defined state backends, safety checks, lab S3 and migration. |
+| [docs/roadmap.de.md](docs/roadmap.de.md) | Roadmap towards a first usable personal version and beyond. |
 | [docs/brand/](docs/brand/) | Logos, wordmarks, monochrome variants, icons, and social artwork. |
 
 ## Scope and limitations

@@ -63,9 +63,9 @@ Die Portierung erfolgte komponentenweise im lokalen k3d-Labor:
    byteidentischem Status, State und Zugangsdaten, aktualisierte und zerstörte sie
    anschließend. Danach bestand die vollständige E2E-Suite im aktualisierten Lab.
 
-Die Runtime-Tests liefen auf Linux ARM64. Die vier Go-Kommandos wurden zusätzlich
-für Linux AMD64 und ARM64 cross-kompiliert. Ein AMD64-Lauf im Cluster und ein
-Remote-GitHub-Actions-Lauf sind dadurch nicht nachgewiesen. Die entpackten Images
+Die Runtime-Tests der Portierung liefen auf Linux ARM64; die vier Go-Kommandos wurden
+zusätzlich für Linux AMD64 cross-kompiliert. Inzwischen läuft die vollständige E2E-Suite
+auch in GitHub Actions auf Linux AMD64 (Nachweis in [TASKS-GO.md](../TASKS-GO.md)). Die entpackten Images
 schrumpften von 117 auf 29,9 MB (Gateway), 78,9 auf 23,9 MB (Hook) und 280 auf
 230 MB (Runner, überwiegend OpenTofu und Provider-Mirror). Startzeit und
 Speicherverbrauch wurden nicht gemessen.
