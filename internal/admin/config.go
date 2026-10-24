@@ -20,6 +20,8 @@ type Config struct {
 	EgressTargets []EgressTarget `json:"egressTargets,omitempty"`
 	// RunnerPools assign teams to remote agents; teams without a pool keep in-cluster Jobs.
 	RunnerPools []RunnerPool `json:"runnerPools,omitempty"`
+	// RunnerEndpoint names the addresses agents use; its certificate covers them.
+	RunnerEndpoint RunnerEndpoint `json:"runnerEndpoint,omitempty"`
 }
 
 // Same pattern as Database spec.owner, because the team is the default owner of its resources.
@@ -55,6 +57,9 @@ func (c Config) Validate() error {
 			return fmt.Errorf("team %q is listed twice", team)
 		}
 		seen[team] = true
+	}
+	if err := c.RunnerEndpoint.validate(); err != nil {
+		return err
 	}
 	return c.validatePools()
 }
