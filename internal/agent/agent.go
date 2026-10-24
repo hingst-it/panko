@@ -267,15 +267,16 @@ func GitFetch(ctx context.Context, git, repository, revision, dir string) error 
 
 var profileKey = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// LoadProfile reads KEY=VALUE lines; blank lines and # comments are ignored. The file must not be
-// readable by others, because it holds credentials.
+// LoadProfile reads KEY=VALUE lines; blank lines and # comments are ignored. The file holds
+// credentials and must not be accessible by others; group access is allowed for Kubernetes
+// Secret volumes, which grant the pod's fsGroup read access.
 func LoadProfile(path string) (map[string]string, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("no credential profile for this team")
 	}
-	if info.Mode().Perm()&0077 != 0 {
-		return nil, fmt.Errorf("credential profile %s must not be accessible by group or others", filepath.Base(path))
+	if info.Mode().Perm()&0007 != 0 {
+		return nil, fmt.Errorf("credential profile %s must not be accessible by others", filepath.Base(path))
 	}
 	file, err := os.Open(path)
 	if err != nil {
