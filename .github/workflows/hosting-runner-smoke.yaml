@@ -36,4 +36,7 @@ jobs:
           mise exec -- kubectl --kubeconfig .local/runner-smoke-kubeconfig get nodes
       - name: Delete only the nested smoke cluster
         if: always()
-        run: mise exec -- k3d cluster delete panko-ci-smoke
+        run: |
+          if command -v mise >/dev/null 2>&1; then
+            mise exec -- k3d cluster delete panko-ci-smoke
+          fi
