@@ -32,7 +32,11 @@ func run() error {
 	name := flags.String("name", "", "Database to migrate")
 	stateBackend := flags.String("state-backend", "", "Target StateBackend in the Database's namespace")
 	migration := flags.String("migration-id", "", "Migration identifier; rerun with the same ID to resume")
-	configPath := flags.String("config", "panko.json", "Installation configuration with teams and optional lab parts")
+	defaultConfig := os.Getenv("PANKO_CONFIG")
+	if defaultConfig == "" {
+		defaultConfig = "panko.json"
+	}
+	configPath := flags.String("config", defaultConfig, "Installation configuration with teams and optional lab parts (env PANKO_CONFIG)")
 	team := flags.String("team", "", "Team to add with add-team")
 	if err := flags.Parse(os.Args[1:]); err != nil {
 		return err

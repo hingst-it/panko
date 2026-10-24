@@ -23,9 +23,13 @@ spec:
               for file in /teams/*; do
                 team=$(basename "$file")
                 users=$(admin list-users)
-                case "$users" in *"panko-$team"*) ;; *) admin create-user --access "panko-$team" --secret "$(cat "$file")" --role user ;; esac
+                if ! printf '%s\n' "$users" | tr -s ' \t' '\n\n' | grep -qx "panko-$team"; then
+                  admin create-user --access "panko-$team" --secret "$(cat "$file")" --role user
+                fi
                 buckets=$(admin list-buckets)
-                case "$buckets" in *"panko-state-$team"*) ;; *) admin create-bucket --bucket "panko-state-$team" --owner "panko-$team" ;; esac
+                if ! printf '%s\n' "$buckets" | tr -s ' \t' '\n\n' | grep -qx "panko-state-$team"; then
+                  admin create-bucket --bucket "panko-state-$team" --owner "panko-$team"
+                fi
               done
               admin list-buckets
           env:

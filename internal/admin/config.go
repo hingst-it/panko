@@ -17,12 +17,13 @@ type Config struct {
 	S3    bool     `json:"s3"`
 }
 
-var teamName = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+// Same pattern as Database spec.owner, because the team is the default owner of its resources.
+var teamName = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
 
 // Team names become namespaces; panko-state-<team> must stay a valid namespace name.
 func validTeam(name string) error {
 	if !teamName.MatchString(name) || len(name) > 40 {
-		return fmt.Errorf("team %q must be a lowercase DNS label of at most 40 characters", name)
+		return fmt.Errorf("team %q must start with a letter, use lowercase letters, digits and single hyphens, and have at most 40 characters", name)
 	}
 	for _, reserved := range []string{"infra-", "kube-", "panko-", "metacontroller", "default"} {
 		if strings.HasPrefix(name, reserved) {
