@@ -1,0 +1,64 @@
+# A Panko remote runner agent in another Kubernetes cluster. It needs only outbound HTTPS to the
+# runner endpoint, the module repository and the provider registry. Create the Secrets first:
+#   kubectl -n panko-agent create secret generic panko-agent --from-file=token --from-file=ca.crt
+#   kubectl -n panko-agent create secret generic panko-agent-profiles --from-file=<team>.env
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: panko-agent
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: panko-agent
+  namespace: panko-agent
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: panko-agent
+  namespace: panko-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: panko-agent}
+  template:
+    metadata:
+      labels: {app: panko-agent}
+    spec:
+      serviceAccountName: panko-agent
+      automountServiceAccountToken: false
+      # Leaves time for OpenTofu to stop and release its state lock.
+      terminationGracePeriodSeconds: 90
+      securityContext: {runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: agent
+          image: panko-agent:dev
+          args: [run]
+          env:
+            - {name: PANKO_ENDPOINT, value: "https://panko.example.com:30443"}
+            - {name: PANKO_ENDPOINT_CA, value: /etc/panko-agent/ca.crt}
+            - {name: PANKO_AGENT_TOKEN_FILE, value: /etc/panko-agent/token}
+            - {name: PANKO_POOL, value: edge}
+            - {name: PANKO_PROFILES, value: /etc/panko-agent/profiles}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {memory: 1Gi}
+          volumeMounts:
+            - {name: agent, mountPath: /etc/panko-agent, readOnly: true}
+            - {name: profiles, mountPath: /etc/panko-agent/profiles, readOnly: true}
+            - {name: work, mountPath: /work}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: agent
+          secret: {secretName: panko-agent, defaultMode: 0440}
+        - name: profiles
+          # Group-readable through fsGroup only; the agent refuses profiles readable by others.
+          secret: {secretName: panko-agent-profiles, defaultMode: 0440}
+        - {name: work, emptyDir: {}}
+        - {name: tmp, emptyDir: {}}

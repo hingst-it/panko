@@ -49,7 +49,14 @@ func Terminal(child Object) string {
 	return ""
 }
 func Children(r Request) []Object {
-	items := r.Children["Job.batch/v1"]
+	// Jobs and Runs share names, annotations and serialization, so both kinds are one list; the key
+	// keeps a Job and a Run of the same name apart.
+	items := map[string]Object{}
+	for _, key := range []string{"Job.batch/v1", RunKey} {
+		for name, child := range r.Children[key] {
+			items[name+"\x00"+key] = child
+		}
+	}
 	names := make([]string, 0, len(items))
 	for name := range items {
 		names = append(names, name)
@@ -67,12 +74,18 @@ func Children(r Request) []Object {
 type JobConfig struct {
 	RunnerImage, EngineImage, EngineBinary, GitSyncImage, ModuleRepo, ModuleRevision, ModuleSecret string
 	ProviderMirror, ModuleMirror                                                                   string
+	// ModulePath is the module's directory inside the repository for newly bound resources; empty
+	// means the repository root. Each resource keeps the path it was bound with (status.modulePath).
+	ModulePath string
 	// Backends gates team-defined state backends; the Kubernetes fallback is always available.
 	Backends statebackend.Settings
 	// Rollout "manual" keeps applied resources on their revision until upgrade-module names the configured one.
 	Rollout string
 	// DriftInterval schedules a read-only plan for Ready resources; zero disables scheduled checks.
 	DriftInterval time.Duration
+	// Pools defines the remote runner pools and which team new resources bind to (RUNNER_POOLS).
+	Pools    Pools
+	poolsErr error
 }
 
 var revisionPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
@@ -87,10 +100,12 @@ func JobConfigFrom(lookup func(string) string) JobConfig {
 		}
 		return fallback
 	}
-	return JobConfig{RunnerImage: value("RUNNER_IMAGE", "panko-runner:dev"), EngineImage: lookup("ENGINE_IMAGE"), EngineBinary: value("ENGINE_BINARY", "/usr/local/bin/tofu"),
-		GitSyncImage: lookup("GIT_SYNC_IMAGE"), ModuleRepo: lookup("MODULE_REPO"), ModuleRevision: lookup("MODULE_REVISION"), ModuleSecret: value("MODULE_SECRET", "panko-module-git"),
+	c := JobConfig{RunnerImage: value("RUNNER_IMAGE", "panko-runner:dev"), EngineImage: lookup("ENGINE_IMAGE"), EngineBinary: value("ENGINE_BINARY", "/usr/local/bin/tofu"),
+		GitSyncImage: lookup("GIT_SYNC_IMAGE"), ModuleRepo: lookup("MODULE_REPO"), ModuleRevision: lookup("MODULE_REVISION"), ModuleSecret: value("MODULE_SECRET", "panko-module-git"), ModulePath: lookup("MODULE_PATH"),
 		ProviderMirror: lookup("PROVIDER_MIRROR"), ModuleMirror: lookup("MODULE_MIRROR"), Backends: statebackend.Settings{External: lookup("EXTERNAL_STATE_BACKENDS") == "enabled", Installation: lookup("INSTALLATION_ID")},
 		Rollout: value("MODULE_ROLLOUT", "auto"), DriftInterval: duration(lookup("DRIFT_CHECK_INTERVAL"))}
+	c.Pools, c.poolsErr = pools(lookup("RUNNER_POOLS"))
+	return c
 }
 
 // duration parses an optional duration; an invalid value becomes negative and fails validation.
@@ -123,6 +138,12 @@ func (c JobConfig) Validate() error {
 	// A moving branch or tag would change the module without a new apply.
 	if !revisionPattern.MatchString(c.ModuleRevision) {
 		return fmt.Errorf("MODULE_REVISION must be a full commit SHA")
+	}
+	if err := resource.ModulePath(c.ModulePath); err != nil {
+		return fmt.Errorf("MODULE_PATH: %w", err)
+	}
+	if c.poolsErr != nil {
+		return c.poolsErr
 	}
 	if !strings.HasPrefix(c.EngineBinary, "/") {
 		return fmt.Errorf("ENGINE_BINARY must be an absolute path")
@@ -208,12 +229,24 @@ func CreateJobWith(config JobConfig, parent Object, action, hash, revision strin
 		}
 		pod["volumes"] = withoutSecret(jsonx.Array(pod["volumes"]))
 	}
+	if modulePath := jsonx.Str(jsonx.Obj(parent["status"])["modulePath"]); modulePath != "" {
+		if err := resource.ModulePath(modulePath); err != nil {
+			return nil, err
+		}
+		pod := jsonx.Obj(jsonx.Obj(jsonx.Obj(job["spec"])["template"])["spec"])
+		container := jsonx.Obj(jsonx.Array(pod["containers"])[0])
+		container["env"] = append(jsonx.Array(container["env"]), Object{"name": "PANKO_MODULE_PATH", "value": modulePath})
+	}
 	if config.ProviderMirror != "" {
 		pod := jsonx.Obj(jsonx.Obj(jsonx.Obj(job["spec"])["template"])["spec"])
 		container := jsonx.Obj(jsonx.Array(pod["containers"])[0])
 		container["env"] = append(jsonx.Array(container["env"]), Object{"name": "PANKO_PROVIDER_MIRROR", "value": config.ProviderMirror})
 		container["volumeMounts"] = append(jsonx.Array(container["volumeMounts"]), Object{"name": "mirror-ca", "mountPath": "/mirror-ca", "readOnly": true})
 		pod["volumes"] = append(jsonx.Array(pod["volumes"]), Object{"name": "mirror-ca", "configMap": Object{"name": "panko-mirror-ca", "optional": true}})
+	}
+	// A resource bound to a remote pool gets a Run with the same identity instead of the Job.
+	if boundPool(parent) != "" {
+		return createRun(config, job, parent, action, hash, revision, backend, generation, attempt, retry, snapshot)
 	}
 	return job, nil
 }
@@ -223,6 +256,9 @@ func Retain(child Object) Object {
 		if value, ok := jsonx.Obj(child["metadata"])[key]; ok {
 			meta[key] = value
 		}
+	}
+	if child["kind"] == "Run" {
+		return jsonx.Clone(Object{"apiVersion": "platform.example.com/v1", "kind": "Run", "metadata": meta, "spec": child["spec"]})
 	}
 	return jsonx.Clone(Object{"apiVersion": "batch/v1", "kind": "Job", "metadata": meta, "spec": child["spec"]})
 }
@@ -340,15 +376,16 @@ func isPlan(c Object) bool { return Ann(c)[Prefix+"action"] == "plan" }
 // revision it was last moved to, even if that apply failed, until upgrade-module names the configured one.
 func revisionFor(parent Object, config JobConfig) string {
 	status := jsonx.Obj(parent["status"])
-	if config.Rollout != "manual" || annotation(parent, "upgrade-module") == config.ModuleRevision {
-		return config.ModuleRevision
+	configured := configuredRevision(parent, config)
+	if config.Rollout != "manual" || annotation(parent, "upgrade-module") == configured {
+		return configured
 	}
 	for _, key := range []string{"rolloutRevision", "lastAppliedRevision"} {
 		if revision := jsonx.Str(status[key]); revision != "" {
 			return revision
 		}
 	}
-	return config.ModuleRevision
+	return configured
 }
 
 // planRecord summarizes a finished read-only plan; drift means OpenTofu would change something.
@@ -425,6 +462,31 @@ func bind(r Request, children []Object, phase string, generation int64, finalize
 	response := result(p, phase, generation, "State backend bound; execution follows", retainAll(children), "", finalized, nil)
 	delete(response.Status, "stateBackendError")
 	response.Status["stateBackend"] = bound
+	// The module path and the runner pool are bound with the backend: resources that ran before keep
+	// the repository root and in-cluster Jobs, and later configuration changes only affect new resources.
+	if config := LoadJobConfig(); !statebackend.Executed(p, len(children)) {
+		modulePath := config.ModulePath
+		if name, ok := config.Pools.Teams[jsonx.Str(meta["namespace"])]; ok {
+			// Remote agents cannot reach the Kubernetes backend in the team namespace.
+			if bound["type"] != "s3" {
+				message := "runner pool " + name + " requires an S3 state backend"
+				response := result(p, "Failed", generation, "State backend: "+message, retainAll(children), "", finalized, nil)
+				response.Status["stateBackendError"] = message
+				return nil, &response
+			}
+			var repository string
+			repository, modulePath = moduleSource(config.Pools.Pools[name], config)
+			response.Status["runnerPool"] = name
+			if repository != "" {
+				response.Status["moduleRepository"] = repository
+			}
+		}
+		if modulePath != "" {
+			response.Status["modulePath"] = modulePath
+		} else {
+			delete(response.Status, "modulePath")
+		}
+	}
 	if _, ok := response.Status["identity"]; !ok {
 		response.Status["identity"] = jsonx.Str(meta["uid"])
 	}
@@ -542,7 +604,7 @@ func finalizeJobs(r Request, children []Object, generation int64, hash string) (
 	// Destroy with the module that created the state; resources applied before revisions were tracked use the configured one.
 	revision := jsonx.Str(jsonx.Obj(parent["status"])["lastAppliedRevision"])
 	if revision == "" {
-		revision = LoadJobConfig().ModuleRevision
+		revision = configuredRevision(parent, LoadJobConfig())
 	}
 	child, err := CreateJob(parent, "destroy", hash, revision, backend, generation, a, token)
 	if err != nil {
@@ -561,6 +623,8 @@ func Reconcile(r Request) (Response, error) {
 		return Response{}, err
 	}
 	children := Children(r)
+	p = recoverBinding(p, children)
+	r.Parent = p
 	if r.Finalizing {
 		return finalize(r, children, meta.Generation, hash)
 	}
@@ -590,13 +654,6 @@ func Reconcile(r Request) (Response, error) {
 			running = append(running, c)
 		}
 	}
-	if len(running) > 0 {
-		generation, err := strconv.ParseInt(jsonx.Str(Ann(running[0])[Prefix+"generation"]), 10, 64)
-		if err != nil {
-			return Response{}, fmt.Errorf("invalid Job generation")
-		}
-		return withRevision(result(p, "Applying", generation, "OpenTofu apply is running", retainAll(running), "", nil, nil), revisionOf(running[0]), ""), nil
-	}
 	// The newest finished plan Job stays a child until its TTL; it is the durable record of a consumed token.
 	keepPlan := func(response Response) Response {
 		if finishedPlan != nil {
@@ -613,12 +670,21 @@ func Reconcile(r Request) (Response, error) {
 		}
 		return response
 	}
+	if len(running) > 0 {
+		generation, err := strconv.ParseInt(jsonx.Str(Ann(running[0])[Prefix+"generation"]), 10, 64)
+		if err != nil {
+			return Response{}, fmt.Errorf("invalid Job generation")
+		}
+		// Keep the finished plan too: Metacontroller deletes omitted children, and the plan is the
+		// record that its request was consumed.
+		return keepPlan(withRevision(result(p, "Applying", generation, "OpenTofu apply is running", retainAll(running), "", nil, nil), revisionOf(running[0]), "")), nil
+	}
 	if id := Maintenance(p); id != "" {
 		return keepPlan(result(p, "Maintenance", meta.Generation, "State backend maintenance "+id+"; no jobs start", retainAll(children), "", nil, nil)), nil
 	}
 	backend, pending := bind(r, children, "Pending", meta.Generation, nil)
 	if pending != nil {
-		return *pending, nil
+		return keepPlan(*pending), nil
 	}
 	revision := revisionFor(p, config)
 	retry := annotation(p, "retry-apply")

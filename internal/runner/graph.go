@@ -3,15 +3,11 @@ package runner
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"time"
 
 	"github.com/hingst-it/panko/internal/graph"
-	"github.com/hingst-it/panko/internal/jsonx"
-	"github.com/hingst-it/panko/internal/kube"
 	"github.com/hingst-it/panko/internal/resource"
 )
 
@@ -48,22 +44,5 @@ func (r *Runner) saveGraph(ctx context.Context, snapshot resource.Snapshot, proc
 	if err != nil {
 		return err
 	}
-	path := "/api/v1/namespaces/" + url.PathEscape(m.Namespace) + "/configmaps"
-	name := "panko-graph-" + m.Key()
-	meta := Object{"name": name, "namespace": m.Namespace, "ownerReferences": []any{Object{"apiVersion": "platform.example.com/v1", "kind": "Database", "name": m.Name, "uid": m.UID}}}
-	existing, err := r.API.Request(ctx, "GET", path+"/"+url.PathEscape(name), nil, "")
-	method, target := "POST", path
-	var api *kube.Error
-	if err == nil {
-		rv := jsonx.Str(jsonx.Obj(existing["metadata"])["resourceVersion"])
-		if rv == "" {
-			return fmt.Errorf("graph resourceVersion missing")
-		}
-		meta["resourceVersion"] = rv
-		method, target = "PUT", path+"/"+url.PathEscape(name)
-	} else if !errors.As(err, &api) || api.Code != 404 {
-		return err
-	}
-	_, err = r.API.Request(ctx, method, target, Object{"apiVersion": "v1", "kind": "ConfigMap", "metadata": meta, "data": Object{"graph.json": string(data)}}, "")
-	return err
+	return r.Platform.StoreGraph(ctx, snapshot, data)
 }

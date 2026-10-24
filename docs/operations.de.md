@@ -93,6 +93,13 @@ asynchron, typischerweise wenige Sekunden nach dem Start. In diesem Fenster ist 
 Runner-Pod noch unbeschränkt; die Regeln sind eine Härtung, keine Garantie ab der
 ersten Sekunde.
 
+## Entfernte Runner
+
+Teams können einem Runner-Pool zugeordnet werden, dessen Agenten außerhalb des Clusters laufen;
+Teams ohne Pool behalten Jobs im Cluster. Einrichtung, Tokens, Betrieb als Container,
+Systemdienst oder in einem anderen Cluster, Lease, Wiederherstellung und Grenzen:
+[Entfernte Runner](remote-runners.de.md).
+
 ## Drift-Prüfung und Modul-Rollouts
 
 `panko plan NAME --wait` (oder `POST .../{name}/plan`) startet für eine Ressource im
@@ -179,6 +186,12 @@ Jede Database wird danach einmal mit der neuen Revision angewendet. Der Status h
 Destroy verwendet genau diese Revision. Ressourcen ohne erfasste Revision werden
 beim ersten Deployment dieses Aufbaus einmal angewendet.
 
+Liegt das Modul in einem Unterverzeichnis des Repositorys, nennt `MODULE_PATH` am Hook
+dieses Verzeichnis (relativ, ohne `..` und `.git`). Der Pfad wird wie das State-Backend
+vor dem ersten Job an die Ressource gebunden (`status.modulePath`). Eine spätere Änderung
+gilt nur für neue Ressourcen; bestehende, auch solche aus der Zeit vor `MODULE_PATH`,
+behalten ihren Pfad für Updates, Drift-Prüfungen, Migrationen und Destroy.
+
 Das öffentliche Beispielmodul wird standardmäßig über HTTPS geladen, ohne
 Deploy-Key oder GitHub-Konto. Für ein privates Modul wird `MODULE_REPO` in
 `cluster/module-mirror.yaml` auf eine SSH-URL gesetzt. Dann ist der
@@ -193,7 +206,7 @@ alte Kopien des Secrets aus den konfigurierten Team-Namespaces.
 Der Mirror stellt das Bare-Repository im Cluster über einen nur lesenden,
 unauthentifizierten Git-Dienst auf Port 9418 bereit; Push ist deaktiviert.
 Damit kann jeder Pod im Cluster den Modulcode lesen, aber keinen Schlüssel. Für eine
-persönliche Installation ist das bewusst akzeptiert; mit Egress-Regeln (Roadmap 3c)
+persönliche Installation ist das bewusst akzeptiert; mit Egress-Regeln ([#20](https://github.com/hingst-it/panko/issues/20))
 lässt sich der Zugriff auf Runner-Pods beschränken.
 
 Ist der Modul-Mirror ausgefallen oder fehlt die angeforderte Revision, scheitert

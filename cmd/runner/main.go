@@ -49,7 +49,7 @@ func run() error {
 	if err := jsonx.Decode(strings.NewReader(os.Getenv("PANKO_BACKEND")), &backend); err != nil || backend == nil {
 		return fmt.Errorf("PANKO_BACKEND must describe the bound state backend")
 	}
-	r := &runner.Runner{API: api, Credentials: api.Credentials, Backend: backend, ModuleDir: os.Getenv("PANKO_MODULE"), WorkDir: "/work/module", Tofu: os.Getenv("PANKO_ENGINE"), Output: os.Stdout, ErrorOutput: os.Stderr, Log: os.Stdout,
+	r := &runner.Runner{API: api, Platform: &runner.ClusterPlatform{API: api, Credentials: api.Credentials}, Backend: backend, ModuleDir: os.Getenv("PANKO_MODULE"), ModulePath: os.Getenv("PANKO_MODULE_PATH"), WorkDir: "/work/module", Tofu: os.Getenv("PANKO_ENGINE"), Output: os.Stdout, ErrorOutput: os.Stderr, Log: os.Stdout,
 		ModuleRevision: os.Getenv("PANKO_MODULE_REVISION"), ResultFile: "/dev/termination-log"}
 	if os.Args[1] == "migrate" {
 		r.Migration = os.Getenv("PANKO_MIGRATION")

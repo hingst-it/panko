@@ -20,6 +20,7 @@ import (
 // It is idempotent: a target that already holds exactly the source state counts as copied.
 func (r *Runner) migrate(ctx context.Context, snapshot resource.Snapshot) error {
 	m := snapshot.Metadata
+	platform := &ClusterPlatform{API: r.API}
 	stateNamespace := "panko-state-" + m.Namespace
 	for _, binding := range []Object{r.Backend, r.Target} {
 		if err := statebackend.Validate(binding, m.Namespace, m.Name, m.Key()); err != nil {
@@ -37,7 +38,7 @@ func (r *Runner) migrate(ctx context.Context, snapshot resource.Snapshot) error 
 	if binary == "" {
 		binary = "tofu"
 	}
-	lock, err := moduleLockfile(r.ModuleDir)
+	lock, err := moduleLockfile(r.ModuleDir, r.ModulePath)
 	if err != nil {
 		return err
 	}
@@ -56,7 +57,7 @@ func (r *Runner) migrate(ctx context.Context, snapshot resource.Snapshot) error 
 		}
 		for _, binding := range bindings {
 			own := map[string]string{}
-			if err := r.backendCredentials(ctx, m.Namespace, binding, own); err != nil {
+			if err := platform.backendCredentials(ctx, m.Namespace, binding, own); err != nil {
 				return nil, err
 			}
 			for key, value := range own {
@@ -124,7 +125,7 @@ func (r *Runner) migrate(ctx context.Context, snapshot resource.Snapshot) error 
 	if !current.present {
 		return SafetyError{"source backend holds no state to migrate"}
 	}
-	checkpoint, err := r.loadCheckpoint(ctx, stateNamespace, m.Key())
+	checkpoint, err := platform.LoadCheckpoint(ctx, snapshot)
 	if err != nil {
 		return err
 	}
@@ -162,7 +163,7 @@ func (r *Runner) migrate(ctx context.Context, snapshot resource.Snapshot) error 
 		return errors.Join(err, SafetyError{"source state changed during migration"})
 	}
 	// The resource stays frozen until the binding switches, so no Job uses the source with this checkpoint.
-	if err := r.saveCheckpoint(ctx, stateNamespace, m.Key(), copied); err != nil {
+	if err := platform.SaveCheckpoint(ctx, snapshot, copied.checkpoint()); err != nil {
 		return err
 	}
 	if r.Output != nil {
@@ -183,8 +184,8 @@ func (r *Runner) backup(ctx context.Context, namespace, uid string, data []byte)
 	return err
 }
 
-func moduleLockfile(module string) ([]byte, error) {
-	dir, err := filepath.EvalSymlinks(module)
+func moduleLockfile(checkout, modulePath string) ([]byte, error) {
+	dir, err := moduleDir(checkout, modulePath)
 	if err != nil {
 		return nil, err
 	}

@@ -1,0 +1,49 @@
+# Test-only resource type for the remote runner proof (#26): an S3 bucket in an emulated
+# cloud, provisioned by a remote agent. Its status keeps everything the hook records.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: buckets.platform.example.com
+  labels:
+    platform.example.com/expose: "true"
+spec:
+  group: platform.example.com
+  scope: Namespaced
+  names:
+    plural: buckets
+    singular: bucket
+    kind: Bucket
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - {name: Phase, type: string, jsonPath: .status.phase}
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: A test-only S3 bucket in an emulated cloud.
+          required: [spec]
+          properties:
+            apiVersion: {type: string}
+            kind: {type: string}
+            metadata: {type: object}
+            spec:
+              type: object
+              properties:
+                tags:
+                  type: object
+                  description: Bucket tags.
+                  maxProperties: 10
+                  additionalProperties: {type: string, maxLength: 64}
+                stateBackendRef:
+                  type: object
+                  description: StateBackend for the bucket's OpenTofu state; remote pools need S3.
+                  required: [name]
+                  properties:
+                    name: {type: string, minLength: 1}
+            status:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true

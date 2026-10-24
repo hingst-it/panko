@@ -46,6 +46,8 @@ func RunProcess(ctx context.Context, binary string, args []string, dir string, e
 		defer timer.Stop()
 		select {
 		case <-done:
+			// The leader is gone; descendants such as provider plugins that ignored the signal are not.
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		case <-timer.C:
 			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 			<-done

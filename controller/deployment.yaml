@@ -29,6 +29,10 @@ spec:
             - name: INSTALLATION_ID
               valueFrom:
                 configMapKeyRef: {name: panko-installation, key: id}
+            # Team namespace to remote runner pool, generated from panko.json; absent means in-cluster Jobs only.
+            - name: RUNNER_POOLS
+              valueFrom:
+                configMapKeyRef: {name: panko-runner-pools, key: pools.json, optional: true}
           ports: [{containerPort: 8080}]
           readinessProbe:
             httpGet: {path: /healthz, port: 8080}

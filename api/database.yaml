@@ -128,6 +128,18 @@ spec:
                 identity:
                   type: string
                   description: Stable identity for names, state keys and checkpoints; the original UID after a restore.
+                modulePath:
+                  type: string
+                  maxLength: 200
+                  description: Module directory inside the repository, bound before the first job; empty means the repository root.
+                runnerPool:
+                  type: string
+                  maxLength: 40
+                  description: Remote runner pool bound before the first execution; empty means in-cluster Jobs.
+                moduleRepository:
+                  type: string
+                  maxLength: 2048
+                  description: Module repository a remote runner pool fetches from, bound with the pool.
                 planRequest:
                   type: string
                   description: Last explicit drift check request token that was started.

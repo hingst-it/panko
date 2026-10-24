@@ -9,6 +9,12 @@ on:
 permissions:
   contents: read
 
+# A newer commit cancels a branch or pull request run that is still going; main runs always
+# finish, because the release gate needs a successful run for every commit it may release.
+concurrency:
+  group: checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   unit:
     runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || vars.PANKO_CI_RUNNER || 'ubuntu-latest' }}
@@ -27,6 +33,9 @@ jobs:
 
   e2e:
     needs: unit
+    # The 45-minute lab runs once per pull request commit and once per main commit (the release
+    # gate requires it), not on every branch push; workflow_dispatch starts it by hand.
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main'
     runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || vars.PANKO_CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 45
     steps:

@@ -17,9 +17,13 @@ import (
 
 const backupVersion = 1
 
-// Pause stops the hook and gateway and waits until no runner Job is active, so state is stable.
+// Pause stops the hook and gateway, tells the runner endpoint to hand out no more Runs, and waits
+// until no runner Job is active and no claimed Run is unfinished, so state is stable.
 func (m *Migrator) Pause(ctx context.Context) error {
 	if err := m.pause(ctx); err != nil {
+		return err
+	}
+	if err := m.pauseRuns(ctx); err != nil {
 		return err
 	}
 	for {
@@ -33,6 +37,15 @@ func (m *Migrator) Pause(ctx context.Context) error {
 				active = active || hook.Terminal(jsonx.Obj(item)) == ""
 			}
 		}
+		// Unclaimed Runs wait for the resume; claimed ones finish and commit first.
+		runs, err := m.items(ctx, "/apis/platform.example.com/v1/runs")
+		if err != nil {
+			return err
+		}
+		for _, item := range runs {
+			run := jsonx.Obj(item)
+			active = active || (hook.Terminal(run) == "" && jsonx.Obj(jsonx.Obj(run["status"])["lease"]) != nil)
+		}
 		if !active {
 			return nil
 		}
@@ -42,8 +55,26 @@ func (m *Migrator) Pause(ctx context.Context) error {
 	}
 }
 
-// Resume starts the hook and gateway again.
+// RunnerPause is the marker the runner endpoint checks before it hands out a Run.
+const RunnerPause = "/api/v1/namespaces/infra-runners/configmaps/panko-runner-pause"
+
+func (m *Migrator) pauseRuns(ctx context.Context) error {
+	marker := Object{"apiVersion": "v1", "kind": "ConfigMap", "metadata": Object{"name": "panko-runner-pause", "namespace": "infra-runners"}, "data": Object{"paused": "true"}}
+	_, err := m.API.Request(ctx, "POST", "/api/v1/namespaces/infra-runners/configmaps", marker, "")
+	var api *kube.Error
+	if err != nil && !(errors.As(err, &api) && api.Code == 409) {
+		return err
+	}
+	return nil
+}
+
+// Resume starts the hook and gateway again and lets the runner endpoint hand out Runs.
 func (m *Migrator) Resume(ctx context.Context) error {
+	_, err := m.API.Request(ctx, "DELETE", RunnerPause, nil, "")
+	var api *kube.Error
+	if err != nil && !(errors.As(err, &api) && api.Code == 404) {
+		return err
+	}
 	for _, target := range [][2]string{{"infra-runners", "database-hook"}, {"infra-gateway", "platform-gateway"}} {
 		path := "/apis/apps/v1/namespaces/" + target[0] + "/deployments/" + target[1] + "/scale"
 		if err := m.patch(ctx, path, Object{"spec": Object{"replicas": 1}}); err != nil {
@@ -251,7 +282,7 @@ func (m *Migrator) Import(ctx context.Context, dir string) error {
 // apply also recreates connection Secrets, which are not part of the backup.
 func restorableStatus(old Object) Object {
 	status := Object{"phase": "Pending", "message": "Restored; apply follows"}
-	for _, key := range []string{"identity", "stateBackend", "lastAppliedRevision", "connectionSecretRef"} {
+	for _, key := range []string{"identity", "stateBackend", "modulePath", "runnerPool", "moduleRepository", "lastAppliedRevision", "connectionSecretRef"} {
 		if value, ok := old[key]; ok {
 			status[key] = value
 		}

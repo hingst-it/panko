@@ -1,0 +1,37 @@
+# systemd unit for a Panko remote runner agent. Install the binary to /usr/local/bin/panko-agent
+# together with tofu and git, create the user, then:
+#   install -d -m 0700 -o panko-agent /etc/panko-agent/profiles
+#   install -m 0600 -o panko-agent agent.env token ca.crt /etc/panko-agent/
+#   systemctl enable --now panko-agent
+[Unit]
+Description=Panko remote runner agent
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=panko-agent
+Group=panko-agent
+EnvironmentFile=/etc/panko-agent/agent.env
+ExecStartPre=/usr/local/bin/panko-agent check
+ExecStart=/usr/local/bin/panko-agent run
+Restart=on-failure
+RestartSec=10s
+# OpenTofu receives SIGTERM through the agent and gets time to release its state lock.
+KillMode=mixed
+TimeoutStopSec=90s
+StateDirectory=panko-agent
+StateDirectoryMode=0700
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ReadOnlyPaths=/etc/panko-agent
+
+[Install]
+WantedBy=multi-user.target

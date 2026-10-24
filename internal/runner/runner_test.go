@@ -30,7 +30,7 @@ func setup(t *testing.T) (*Runner, resource.Snapshot, *bytes.Buffer) {
 		t.Fatal(err)
 	}
 	var logs bytes.Buffer
-	r := &Runner{Backend: statebackend.Fallback("team-a", "orders"), ModuleDir: module, WorkDir: filepath.Join(t.TempDir(), "module"), Log: &logs, Output: io.Discard, ErrorOutput: io.Discard, Credentials: func() (string, []byte, error) { return "private-token", []byte("test-ca"), nil }}
+	r := &Runner{Backend: statebackend.Fallback("team-a", "orders"), ModuleDir: module, WorkDir: filepath.Join(t.TempDir(), "module"), Log: &logs, Output: io.Discard, ErrorOutput: io.Discard, Platform: &ClusterPlatform{Credentials: func() (string, []byte, error) { return "private-token", []byte("test-ca"), nil }}}
 	s := resource.Snapshot{Metadata: resource.Identity{Name: "orders", Namespace: "team-a", UID: "abc", Generation: 1}, Spec: jsonx.Object{"owner": "team-a", "connectionLimit": 20, "extensions": []any{}}}
 	return r, s, &logs
 }
@@ -127,7 +127,7 @@ func TestApplyOwnsBackendAndKeepsSecretsOutOfLogs(t *testing.T) {
 	t.Setenv("AWS_PROFILE", "ambient")
 	t.Setenv("KUBERNETES_SERVICE_HOST", "10.43.0.1")
 	f, c := &tofu{written: stateJSON("L1", 1)}, &cluster{}
-	r.API, r.Process = fakeAPI(c.api), f.run
+	r.Platform.(*ClusterPlatform).API, r.Process = fakeAPI(c.api), f.run
 	if err := r.Run(context.Background(), "apply", s, "job-1"); err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestCheckpointBlocksLostOrReplacedState(t *testing.T) {
 			r, s, _ := setup(t)
 			c := &cluster{checkpoint: Object{"data": Object{"lineage": base64.StdEncoding.EncodeToString([]byte("L1")), "serial": base64.StdEncoding.EncodeToString([]byte("3"))}}}
 			f := &tofu{state: current}
-			r.API, r.Process = fakeAPI(c.api), f.run
+			r.Platform.(*ClusterPlatform).API, r.Process = fakeAPI(c.api), f.run
 			err := r.Run(context.Background(), "apply", s, "job-1")
 			var safety SafetyError
 			if !errors.As(err, &safety) {
@@ -183,7 +183,7 @@ func TestCheckpointBlocksLostOrReplacedState(t *testing.T) {
 	}
 	r, s, _ := setup(t)
 	f, c := &tofu{state: stateJSON("L1", 4)}, &cluster{}
-	r.API, r.Process = fakeAPI(c.api), f.run
+	r.Platform.(*ClusterPlatform).API, r.Process = fakeAPI(c.api), f.run
 	if err := r.Run(context.Background(), "apply", s, "job-1"); err != nil {
 		t.Fatal("existing state without checkpoint not adopted: ", err)
 	}
@@ -191,7 +191,7 @@ func TestCheckpointBlocksLostOrReplacedState(t *testing.T) {
 func TestInitializedBackendMustMatchBinding(t *testing.T) {
 	r, s, _ := setup(t)
 	f := &tofu{record: func(Object) Object { return Object{"type": "local", "config": Object{"path": "terraform.tfstate"}} }}
-	r.API, r.Process = fakeAPI((&cluster{}).api), f.run
+	r.Platform.(*ClusterPlatform).API, r.Process = fakeAPI((&cluster{}).api), f.run
 	var safety SafetyError
 	if err := r.Run(context.Background(), "apply", s, "job-1"); !errors.As(err, &safety) {
 		t.Fatalf("got %v", err)
@@ -204,7 +204,7 @@ func TestModuleOverrideFilesAreRefused(t *testing.T) {
 			t.Fatal(err)
 		}
 		f := &tofu{}
-		r.API, r.Process = fakeAPI((&cluster{}).api), f.run
+		r.Platform.(*ClusterPlatform).API, r.Process = fakeAPI((&cluster{}).api), f.run
 		if err := r.Run(context.Background(), "apply", s, "job-1"); err == nil || len(f.calls) != 0 {
 			t.Fatalf("%s accepted", name)
 		}
@@ -214,7 +214,7 @@ func TestForeignBindingIsRefused(t *testing.T) {
 	r, s, _ := setup(t)
 	r.Backend = statebackend.Fallback("team-b", "orders")
 	f := &tofu{}
-	r.API, r.Process = fakeAPI((&cluster{}).api), f.run
+	r.Platform.(*ClusterPlatform).API, r.Process = fakeAPI((&cluster{}).api), f.run
 	if err := r.Run(context.Background(), "apply", s, "job-1"); err == nil || len(f.calls) != 0 {
 		t.Fatal("binding of another resource accepted")
 	}
@@ -224,7 +224,7 @@ func TestDestroyFailureNeverDeletesState(t *testing.T) {
 		t.Run(failAt, func(t *testing.T) {
 			r, s, logs := setup(t)
 			f, c := &tofu{failAt: failAt, state: stateJSON("L1", 1)}, &cluster{}
-			r.API, r.Process = fakeAPI(c.api), f.run
+			r.Platform.(*ClusterPlatform).API, r.Process = fakeAPI(c.api), f.run
 			if err := r.Run(context.Background(), "destroy", s, "job-1"); err == nil {
 				t.Fatal("failure reported success")
 			}
@@ -250,7 +250,7 @@ func TestDestroyCleanupPerBackend(t *testing.T) {
 			if code != 0 {
 				c.fail = map[string]int{"DELETE ": code}
 			}
-			r.API, r.Process = fakeAPI(c.api), (&tofu{written: stateJSON("L1", 2)}).run
+			r.Platform.(*ClusterPlatform).API, r.Process = fakeAPI(c.api), (&tofu{written: stateJSON("L1", 2)}).run
 			err := r.Run(context.Background(), "destroy", s, "job-1")
 			if (err != nil) != (code == 403) {
 				t.Fatal(err)
@@ -269,7 +269,7 @@ func TestDestroyCleanupPerBackend(t *testing.T) {
 	r, s, _ := setup(t)
 	r.Backend = Object{"type": "s3", "credentialsSecret": "creds", "config": Object{"bucket": "b", "key": "i/abc/terraform.tfstate", "region": "r", "use_lockfile": true}}
 	f, c := &tofu{written: stateJSON("L1", 2)}, &cluster{}
-	r.API, r.Process = fakeAPI(c.api), f.run
+	r.Platform.(*ClusterPlatform).API, r.Process = fakeAPI(c.api), f.run
 	if err := r.Run(context.Background(), "destroy", s, "job-1"); err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +297,7 @@ func TestCopyModuleFollowsSyncLinkAndSkipsGit(t *testing.T) {
 		t.Fatal(err)
 	}
 	work := filepath.Join(t.TempDir(), "module")
-	if err := copyModule(filepath.Join(root, "current"), work); err != nil {
+	if err := copyModule(filepath.Join(root, "current"), "", work); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"main.tf", "modules/inner.tf"} {
@@ -307,6 +307,56 @@ func TestCopyModuleFollowsSyncLinkAndSkipsGit(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(work, ".git")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("git metadata copied into the work directory")
+	}
+}
+func TestCopyModuleFromPathInsideCheckoutOnly(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	write := func(name, content string) {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// An override in a sibling module does not concern the selected one.
+	for name, content := range map[string]string{"main.tf": "root", "test/modules/aws-s3/main.tf": "bucket", "test/modules/aws-s3/.terraform.lock.hcl": "lock", "test/modules/other/override.tf": ""} {
+		write(name, content)
+	}
+	work := filepath.Join(t.TempDir(), "module")
+	if err := copyModule(root, "test/modules/aws-s3", work); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(filepath.Join(work, "main.tf")); err != nil || string(data) != "bucket" {
+		t.Fatal("module directory not copied as the module root", string(data), err)
+	}
+	if lock, err := moduleLockfile(root, "test/modules/aws-s3"); err != nil || string(lock) != "lock" {
+		t.Fatal("migration does not read the selected module's lockfile", string(lock), err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "escape")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "test/modules/aws-s3/escape")); err != nil {
+		t.Fatal(err)
+	}
+	if copyModule(root, "test/modules/aws-s3", filepath.Join(t.TempDir(), "module")) == nil {
+		t.Error("symlink inside the module directory followed")
+	}
+	if err := os.Remove(filepath.Join(root, "test/modules/aws-s3/escape")); err != nil {
+		t.Fatal(err)
+	}
+	write("test/modules/aws-s3/override.tf", "")
+	if copyModule(root, "test/modules/aws-s3", filepath.Join(t.TempDir(), "module")) == nil {
+		t.Error("override file in the selected module accepted")
+	}
+	for _, path := range []string{"escape", "../x", "missing", "main.tf"} {
+		if copyModule(root, path, filepath.Join(t.TempDir(), "module")) == nil {
+			t.Errorf("module path %q accepted", path)
+		}
+		if _, err := moduleLockfile(root, path); err == nil {
+			t.Errorf("migration accepted module path %q", path)
+		}
 	}
 }
 func TestRecordedBackendMayListUnsetAttributes(t *testing.T) {
@@ -353,7 +403,7 @@ func TestResultReportsChangesOnSuccess(t *testing.T) {
 	r.ResultFile = filepath.Join(t.TempDir(), "termination-log")
 	f := &tofu{written: stateJSON("L1", 1)}
 	run := f.run
-	r.API, r.Process = fakeAPI((&cluster{}).api), func(ctx context.Context, binary string, args []string, dir string, env []string, out, errOut io.Writer) error {
+	r.Platform.(*ClusterPlatform).API, r.Process = fakeAPI((&cluster{}).api), func(ctx context.Context, binary string, args []string, dir string, env []string, out, errOut io.Writer) error {
 		if args[0] == "apply" {
 			if !strings.Contains(strings.Join(args, " "), "-json") {
 				t.Fatal("apply without machine-readable output")
@@ -392,7 +442,7 @@ func TestResultCodePerStage(t *testing.T) {
 			r.ResultFile = filepath.Join(t.TempDir(), "termination-log")
 			f, c := &tofu{}, &cluster{}
 			breakIt(r, f, c)
-			r.API, r.Process = fakeAPI(c.api), f.run
+			r.Platform.(*ClusterPlatform).API, r.Process = fakeAPI(c.api), f.run
 			if err := r.Run(context.Background(), "apply", s, "job-1"); err == nil {
 				t.Fatal("failure reported success")
 			}
@@ -435,7 +485,7 @@ func TestRestoredIdentityAddressesCheckpointAndState(t *testing.T) {
 	s.Metadata.Identity = "original-uid"
 	r.Backend = Object{"type": "s3", "credentialsSecret": "creds", "config": Object{"bucket": "b", "key": "i/original-uid/terraform.tfstate", "region": "r", "use_lockfile": true}}
 	f, c := &tofu{written: stateJSON("L1", 2)}, &cluster{}
-	r.API, r.Process = fakeAPI(c.api), f.run
+	r.Platform.(*ClusterPlatform).API, r.Process = fakeAPI(c.api), f.run
 	if err := r.Run(context.Background(), "apply", s, "job-1"); err != nil {
 		t.Fatal("binding of the original identity refused: ", err)
 	}
@@ -457,7 +507,7 @@ func TestPlanReportsChangesWithoutWritingState(t *testing.T) {
 	r.ResultFile = filepath.Join(t.TempDir(), "termination-log")
 	f, c := &tofu{state: stateJSON("L1", 3)}, &cluster{checkpoint: Object{"data": Object{"lineage": base64.StdEncoding.EncodeToString([]byte("L1")), "serial": base64.StdEncoding.EncodeToString([]byte("3"))}}}
 	run := f.run
-	r.API, r.Process = fakeAPI(c.api), func(ctx context.Context, binary string, args []string, dir string, env []string, out, errOut io.Writer) error {
+	r.Platform.(*ClusterPlatform).API, r.Process = fakeAPI(c.api), func(ctx context.Context, binary string, args []string, dir string, env []string, out, errOut io.Writer) error {
 		if args[0] == "apply" || args[0] == "destroy" {
 			t.Fatal("plan mutated infrastructure")
 		}

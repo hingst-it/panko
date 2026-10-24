@@ -1,0 +1,330 @@
+{
+  "apiVersion": "v1",
+  "items": [
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "ClusterRole",
+      "metadata": {
+        "name": "runner-endpoint"
+      },
+      "rules": [
+        {
+          "apiGroups": [
+            "platform.example.com"
+          ],
+          "resources": [
+            "runs"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "platform.example.com"
+          ],
+          "resources": [
+            "runs/status"
+          ],
+          "verbs": [
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "platform.example.com"
+          ],
+          "resources": [
+            "databases"
+          ],
+          "verbs": [
+            "get"
+          ]
+        }
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "ClusterRoleBinding",
+      "metadata": {
+        "name": "runner-endpoint"
+      },
+      "roleRef": {
+        "apiGroup": "rbac.authorization.k8s.io",
+        "kind": "ClusterRole",
+        "name": "runner-endpoint"
+      },
+      "subjects": [
+        {
+          "kind": "ServiceAccount",
+          "name": "runner-endpoint",
+          "namespace": "infra-runners"
+        }
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "Role",
+      "metadata": {
+        "name": "runner-endpoint",
+        "namespace": "team-a"
+      },
+      "rules": [
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "secrets"
+          ],
+          "verbs": [
+            "get",
+            "create",
+            "update",
+            "delete"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "configmaps"
+          ],
+          "verbs": [
+            "get",
+            "create",
+            "update"
+          ]
+        }
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "RoleBinding",
+      "metadata": {
+        "name": "runner-endpoint",
+        "namespace": "team-a"
+      },
+      "roleRef": {
+        "apiGroup": "rbac.authorization.k8s.io",
+        "kind": "Role",
+        "name": "runner-endpoint"
+      },
+      "subjects": [
+        {
+          "kind": "ServiceAccount",
+          "name": "runner-endpoint",
+          "namespace": "infra-runners"
+        }
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "Role",
+      "metadata": {
+        "name": "runner-endpoint",
+        "namespace": "panko-state-team-a"
+      },
+      "rules": [
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "secrets"
+          ],
+          "verbs": [
+            "get",
+            "create",
+            "update",
+            "delete"
+          ]
+        }
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "RoleBinding",
+      "metadata": {
+        "name": "runner-endpoint",
+        "namespace": "panko-state-team-a"
+      },
+      "roleRef": {
+        "apiGroup": "rbac.authorization.k8s.io",
+        "kind": "Role",
+        "name": "runner-endpoint"
+      },
+      "subjects": [
+        {
+          "kind": "ServiceAccount",
+          "name": "runner-endpoint",
+          "namespace": "infra-runners"
+        }
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "Role",
+      "metadata": {
+        "name": "runner-endpoint",
+        "namespace": "team-b"
+      },
+      "rules": [
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "secrets"
+          ],
+          "verbs": [
+            "get",
+            "create",
+            "update",
+            "delete"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "configmaps"
+          ],
+          "verbs": [
+            "get",
+            "create",
+            "update"
+          ]
+        }
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "RoleBinding",
+      "metadata": {
+        "name": "runner-endpoint",
+        "namespace": "team-b"
+      },
+      "roleRef": {
+        "apiGroup": "rbac.authorization.k8s.io",
+        "kind": "Role",
+        "name": "runner-endpoint"
+      },
+      "subjects": [
+        {
+          "kind": "ServiceAccount",
+          "name": "runner-endpoint",
+          "namespace": "infra-runners"
+        }
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "Role",
+      "metadata": {
+        "name": "runner-endpoint",
+        "namespace": "panko-state-team-b"
+      },
+      "rules": [
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "secrets"
+          ],
+          "verbs": [
+            "get",
+            "create",
+            "update",
+            "delete"
+          ]
+        }
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "RoleBinding",
+      "metadata": {
+        "name": "runner-endpoint",
+        "namespace": "panko-state-team-b"
+      },
+      "roleRef": {
+        "apiGroup": "rbac.authorization.k8s.io",
+        "kind": "Role",
+        "name": "runner-endpoint"
+      },
+      "subjects": [
+        {
+          "kind": "ServiceAccount",
+          "name": "runner-endpoint",
+          "namespace": "infra-runners"
+        }
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "Role",
+      "metadata": {
+        "name": "runner-endpoint",
+        "namespace": "infra-runners"
+      },
+      "rules": [
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resourceNames": [
+            "panko-runner-agents"
+          ],
+          "resources": [
+            "secrets"
+          ],
+          "verbs": [
+            "get"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resourceNames": [
+            "panko-installation",
+            "panko-runner-pause"
+          ],
+          "resources": [
+            "configmaps"
+          ],
+          "verbs": [
+            "get"
+          ]
+        }
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "RoleBinding",
+      "metadata": {
+        "name": "runner-endpoint",
+        "namespace": "infra-runners"
+      },
+      "roleRef": {
+        "apiGroup": "rbac.authorization.k8s.io",
+        "kind": "Role",
+        "name": "runner-endpoint"
+      },
+      "subjects": [
+        {
+          "kind": "ServiceAccount",
+          "name": "runner-endpoint",
+          "namespace": "infra-runners"
+        }
+      ]
+    }
+  ],
+  "kind": "List"
+}

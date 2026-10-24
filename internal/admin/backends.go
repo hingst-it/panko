@@ -117,6 +117,10 @@ func (m *Migrator) MigrateBackend(ctx context.Context, b BackendMigration) error
 	if source == nil {
 		return fmt.Errorf("database has no bound state backend yet")
 	}
+	// Migration runs as an in-cluster Job; remote resources' backends are not reachable from here.
+	if pool := jsonx.Str(jsonx.Obj(db["status"])["runnerPool"]); pool != "" {
+		return fmt.Errorf("database is bound to runner pool %s; migrating its state backend is not supported yet", pool)
+	}
 	recordPath := secretsPath("panko-state-"+b.Namespace) + "/panko-migration-" + uid
 	record, err := m.loadRecord(ctx, recordPath)
 	if err != nil {
@@ -441,11 +445,50 @@ func (m *Migrator) UpgradeModule(ctx context.Context, namespace, name string, al
 	} else {
 		targets = append(targets, [2]string{namespace, name})
 	}
+	var pools *hook.Pools
 	for _, target := range targets {
-		if err := m.patch(ctx, databasePath(target[0], target[1]), Object{"metadata": Object{"annotations": Object{hook.Prefix + "upgrade-module": revision}}}); err != nil {
+		// A resource bound to a pool with its own module moves to that pool's revision.
+		targetRevision := revision
+		db, err := m.get(ctx, databasePath(target[0], target[1]))
+		if err != nil {
 			return err
 		}
-		m.logf("%s/%s: upgrade to module %s requested", target[0], target[1], revision)
+		if db == nil {
+			return fmt.Errorf("database %s/%s not found", target[0], target[1])
+		}
+		if bound := jsonx.Str(jsonx.Obj(db["status"])["runnerPool"]); bound != "" {
+			if pools == nil {
+				if pools, err = m.runnerPools(ctx); err != nil {
+					return err
+				}
+			}
+			pool, ok := pools.Pools[bound]
+			if !ok {
+				return fmt.Errorf("database %s/%s is bound to runner pool %s, which is not configured", target[0], target[1], bound)
+			}
+			if pool.Module != nil {
+				targetRevision = pool.Module.Revision
+			}
+		}
+		if err := m.patch(ctx, databasePath(target[0], target[1]), Object{"metadata": Object{"annotations": Object{hook.Prefix + "upgrade-module": targetRevision}}}); err != nil {
+			return err
+		}
+		m.logf("%s/%s: upgrade to module %s requested", target[0], target[1], targetRevision)
 	}
 	return nil
+}
+
+// runnerPools reads the pools the deployed hook uses.
+func (m *Migrator) runnerPools(ctx context.Context) (*hook.Pools, error) {
+	cm, err := m.get(ctx, "/api/v1/namespaces/infra-runners/configmaps/panko-runner-pools")
+	if err != nil {
+		return nil, err
+	}
+	pools := &hook.Pools{}
+	if cm != nil {
+		if err := jsonx.Decode(bytes.NewReader([]byte(jsonx.Str(jsonx.Obj(cm["data"])["pools.json"]))), pools); err != nil {
+			return nil, fmt.Errorf("invalid runner pool configuration")
+		}
+	}
+	return pools, nil
 }
