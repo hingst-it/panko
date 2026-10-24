@@ -35,7 +35,8 @@ var revision = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
 var digest = regexp.MustCompile(`^[0-9a-f]{64}$`)
 var idempotency = regexp.MustCompile(`^[A-Za-z0-9_-]{16,128}$`)
 
-// secretKey is the key syntax of a Kubernetes Secret, so a validated commit can always be stored.
+// secretKey is the key syntax of a Kubernetes Secret, so a validated commit can always be stored;
+// Kubernetes also rejects "." and keys starting with "..".
 var secretKey = regexp.MustCompile(`^[-._a-zA-Z0-9]{1,64}$`)
 
 func name(s string) bool {
@@ -220,7 +221,7 @@ func ValidateCommit(c Commit, expected Binding) error {
 		return invalid("credentials")
 	}
 	for key, value := range c.Credentials {
-		if !secretKey.MatchString(key) || len(value) > MaxCredentialValueBytes || !utf8.ValidString(value) {
+		if !secretKey.MatchString(key) || key == "." || strings.HasPrefix(key, "..") || len(value) > MaxCredentialValueBytes || !utf8.ValidString(value) {
 			return invalid("credentials")
 		}
 	}

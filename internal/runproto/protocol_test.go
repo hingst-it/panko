@@ -284,6 +284,8 @@ func TestCommitFields(t *testing.T) {
 		"credential key long":   func(c *Commit) { c.Credentials = map[string]string{strings.Repeat("a", 65): "value"} },
 		"credential key space":  func(c *Commit) { c.Credentials = map[string]string{"db password": "value"} },
 		"credential key slash":  func(c *Commit) { c.Credentials = map[string]string{"a/b": "value"} },
+		"credential key dot":    func(c *Commit) { c.Credentials = map[string]string{".": "value"} },
+		"credential key dots":   func(c *Commit) { c.Credentials = map[string]string{"..password": "value"} },
 		"credential value long": func(c *Commit) { c.Credentials = map[string]string{"key": strings.Repeat("a", 4097)} },
 		"credentials many": func(c *Commit) {
 			c.Credentials = map[string]string{}
