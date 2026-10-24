@@ -2,19 +2,14 @@ package runner
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/hingst-it/panko/internal/jsonx"
-	"github.com/hingst-it/panko/internal/kube"
 )
 
 const backendOverride = "panko_backend_override.tf.json"
@@ -67,56 +62,31 @@ func parseState(data []byte) (state, error) {
 	return state{present: true, lineage: raw.Lineage, serial: raw.Serial, content: hex.EncodeToString(digest[:])}, nil
 }
 
-type checkpoint struct {
-	found bool
-	state
+// Checkpoint identifies the last recorded state without exposing its contents.
+type Checkpoint struct {
+	Lineage string
+	Serial  int64
+	Digest  string
+}
+
+func (s state) checkpoint() Checkpoint {
+	return Checkpoint{Lineage: s.lineage, Serial: s.serial, Digest: s.content}
 }
 
 // allows applies the checkpoint rules: established state must still exist, keep its lineage and never move backwards.
-func (c checkpoint) allows(current state) error {
-	if !c.found {
+func (c *Checkpoint) allows(current state) error {
+	if c == nil {
 		return nil
 	}
 	switch {
 	case !current.present:
 		return SafetyError{"established state is missing from the backend"}
-	case current.lineage != c.lineage:
+	case current.lineage != c.Lineage:
 		return SafetyError{"state lineage changed"}
-	case current.serial < c.serial:
+	case current.serial < c.Serial:
 		return SafetyError{"state serial moved backwards"}
 	}
 	return nil
-}
-func checkpointPath(namespace, uid string) string {
-	return "/api/v1/namespaces/" + namespace + "/secrets/panko-checkpoint-" + uid
-}
-func (r *Runner) loadCheckpoint(ctx context.Context, namespace, uid string) (checkpoint, error) {
-	secret, err := r.API.Request(ctx, "GET", checkpointPath(namespace, uid), nil, "")
-	var api *kube.Error
-	if errors.As(err, &api) && api.Code == 404 {
-		return checkpoint{}, nil
-	}
-	if err != nil {
-		return checkpoint{}, err
-	}
-	data := jsonx.Obj(secret["data"])
-	lineage, err1 := base64.StdEncoding.DecodeString(jsonx.Str(data["lineage"]))
-	serial, err2 := base64.StdEncoding.DecodeString(jsonx.Str(data["serial"]))
-	number, err3 := strconv.ParseInt(string(serial), 10, 64)
-	if err := errors.Join(err1, err2, err3); err != nil || len(lineage) == 0 {
-		return checkpoint{}, fmt.Errorf("invalid state checkpoint")
-	}
-	return checkpoint{found: true, state: state{present: true, lineage: string(lineage), serial: number}}, nil
-}
-func (r *Runner) saveCheckpoint(ctx context.Context, namespace, uid string, s state) error {
-	body := Object{"apiVersion": "v1", "kind": "Secret", "type": "Opaque", "metadata": Object{"name": "panko-checkpoint-" + uid, "namespace": namespace},
-		"stringData": Object{"lineage": s.lineage, "serial": strconv.FormatInt(s.serial, 10)}}
-	_, err := r.API.Request(ctx, "PUT", checkpointPath(namespace, uid), body, "")
-	var api *kube.Error
-	if errors.As(err, &api) && api.Code == 404 {
-		_, err = r.API.Request(ctx, "POST", "/api/v1/namespaces/"+namespace+"/secrets", body, "")
-	}
-	return err
 }
 
 // verifyBackend compares the backend OpenTofu actually initialized with the binding, whatever the module declares.

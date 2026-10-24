@@ -4,7 +4,6 @@ package runner
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -23,14 +22,15 @@ import (
 type ProcessFunc func(context.Context, string, []string, string, []string, io.Writer, io.Writer) error
 type Object = jsonx.Object
 type Runner struct {
-	API     kube.API
-	Backend Object
+	// API is used only by administrator state migrations.
+	API      kube.API
+	Platform Platform
+	Backend  Object
 	// Target and Migration are set only for administrator state migrations.
 	Target    Object
 	Migration string
 	// ResultFile receives the reported Result, normally the container's termination message path.
 	ResultFile               string
-	Credentials              func() (string, []byte, error)
 	ModuleDir, WorkDir, Tofu string
 	// ModulePath selects the module's directory inside the checkout; empty means its root.
 	ModulePath               string
@@ -85,26 +85,18 @@ func (r *Runner) emit(event Event) {
 }
 func (r *Runner) execute(ctx context.Context, action string, snapshot resource.Snapshot) (*Changes, error) {
 	m := snapshot.Metadata
-	stateNamespace := "panko-state-" + m.Namespace
 	if err := statebackend.Validate(r.Backend, m.Namespace, m.Name, m.Key()); err != nil {
 		return nil, stage("binding", err)
 	}
-	admin, err := r.API.Request(ctx, "GET", "/api/v1/namespaces/infra-backends/secrets/postgres-admin", nil, "")
+	values, err := r.Platform.Environment(ctx, snapshot, r.Backend)
 	if err != nil {
 		return nil, stage("credentials", err)
 	}
-	password, err := base64.StdEncoding.DecodeString(jsonx.Str(jsonx.Obj(admin["data"])["password"]))
-	if err != nil {
-		return nil, stage("credentials", fmt.Errorf("invalid administrator credential encoding"))
+	if values == nil {
+		values = map[string]string{}
 	}
-	token, ca, err := r.Credentials()
-	if err != nil {
-		return nil, stage("credentials", fmt.Errorf("cannot load Kubernetes credentials"))
-	}
-	values := map[string]string{"PGPASSWORD": string(password), "KUBE_HOST": "https://kubernetes.default.svc", "KUBE_TOKEN": token, "KUBE_CLUSTER_CA_CERT_DATA": string(ca), "TF_VAR_namespace": m.Namespace, "TF_VAR_name": m.Name, "TF_IN_AUTOMATION": "1", "TF_INPUT": "0"}
-	if err := r.backendCredentials(ctx, m.Namespace, r.Backend, values); err != nil {
-		return nil, stage("credentials", err)
-	}
+	values["TF_VAR_namespace"], values["TF_VAR_name"] = m.Namespace, m.Name
+	values["TF_IN_AUTOMATION"], values["TF_INPUT"] = "1", "0"
 	if err := copyModule(r.ModuleDir, r.ModulePath, r.WorkDir); err != nil {
 		return nil, stage("module", err)
 	}
@@ -147,7 +139,7 @@ func (r *Runner) execute(ctx context.Context, action string, snapshot resource.S
 	if err != nil {
 		return nil, stage("checkpoint", err)
 	}
-	checkpoint, err := r.loadCheckpoint(ctx, stateNamespace, m.Key())
+	checkpoint, err := r.Platform.LoadCheckpoint(ctx, snapshot)
 	if err != nil {
 		return nil, stage("checkpoint", err)
 	}
@@ -165,67 +157,33 @@ func (r *Runner) execute(ctx context.Context, action string, snapshot resource.S
 	// Record what the backend holds now, also after a failed command that may have written partial state.
 	after, pullErr := pull()
 	if pullErr == nil && after.present {
-		pullErr = r.saveCheckpoint(ctx, stateNamespace, m.Key(), after)
+		pullErr = r.Platform.SaveCheckpoint(ctx, snapshot, after.checkpoint())
 	}
 	if err := errors.Join(actionErr, stage("state_record", pullErr)); err != nil {
 		return counter.changes, err
 	}
 	if action == "apply" {
+		if r.Platform.WantsOutputs() {
+			if err := r.publishOutputs(ctx, snapshot, process, binary, env); err != nil {
+				return counter.changes, stage("outputs", err)
+			}
+		}
 		if err := r.saveGraph(ctx, snapshot, process, binary, env); err != nil {
 			r.emit(Event{Level: "warning", Event: "graph_unavailable", UID: m.UID, Namespace: m.Namespace, Name: m.Name, Generation: m.Generation, Action: action, ErrorType: fmt.Sprintf("%T", err)})
 		}
 		return counter.changes, nil
 	}
-	if r.Backend["type"] == "kubernetes" {
-		stateName := "tfstate-default-" + m.Namespace + "-" + m.Name
-		for _, path := range []string{"/api/v1/namespaces/" + stateNamespace + "/secrets/" + stateName, "/apis/coordination.k8s.io/v1/namespaces/" + stateNamespace + "/leases/lock-" + stateName} {
-			if err := r.deleteIgnoringMissing(ctx, path); err != nil {
-				return counter.changes, stage("cleanup", err)
-			}
-		}
+	if err := r.Platform.RemoveBackendState(ctx, snapshot, r.Backend); err != nil {
+		return counter.changes, stage("cleanup", err)
 	}
 	// External backends keep the empty state for audit and recovery; the checkpoint goes last.
-	if err := r.deleteIgnoringMissing(ctx, checkpointPath(stateNamespace, m.Key())); err != nil {
+	if err := r.Platform.RemoveCheckpoint(ctx, snapshot); err != nil {
 		return counter.changes, stage("cleanup", err)
 	}
 	if r.Output != nil {
 		_, _ = fmt.Fprintln(r.Output, "Destroy complete; state and lock removed.")
 	}
 	return counter.changes, nil
-}
-func (r *Runner) deleteIgnoringMissing(ctx context.Context, path string) error {
-	_, err := r.API.Request(ctx, "DELETE", path, nil, "")
-	var api *kube.Error
-	if err != nil && !(errors.As(err, &api) && api.Code == 404) {
-		return err
-	}
-	return nil
-}
-
-// backendCredentials adds only the fixed variables a backend type reads; nothing ambient reaches OpenTofu.
-func (r *Runner) backendCredentials(ctx context.Context, namespace string, binding Object, values map[string]string) error {
-	if binding["type"] != "s3" {
-		return nil
-	}
-	secret, err := r.API.Request(ctx, "GET", "/api/v1/namespaces/"+namespace+"/secrets/"+jsonx.Str(binding["credentialsSecret"]), nil, "")
-	if err != nil {
-		return fmt.Errorf("cannot load state backend credentials")
-	}
-	data := jsonx.Obj(secret["data"])
-	for key, variable := range map[string]string{"access_key_id": "AWS_ACCESS_KEY_ID", "secret_access_key": "AWS_SECRET_ACCESS_KEY", "session_token": "AWS_SESSION_TOKEN"} {
-		value, err := base64.StdEncoding.DecodeString(jsonx.Str(data[key]))
-		if err != nil {
-			return fmt.Errorf("invalid state backend credential encoding")
-		}
-		if len(value) > 0 {
-			values[variable] = string(value)
-		}
-	}
-	if values["AWS_ACCESS_KEY_ID"] == "" || values["AWS_SECRET_ACCESS_KEY"] == "" {
-		return fmt.Errorf("state backend credentials require access_key_id and secret_access_key")
-	}
-	values["AWS_EC2_METADATA_DISABLED"] = "true"
-	return nil
 }
 
 // environment keeps only process basics and the pod's in-cluster API address; credentials and OpenTofu settings are explicit.

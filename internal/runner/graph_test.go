@@ -22,7 +22,7 @@ func TestGraphFailureDoesNotFailApplyAndFailedApplyDoesNotGraph(t *testing.T) {
 				f.failAt = "apply"
 			}
 			graphs, writes := 0, 0
-			r.API = fakeAPI(func(ctx context.Context, m, p string, b any, ct string) (Object, error) {
+			r.Platform.(*ClusterPlatform).API = fakeAPI(func(ctx context.Context, m, p string, b any, ct string) (Object, error) {
 				if strings.Contains(p, "/configmaps") {
 					writes++
 					return nil, &kube.Error{Code: 403}
@@ -75,7 +75,7 @@ func TestGraphConfigMapCreateUpdate(t *testing.T) {
 		r.ModuleRevision = strings.Repeat("1", 40)
 		c := &cluster{}
 		written := false
-		r.API = fakeAPI(func(ctx context.Context, m, p string, b any, ct string) (Object, error) {
+		r.Platform.(*ClusterPlatform).API = fakeAPI(func(ctx context.Context, m, p string, b any, ct string) (Object, error) {
 			if !strings.Contains(p, "/configmaps") {
 				return c.api(ctx, m, p, b, ct)
 			}

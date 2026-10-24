@@ -24,6 +24,7 @@ var failures = map[string]string{
 	"backend_mismatch": "",
 	"checkpoint":       "",
 	"provider":         "",
+	"outputs":          "",
 	"state_record":     "",
 	"cleanup":          "",
 	"interrupted":      "",
