@@ -684,7 +684,7 @@ func Reconcile(r Request) (Response, error) {
 	}
 	backend, pending := bind(r, children, "Pending", meta.Generation, nil)
 	if pending != nil {
-		return *pending, nil
+		return keepPlan(*pending), nil
 	}
 	revision := revisionFor(p, config)
 	retry := annotation(p, "retry-apply")
