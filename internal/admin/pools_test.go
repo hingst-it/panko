@@ -54,18 +54,27 @@ func TestRunnerPoolsValidated(t *testing.T) {
 }
 func TestCheckPoolsRefusesRemovingABoundPool(t *testing.T) {
 	m := Migrator{API: fakeAPI(func(ctx context.Context, method, path string, b any, ct string) (Object, error) {
-		if path != "/apis/platform.example.com/v1/databases" {
-			t.Fatal("check-pools did not list databases across namespaces", path)
+		switch {
+		case strings.HasPrefix(path, "/apis/apiextensions.k8s.io/v1/customresourcedefinitions?labelSelector="):
+			crd := func(plural string) Object {
+				return Object{"spec": Object{"group": "platform.example.com", "names": Object{"plural": plural}, "versions": []any{Object{"name": "v1", "storage": true}}}}
+			}
+			return Object{"items": []any{crd("databases"), crd("buckets")}}, nil
+		case path == "/apis/platform.example.com/v1/buckets":
+			return Object{"items": []any{Object{"metadata": Object{"name": "photos", "namespace": "gone"}, "status": Object{"runnerPool": "edge"}}}}, nil
+		case path == "/apis/platform.example.com/v1/databases":
+			return Object{"items": []any{}}, nil
 		}
-		return Object{"items": []any{Object{"metadata": Object{"name": "photos", "namespace": "gone"}, "status": Object{"runnerPool": "edge"}}}}, nil
+		t.Fatal("unexpected request", path)
+		return nil, nil
 	})}
 	keep := Config{Teams: []string{"home"}, RunnerPools: []RunnerPool{{Name: "edge"}}}
 	if err := m.CheckPools(context.Background(), keep); err != nil {
 		t.Fatal(err)
 	}
 	drop := Config{Teams: []string{"home"}}
-	if err := m.CheckPools(context.Background(), drop); err == nil || !strings.Contains(err.Error(), "gone/photos is bound to runner pool edge") {
-		t.Fatal("removing a pool bound in a removed team accepted", err)
+	if err := m.CheckPools(context.Background(), drop); err == nil || !strings.Contains(err.Error(), "buckets gone/photos is bound to runner pool edge") {
+		t.Fatal("removing a pool bound by another resource type in a removed team accepted", err)
 	}
 }
 func TestMigrateBackendRefusesRemoteResources(t *testing.T) {

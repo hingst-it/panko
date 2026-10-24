@@ -71,6 +71,9 @@ func IDFromToken(token string) (string, error) {
 func (a *Agent) Serve(ctx context.Context) error {
 	backoff := time.Second
 	for ctx.Err() == nil {
+		// The endpoint starts the lease while it answers; anchoring the local lease before the
+		// request keeps it from ending later than the endpoint's.
+		sent := a.now()
 		claim, found, err := a.Endpoint.Claim(ctx, runproto.ClaimRequest{Version: runproto.Version, AgentID: a.AgentID, Pool: a.Pool, MaxRuns: 1})
 		if errors.Is(err, ErrRejected) {
 			return err
@@ -87,16 +90,25 @@ func (a *Agent) Serve(ctx context.Context) error {
 		if !found {
 			continue
 		}
-		a.Execute(ctx, claim)
+		a.ExecuteFrom(ctx, claim, sent)
 	}
 	return nil
 }
 
 var errLeaseLost = errors.New("lease lost")
 
-// Execute runs one claimed Run and commits its outcome, unless the lease was lost: then the
-// endpoint has already given up on this attempt and the commit would be refused.
+// stopGrace is how long the runner's process handling waits after SIGTERM before SIGKILL.
+const stopGrace = 10 * time.Second
+
+// Execute runs one claimed Run whose claim was requested just now; see ExecuteFrom.
 func (a *Agent) Execute(ctx context.Context, claim runproto.Claim) {
+	a.ExecuteFrom(ctx, claim, a.now())
+}
+
+// ExecuteFrom runs one claimed Run and commits its outcome, unless the lease was lost: then the
+// endpoint has already given up on this attempt and the commit would be refused. claimed is when the
+// claim was requested; the local lease counts from then.
+func (a *Agent) ExecuteFrom(ctx context.Context, claim runproto.Claim, claimed time.Time) {
 	a.event("execution_claimed", &claim.Binding, nil)
 	deadline, err := time.Parse(time.RFC3339, claim.Deadline)
 	if err != nil {
@@ -114,7 +126,7 @@ func (a *Agent) Execute(ctx context.Context, claim runproto.Claim) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		a.heartbeat(beat, claim, cancel)
+		a.heartbeat(beat, claim, cancel, claimed)
 	}()
 	commit := a.run(runCtx, claim)
 	if errors.Is(context.Cause(runCtx), errLeaseLost) {
@@ -130,13 +142,17 @@ func (a *Agent) Execute(ctx context.Context, claim runproto.Claim) {
 
 // heartbeat keeps the lease; a cancel answer, a refusal or a lease that ran out locally stops the
 // whole OpenTofu process group through the context.
-func (a *Agent) heartbeat(ctx context.Context, claim runproto.Claim, cancel context.CancelCauseFunc) {
+func (a *Agent) heartbeat(ctx context.Context, claim runproto.Claim, cancel context.CancelCauseFunc, claimed time.Time) {
 	interval := time.Duration(claim.HeartbeatIntervalSeconds) * time.Second
-	// The local lease ends one interval before the endpoint's and is renewed from when a heartbeat
-	// was sent, never later than the endpoint renewed it; it expires on its own, also while a
-	// heartbeat request hangs.
-	lease := time.Duration(claim.LeaseDurationSeconds)*time.Second - interval
-	expires := a.now().Add(lease)
+	// The local lease counts from when the claim or heartbeat was sent, never later than the endpoint
+	// started or renewed it, and ends early enough for one more interval and the ten seconds OpenTofu
+	// gets to stop; it expires on its own, also while a heartbeat request hangs.
+	full := time.Duration(claim.LeaseDurationSeconds) * time.Second
+	lease := full - interval - stopGrace
+	if lease <= 0 {
+		lease = full / 2
+	}
+	expires := claimed.Add(lease)
 	for {
 		if a.pause(ctx, min(interval, expires.Sub(a.now()))) != nil {
 			return
@@ -207,7 +223,7 @@ func (a *Agent) run(ctx context.Context, claim runproto.Claim) runproto.Commit {
 		profile["TF_PLUGIN_CACHE_DIR"] = a.PluginCache
 	}
 	checkout := filepath.Join(work, "checkout")
-	if err := a.fetch(ctx, claim.ModuleRepository, claim.ModuleRevision, checkout); err != nil {
+	if err := a.fetch(ctx, claim.ModuleRepository, claim.ModuleRevision, checkout, home); err != nil {
 		return fail("module", err)
 	}
 	platform := &Platform{Profile: profile, Expected: fromProto(claim.ExpectedCheckpoint)}
@@ -264,21 +280,27 @@ func (a *Agent) commit(ctx context.Context, claim runproto.Claim, commit runprot
 	}
 }
 
-func (a *Agent) fetch(ctx context.Context, repository, revision, dir string) error {
+func (a *Agent) fetch(ctx context.Context, repository, revision, dir, home string) error {
 	if a.Fetch != nil {
 		return a.Fetch(ctx, repository, revision, dir)
 	}
-	return GitFetch(ctx, a.Git, repository, revision, dir)
+	return GitFetch(ctx, a.Git, repository, revision, dir, home)
 }
 
 // GitFetch clones the repository and checks out exactly the pinned commit. Git and its SSH or
-// credential helpers run as one process group, which cancellation stops as a whole.
-func GitFetch(ctx context.Context, git, repository, revision, dir string) error {
+// credential helpers run as one process group, which cancellation stops as a whole. Git sees the
+// execution's empty home and no system or global configuration; only GIT_SSH_COMMAND and the
+// certificate settings pass through, for a private repository's key and host keys.
+func GitFetch(ctx context.Context, git, repository, revision, dir, home string) error {
 	if git == "" {
 		git = "git"
 	}
-	// No prompts and no system configuration; an SSH key comes from GIT_SSH_COMMAND if set.
-	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1")
+	env := []string{"HOME=" + home, "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=" + os.DevNull}
+	for _, key := range []string{"PATH", "GIT_SSH_COMMAND", "SSL_CERT_FILE", "SSL_CERT_DIR", "TMPDIR"} {
+		if value, ok := os.LookupEnv(key); ok {
+			env = append(env, key+"="+value)
+		}
+	}
 	run := func(args ...string) ([]byte, error) {
 		var out bytes.Buffer
 		err := runner.RunProcess(ctx, git, args, "", env, &out, io.Discard)

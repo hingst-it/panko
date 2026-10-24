@@ -81,16 +81,30 @@ func (m *Migrator) CheckPools(ctx context.Context, c Config) error {
 	for _, pool := range c.RunnerPools {
 		pools[pool.Name] = true
 	}
-	dbs, err := m.items(ctx, "/apis/platform.example.com/v1/databases")
+	// Every resource type the gateway exposes can be bound to a pool, not only Databases.
+	crds, err := m.items(ctx, "/apis/apiextensions.k8s.io/v1/customresourcedefinitions?labelSelector="+url.QueryEscape("platform.example.com/expose=true"))
 	if err != nil {
 		return err
 	}
-	for _, item := range dbs {
-		db := jsonx.Obj(item)
-		meta := jsonx.Obj(db["metadata"])
-		bound := jsonx.Str(jsonx.Obj(db["status"])["runnerPool"])
-		if bound != "" && !pools[bound] {
-			return fmt.Errorf("database %s/%s is bound to runner pool %s, which the configuration no longer declares", jsonx.Str(meta["namespace"]), jsonx.Str(meta["name"]), bound)
+	for _, item := range crds {
+		spec := jsonx.Obj(jsonx.Obj(item)["spec"])
+		plural := jsonx.Str(jsonx.Obj(spec["names"])["plural"])
+		for _, v := range jsonx.Array(spec["versions"]) {
+			version := jsonx.Obj(v)
+			if version["storage"] != true {
+				continue
+			}
+			resources, err := m.items(ctx, "/apis/"+jsonx.Str(spec["group"])+"/"+jsonx.Str(version["name"])+"/"+plural)
+			if err != nil {
+				return err
+			}
+			for _, r := range resources {
+				meta := jsonx.Obj(jsonx.Obj(r)["metadata"])
+				bound := jsonx.Str(jsonx.Obj(jsonx.Obj(r)["status"])["runnerPool"])
+				if bound != "" && !pools[bound] {
+					return fmt.Errorf("%s %s/%s is bound to runner pool %s, which the configuration no longer declares", plural, jsonx.Str(meta["namespace"]), jsonx.Str(meta["name"]), bound)
+				}
+			}
 		}
 	}
 	return nil

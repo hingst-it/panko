@@ -230,6 +230,12 @@ func (s *Server) heartbeat(w http.ResponseWriter, req *http.Request, id, pool st
 		reply(w, 200, runproto.HeartbeatResponse{Version: 1, Decision: "cancel"})
 		return
 	}
+	// Once a commit is accepted the lease no longer matters, and writing it would compete with the
+	// commit's own status updates.
+	if r.Status.Commit != nil {
+		reply(w, 200, runproto.HeartbeatResponse{Version: 1, Decision: "continue"})
+		return
+	}
 	if !now.Before(r.Status.Lease.ExpiresAt) {
 		failure(w, 409)
 		return
@@ -326,7 +332,8 @@ func (s *Server) commit(w http.ResponseWriter, req *http.Request, id, pool strin
 		reply(w, 200, runproto.CommitResponse{Version: 1, IdempotencyKey: c.IdempotencyKey, Stage: "Committed"})
 		return
 	}
-	failure(w, 409)
+	// Repeated conflicts are contention, not a refusal; the agent retries the identical commit.
+	failure(w, 503)
 }
 
 // Sweep makes one CAS pass; replicas may call it concurrently.

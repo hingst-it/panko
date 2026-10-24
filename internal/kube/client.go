@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -54,17 +55,35 @@ func (c *Client) Request(ctx context.Context, method, path string, body any, con
 	if body != nil {
 		data = jsonx.Encode(body)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.Host+path, bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
 	if contentType == "" {
 		contentType = "application/json"
 	}
-	req.Header.Set("Content-Type", contentType)
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, &Error{503, jsonx.Object{"message": "Kubernetes API unavailable"}}
+	// The API server answers 429 while it throttles or while a new CRD's storage initializes; both
+	// pass within seconds, so a few bounded retries keep administrator commands from failing.
+	var resp *http.Response
+	for attempt := 1; ; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, method, c.Host+path, bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", contentType)
+		resp, err = c.HTTP.Do(req)
+		if err != nil {
+			return nil, &Error{503, jsonx.Object{"message": "Kubernetes API unavailable"}}
+		}
+		if resp.StatusCode != http.StatusTooManyRequests || attempt == 5 {
+			break
+		}
+		resp.Body.Close()
+		delay := time.Second
+		if seconds, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && seconds > 0 {
+			delay = time.Duration(min(seconds, 5)) * time.Second
+		}
+		select {
+		case <-ctx.Done():
+			return nil, &Error{503, jsonx.Object{"message": "Kubernetes API unavailable"}}
+		case <-time.After(delay):
+		}
 	}
 	defer resp.Body.Close()
 	var result jsonx.Object

@@ -645,3 +645,19 @@ func TestArtifactsBelongToTheRunsOwnerKind(t *testing.T) {
 		t.Fatal("artifact owned by the wrong kind, the garbage collector would remove it", owner)
 	}
 }
+func TestHeartbeatsDoNotCompeteWithAnAcceptedCommit(t *testing.T) {
+	s, f, token := fixture(t)
+	c := claimed(t, s, token)
+	path := runPath("team-a", "run-1")
+	status := object(f.objects[path]["status"])
+	status["commit"] = Object{"idempotencyKey": "key-1234567890abcdef", "digest": "d", "stage": "Committing"}
+	before := str(object(f.objects[path]["metadata"])["resourceVersion"])
+	w := request(s, "/v1/heartbeat", token, runproto.Heartbeat{Binding: c.Binding})
+	var answer runproto.HeartbeatResponse
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &answer) != nil || answer.Decision != "continue" {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if str(object(f.objects[path]["metadata"])["resourceVersion"]) != before {
+		t.Fatal("heartbeat wrote the Run while its commit was in progress")
+	}
+}

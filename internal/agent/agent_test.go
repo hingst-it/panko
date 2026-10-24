@@ -316,13 +316,13 @@ func TestGitFetchPinsTheRevision(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(repo, "main.tf"), []byte("two"), 0644)
 	git("commit", "--quiet", "-am", "two")
 	dir := filepath.Join(t.TempDir(), "checkout")
-	if err := GitFetch(context.Background(), "git", repo, first, dir); err != nil {
+	if err := GitFetch(context.Background(), "git", repo, first, dir, t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
 	if data, _ := os.ReadFile(filepath.Join(dir, "main.tf")); string(data) != "one" {
 		t.Fatal("checkout not at the pinned revision", string(data))
 	}
-	if GitFetch(context.Background(), "git", repo, testRevision, filepath.Join(t.TempDir(), "x")) == nil {
+	if GitFetch(context.Background(), "git", repo, testRevision, filepath.Join(t.TempDir(), "x"), t.TempDir()) == nil {
 		t.Fatal("unknown revision accepted")
 	}
 	var decoded runproto.Claim

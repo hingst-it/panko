@@ -65,9 +65,23 @@ locals {
   tags     = merge(try(local.cr.spec.tags, {}), { "managed-by" = "panko" })
 }
 
+variable "pause" {
+  type        = number
+  default     = 0
+  description = "Seconds an apply waits before changing the bucket; the E2E test uses it to stop an agent mid-run."
+}
+
+resource "terraform_data" "pause" {
+  triggers_replace = local.tags
+  provisioner "local-exec" {
+    command = "sleep ${var.pause}"
+  }
+}
+
 resource "aws_s3_bucket" "this" {
-  bucket = local.bucket
-  tags   = local.tags
+  depends_on = [terraform_data.pause]
+  bucket     = local.bucket
+  tags       = local.tags
 }
 
 output "bucket" {
