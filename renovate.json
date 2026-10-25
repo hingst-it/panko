@@ -1,0 +1,66 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommitsDisabled"
+  ],
+  "timezone": "Europe/Berlin",
+  "labels": [
+    "renovate"
+  ],
+  "assignees": [
+    "hingstarne"
+  ],
+  "reviewers": [
+    "hingstarne"
+  ],
+  "prHourlyLimit": 2,
+  "prConcurrentLimit": 3,
+  "rebaseWhen": "conflicted",
+  "postUpdateOptions": [
+    "gomodTidy"
+  ],
+  "packageRules": [
+    {
+      "description": "Major updates need a separate review.",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "labels": [
+        "renovate",
+        "major"
+      ],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Local tooling pinned in mise.toml.",
+      "matchManagers": [
+        "mise"
+      ],
+      "groupName": "mise tools"
+    },
+    {
+      "description": "kubectl follows the clusters' Kubernetes minor version (1.36).",
+      "matchDepNames": [
+        "kubectl"
+      ],
+      "allowedVersions": "<1.37"
+    },
+    {
+      "description": "Go toolchain in mise.toml, go.mod and setup-go moves together.",
+      "matchDepNames": [
+        "go",
+        "golang"
+      ],
+      "groupName": "go toolchain"
+    },
+    {
+      "description": "GitHub Actions in one PR.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "groupName": "github actions"
+    }
+  ]
+}
