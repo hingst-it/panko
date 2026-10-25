@@ -15,8 +15,9 @@
   "reviewers": [
     "hingstarne"
   ],
-  "prHourlyLimit": 20,
-  "prConcurrentLimit": 10,
+  "prHourlyLimit": 2,
+  "prConcurrentLimit": 3,
+  "rebaseWhen": "conflicted",
   "postUpdateOptions": [
     "gomodTidy"
   ],

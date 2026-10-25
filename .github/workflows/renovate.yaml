@@ -6,8 +6,10 @@ name: Renovate
 # update arrives as a PR for review.
 on:
   schedule:
-    # Mondays 04:30 UTC, before the working day in Europe/Berlin.
-    - cron: "30 4 * * 1"
+    # Weekdays 04:30 UTC, before the working day in Europe/Berlin. Daily so
+    # freed PR slots (prConcurrentLimit) refill the next morning; every PR
+    # runs the ~40 min e2e job on the panko runners, hence the low limits.
+    - cron: "30 4 * * 1-5"
   workflow_dispatch:
     inputs:
       log_level:
