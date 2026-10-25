@@ -10,7 +10,7 @@ COPY cmd/ cmd/
 COPY internal/ internal/
 RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags='-s -w' -o /out/panko-agent ./cmd/agent
 
-FROM alpine:3.23
+FROM alpine:3.24
 RUN apk add --no-cache ca-certificates git openssh-client \
  && adduser -D -u 1000 -h /home/panko panko
 # The OpenTofu image refuses to be a build stage (ONBUILD), so the binary is copied directly.
