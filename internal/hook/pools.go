@@ -21,10 +21,36 @@ type Pools struct {
 	Teams map[string]string `json:"teams"`
 }
 
-// Pool is a remote runner pool, optionally with its own module source.
+// Pool is a remote runner pool, optionally with its own module source and lease timing.
 type Pool struct {
 	Module *PoolModule `json:"module,omitempty"`
+	// LeaseSeconds and HeartbeatSeconds override the Run lease; zero keeps the defaults.
+	LeaseSeconds     int64 `json:"leaseSeconds,omitempty"`
+	HeartbeatSeconds int64 `json:"heartbeatSeconds,omitempty"`
 }
+
+// Timing is the pool's Run lease and heartbeat interval in seconds.
+func (p Pool) Timing() (lease, heartbeat int64) {
+	lease, heartbeat = 60, 15
+	if p.LeaseSeconds != 0 {
+		lease = p.LeaseSeconds
+	}
+	if p.HeartbeatSeconds != 0 {
+		heartbeat = p.HeartbeatSeconds
+	}
+	return lease, heartbeat
+}
+
+// ValidateTiming refuses a lease an agent cannot keep: it stops OpenTofu one interval and ten
+// seconds of stop grace before the lease ends, so at least one heartbeat must fit before that.
+func (p Pool) ValidateTiming(name string) error {
+	lease, heartbeat := p.Timing()
+	if p.LeaseSeconds < 0 || p.HeartbeatSeconds < 0 || lease > 86400 || heartbeat < 1 || lease <= 2*heartbeat+10 {
+		return fmt.Errorf("runner pool %s needs leaseSeconds above twice heartbeatSeconds plus 10, at most 86400", name)
+	}
+	return nil
+}
+
 type PoolModule struct {
 	Repository string `json:"repository"`
 	Revision   string `json:"revision"`
@@ -63,6 +89,9 @@ func pools(value string) (Pools, error) {
 			if err := resource.ModulePath(m.Path); err != nil {
 				return Pools{}, fmt.Errorf("runner pool %s: %w", name, err)
 			}
+		}
+		if err := pool.ValidateTiming(name); err != nil {
+			return Pools{}, err
 		}
 	}
 	for team, name := range result.Teams {
@@ -162,9 +191,11 @@ func configuredRevision(parent Object, config JobConfig) string {
 // inputs in spec. Lease, report and conditions in status belong to the runner endpoint.
 func createRun(config JobConfig, job, parent Object, action, hash, revision string, backend Object, generation, attempt int64, retry string, snapshot Object) (Object, error) {
 	name := boundPool(parent)
-	if _, err := poolConfig(parent, config); err != nil {
+	pool, err := poolConfig(parent, config)
+	if err != nil {
 		return nil, err
 	}
+	lease, heartbeat := pool.Timing()
 	if backend["type"] != "s3" {
 		return nil, fmt.Errorf("runner pool %s requires an S3 state backend", name)
 	}
@@ -181,6 +212,6 @@ func createRun(config JobConfig, job, parent Object, action, hash, revision stri
 		"resource": snapshot, "backend": backend,
 		// Artifacts the endpoint stores for this Run are owned by the resource, whatever its kind.
 		"owner":           Object{"apiVersion": jsonx.Str(parent["apiVersion"]), "kind": jsonx.Str(parent["kind"])},
-		"deadlineSeconds": int64(1800), "leaseSeconds": int64(60), "heartbeatSeconds": int64(15),
+		"deadlineSeconds": int64(1800), "leaseSeconds": lease, "heartbeatSeconds": heartbeat,
 	}}, nil
 }

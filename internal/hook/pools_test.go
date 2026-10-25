@@ -127,10 +127,22 @@ func TestRemotePoolWithoutModuleSourceOrConfigurationFails(t *testing.T) {
 }
 func TestRunnerPoolsValidated(t *testing.T) {
 	for _, value := range []string{`[]`, `{"team-a":{"name":"edge"}}`, `{"pools":{"Edge":{}}}`, `{"pools":{"edge-":{}}}`, `{"pools":{},"teams":{"team-a":"edge"}}`,
-		`{"pools":{"edge":{"module":{"repository":"r","revision":"main"}}}}`, `{"pools":{"edge":{"module":{"repository":"r","revision":"` + poolRevision + `","path":"../x"}}}}`} {
+		`{"pools":{"edge":{"module":{"repository":"r","revision":"main"}}}}`, `{"pools":{"edge":{"module":{"repository":"r","revision":"` + poolRevision + `","path":"../x"}}}}`,
+		`{"pools":{"edge":{"leaseSeconds":20,"heartbeatSeconds":5}}}`, `{"pools":{"edge":{"leaseSeconds":30}}}`, `{"pools":{"edge":{"heartbeatSeconds":-1}}}`,
+		`{"pools":{"edge":{"leaseSeconds":86401}}}`} {
 		t.Setenv("RUNNER_POOLS", value)
 		if LoadJobConfig().Validate() == nil {
 			t.Errorf("accepted RUNNER_POOLS %s", value)
+		}
+	}
+}
+func TestRunLeaseComesFromThePool(t *testing.T) {
+	for module, want := range map[string][2]int64{``: {60, 15}, `"leaseSeconds":20,"heartbeatSeconds":3`: {20, 3}} {
+		withPool(t, module)
+		r, _ := Reconcile(Request{Parent: remote(t)})
+		spec := jsonx.Obj(r.Children[0]["spec"])
+		if spec["leaseSeconds"] != want[0] || spec["heartbeatSeconds"] != want[1] {
+			t.Errorf("pool {%s}: Run lease %v/%v, want %v", module, spec["leaseSeconds"], spec["heartbeatSeconds"], want)
 		}
 	}
 }
