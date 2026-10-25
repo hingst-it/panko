@@ -81,6 +81,10 @@ Ein privates Modul-Repository braucht `GIT_SSH_COMMAND` mit Schlüssel und `know
 - Ein Lease läuft 60 Sekunden, Heartbeats alle 15 Sekunden. Der Agent beendet OpenTofu samt
   Prozessgruppe, bevor sein Lease ausläuft, wenn Heartbeats ausbleiben oder der Endpunkt
   abbricht; eine abgebrochene Ausführung meldet er nicht mehr.
+- Je Pool ändern `leaseSeconds` und `heartbeatSeconds` diese Werte. Der Lease muss länger sein als
+  zwei Heartbeat-Intervalle plus zehn Sekunden, damit vor dem Stopp von OpenTofu noch ein Heartbeat
+  passt. Ein kürzerer Lease meldet einen verschwundenen Agenten früher als `interrupted`, verliert
+  aber bei kurzen Netzausfällen schneller laufende Ausführungen.
 - Läuft ein Lease ab, setzt der Endpunkt den Run auf `interrupted`. Wiederholt wird nur explizit
   (`panko retry`, Gateway-Aktion `retry`).
 - Die S3-State-Sperre verhindert gleichzeitige OpenTofu-Läufe, schützt aber nicht vor einem

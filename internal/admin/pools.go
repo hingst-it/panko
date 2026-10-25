@@ -17,6 +17,9 @@ type RunnerPool struct {
 	Teams []string `json:"teams"`
 	// Module optionally replaces the installation's module for the pool's resources.
 	Module *hook.PoolModule `json:"module,omitempty"`
+	// LeaseSeconds and HeartbeatSeconds optionally shorten or lengthen the Run lease (60s, 15s).
+	LeaseSeconds     int64 `json:"leaseSeconds,omitempty"`
+	HeartbeatSeconds int64 `json:"heartbeatSeconds,omitempty"`
 }
 
 var commit = regexp.MustCompile(`^[0-9a-f]{40}$`)
@@ -54,8 +57,15 @@ func (c Config) validatePools() error {
 				return fmt.Errorf("runner pool %s: %w", pool.Name, err)
 			}
 		}
+		if err := pool.hookPool().ValidateTiming(pool.Name); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+func (p RunnerPool) hookPool() hook.Pool {
+	return hook.Pool{Module: p.Module, LeaseSeconds: p.LeaseSeconds, HeartbeatSeconds: p.HeartbeatSeconds}
 }
 
 // RunnerPoolsConfigMap is the hook's view: every declared pool, also one without teams that
@@ -63,7 +73,7 @@ func (c Config) validatePools() error {
 func (c Config) RunnerPoolsConfigMap() Object {
 	view := hook.Pools{Pools: map[string]hook.Pool{}, Teams: map[string]string{}}
 	for _, pool := range c.RunnerPools {
-		view.Pools[pool.Name] = hook.Pool{Module: pool.Module}
+		view.Pools[pool.Name] = pool.hookPool()
 		for _, team := range pool.Teams {
 			view.Teams[team] = pool.Name
 		}

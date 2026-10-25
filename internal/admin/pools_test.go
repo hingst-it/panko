@@ -22,12 +22,13 @@ func TestRunnerPoolsValidated(t *testing.T) {
 		`{"teams":["home"],"runnerPools":[{"name":"edge","teams":["home"],"module":{"repository":"r","revision":"main"}}]}`,
 		`{"teams":["home"],"runnerPools":[{"name":"edge","teams":["home"],"module":{"repository":"https://u:p@example.com/m.git","revision":"` + revision + `"}}]}`,
 		`{"teams":["home"],"runnerPools":[{"name":"edge","teams":["home"],"module":{"repository":"r","revision":"` + revision + `","path":"../x"}}]}`,
+		`{"teams":["home"],"runnerPools":[{"name":"edge","teams":["home"],"leaseSeconds":20,"heartbeatSeconds":5}]}`,
 	} {
 		if _, err := LoadConfig(writeConfig(t, bad)); err == nil {
 			t.Errorf("accepted %s", bad)
 		}
 	}
-	c, err := LoadConfig(writeConfig(t, `{"teams":["home","lab"],"runnerPools":[{"name":"edge","teams":["lab"],"module":{"repository":"https://example.com/m.git","revision":"`+revision+`","path":"modules/s3"}}]}`))
+	c, err := LoadConfig(writeConfig(t, `{"teams":["home","lab"],"runnerPools":[{"name":"edge","teams":["lab"],"module":{"repository":"https://example.com/m.git","revision":"`+revision+`","path":"modules/s3"},"leaseSeconds":20,"heartbeatSeconds":3}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +41,7 @@ func TestRunnerPoolsValidated(t *testing.T) {
 	}
 	// The hook accepts exactly what admin generates.
 	t.Setenv("RUNNER_POOLS", jsonx.Str(jsonx.Obj(c.RunnerPoolsConfigMap()["data"])["pools.json"]))
-	if config := hook.LoadJobConfig(); config.Pools.Teams["lab"] != "edge" || config.Pools.Pools["edge"].Module == nil {
+	if config := hook.LoadJobConfig(); config.Pools.Teams["lab"] != "edge" || config.Pools.Pools["edge"].Module == nil || config.Pools.Pools["edge"].LeaseSeconds != 20 {
 		t.Fatal("hook did not read the generated pools")
 	}
 	// A pool without teams stays defined for the resources bound to it.

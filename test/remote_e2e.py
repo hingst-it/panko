@@ -19,6 +19,7 @@ NETWORK = 'panko-cloud-' + SUFFIX
 NAMES = {'moto': 'moto-' + SUFFIX, 'git': 'git-' + SUFFIX, 'agent': 'agent-' + SUFFIX, 'second': 'agent2-' + SUFFIX}
 URL = 'http://127.0.0.1:18085'
 TOKENS = json.loads(Path('.local/team-tokens.json').read_text())
+PLUGIN_CACHE = Path('.local/agent-plugin-cache').resolve()
 
 
 LOCK_PROBE = '''
@@ -146,12 +147,15 @@ def fixture_repository(root):
 def start_agent(container, directory):
     node = 'k3d-' + CLUSTER + '-server-0'
     ip = docker('inspect', '-f', '{{(index .NetworkSettings.Networks "k3d-' + CLUSTER + '").IPAddress}}', node).stdout.strip()
+    # The AWS provider is a 740 MB download (~30s); both agents and later local runs share one cache.
+    # Only one agent executes at a time, and the module lockfile still verifies every provider.
+    PLUGIN_CACHE.mkdir(parents=True, exist_ok=True)
     # The agent runs as the host user, so the 0600 token and profile it is given stay private.
     docker('run', '-d', '--name', container, '--network', 'k3d-' + CLUSTER, '--add-host', f'runner-endpoint.infra-runners.svc:{ip}',
-           '--user', f'{os.getuid()}:{os.getgid()}', '-v', f'{directory}:/etc/panko-agent:ro',
+           '--user', f'{os.getuid()}:{os.getgid()}', '-v', f'{directory}:/etc/panko-agent:ro', '-v', f'{PLUGIN_CACHE}:/var/cache/panko-plugins',
            '-e', 'PANKO_ENDPOINT=https://runner-endpoint.infra-runners.svc:30443', '-e', 'PANKO_ENDPOINT_CA=/etc/panko-agent/ca.crt',
            '-e', 'PANKO_AGENT_TOKEN_FILE=/etc/panko-agent/token', '-e', 'PANKO_POOL=cloud', '-e', 'PANKO_PROFILES=/etc/panko-agent/profiles',
-           '-e', 'PANKO_WORK=/tmp', '-e', 'PANKO_PLUGIN_CACHE=/tmp/plugins', 'panko-agent:dev', 'run')
+           '-e', 'PANKO_WORK=/tmp', '-e', 'PANKO_PLUGIN_CACHE=/var/cache/panko-plugins', 'panko-agent:dev', 'run')
     docker('network', 'connect', '--alias', container, NETWORK, container)
     check = docker('exec', container, 'panko-agent', 'check', check=False)
     assert check.returncode == 0, check.stdout + check.stderr
@@ -170,6 +174,9 @@ def agent_directory(root, label, config_path):
 
 
 def setup(root):
+    # Metacontroller discovers new CRDs on an interval; applying it first lets that overlap the setup.
+    kube('apply', '-f', 'test/bucket-crd.yaml')
+    kube('wait', '--for=condition=Established', 'crd/buckets.platform.example.com', '--timeout=60s')
     docker('network', 'create', NETWORK)
     docker('run', '-d', '--name', NAMES['moto'], '--network', NETWORK, '--network-alias', 'moto', '-e', 'S3_IGNORE_SUBDOMAIN_BUCKETNAME=true', MOTO)
     wait(lambda: docker('exec', NAMES['moto'], 'python', '-c', 'import urllib.request; urllib.request.urlopen("http://localhost:5000")', check=False).returncode == 0, 'Moto', 60)
@@ -183,7 +190,9 @@ def setup(root):
            '--entrypoint', 'git', 'panko-module-mirror:dev', '-c', 'safe.directory=*', 'daemon', '--base-path=/repos', '--export-all', '--reuseaddr', '/repos')
     # The pool, its module and its agents, configured exactly as an operator would.
     config = json.loads(Path(os.environ.get('PANKO_CONFIG', 'panko.json')).read_text())
-    config['runnerPools'] = [{'name': 'cloud', 'teams': [TEAM], 'module': {'repository': 'git://git/modules.git', 'revision': revision, 'path': 'aws-s3'}}]
+    # A short lease lets the killed agent's Run become interrupted after ~25s instead of the default 60s.
+    config['runnerPools'] = [{'name': 'cloud', 'teams': [TEAM], 'module': {'repository': 'git://git/modules.git', 'revision': revision, 'path': 'aws-s3'},
+                              'leaseSeconds': 25, 'heartbeatSeconds': 3}]
     config_path = root / 'panko.json'
     config_path.write_text(json.dumps(config))
     kube('apply', '-f', '-', obj=json.loads(admin('runner-pools', config=str(config_path))))
@@ -198,8 +207,6 @@ def setup(root):
         {'apiVersion': 'v1', 'kind': 'Secret', 'metadata': {'name': 'moto-state', 'namespace': TEAM}, 'stringData': {'access_key_id': 'test', 'secret_access_key': 'test'}},
         {'apiVersion': 'platform.example.com/v1', 'kind': 'StateBackend', 'metadata': {'name': 'moto', 'namespace': TEAM},
          'spec': {'profileRef': {'name': 'moto'}, 'credentialsSecretRef': {'name': 'moto-state'}}}]})
-    kube('apply', '-f', 'test/bucket-crd.yaml')
-    kube('wait', '--for=condition=Established', 'crd/buckets.platform.example.com', '--timeout=60s')
     kube('apply', '-f', 'test/bucket-controller.yaml')
     kube('apply', '-f', '-', obj=json.loads(admin('gateway-rbac')))
     return first, config_path
@@ -239,6 +246,7 @@ def main():
         runs = json.loads(kube('get', 'runs', '-n', TEAM, '-l', 'platform.example.com/uid=' + uid, '-o', 'json').stdout)['items']
         jobs = json.loads(kube('get', 'jobs', '-n', TEAM, '-l', 'platform.example.com/uid=' + uid, '-o', 'json').stdout)['items']
         assert runs and not jobs, 'the bucket did not run on the remote pool'
+        assert all(r['spec']['leaseSeconds'] == 25 and r['spec']['heartbeatSeconds'] == 3 for r in runs), 'pool lease not applied'
         assert 'secret_access_key' not in json.dumps(runs) and 'AWS_SECRET' not in json.dumps(runs), 'credentials in a Run'
         assert bucket(name) == {'env': 'test', 'managed-by': 'panko'}, bucket(name)
         print('1: bucket created in the emulated cloud by the remote agent; a Run instead of a Job, no credentials in it', flush=True)

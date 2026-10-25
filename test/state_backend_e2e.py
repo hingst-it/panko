@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from e2e import RUN, credentials, delete_and_check, get, kube, ready, sql, wait
 
@@ -65,6 +66,10 @@ def main():
     try:
         # 1: without any StateBackend the built-in Kubernetes backend is bound, now with a checkpoint.
         database(fallback)
+        # The binding is fixed on the first reconcile, before any Job, so step 2's Job can run alongside step 1's.
+        wait(lambda: (get('db', fallback).get('status') or {}).get('stateBackend'), f'{fallback} bound')
+        state_backend(target)
+        database(remote, ref=target)
         ready(fallback)
         assert binding(fallback)['type'] == 'kubernetes'
         uid = get('db', fallback)['metadata']['uid']
@@ -73,8 +78,6 @@ def main():
         print('1: fallback binding, Kubernetes state and checkpoint created', flush=True)
 
         # 2: an explicit StateBackend binds the operator-approved bucket; the key carries installation and UID.
-        state_backend(target)
-        database(remote, ref=target)
         ready(remote)
         bound = binding(remote)
         remote_uid = get('db', remote)['metadata']['uid']
@@ -153,8 +156,11 @@ def main():
         kube('delete', 'secret', f'tfstate-default-team-a-{fallback}', '-n', 'panko-state-team-a')
         print('8: migration copied and switched the state; next apply kept the database; rerun is a no-op', flush=True)
 
-        for name in (fallback, remote, by_default):
-            delete_and_check(name, 'team-a', credentials(name) if name != fallback else before)
+        # The teardowns are independent Jobs; running them together saves two Job durations.
+        creds = {name: credentials(name) if name != fallback else before for name in (fallback, remote, by_default)}
+        with ThreadPoolExecutor() as pool:
+            for deleted in [pool.submit(delete_and_check, name, 'team-a', c) for name, c in creds.items()]:
+                deleted.result()
         print('All state backend end-to-end tests passed', flush=True)
     finally:
         for name in names:

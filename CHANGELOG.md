@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- Optional per-pool `leaseSeconds` and `heartbeatSeconds` for remote runner pools;
+  the defaults stay 60 and 15 seconds.
+
 ### Fixed
 
 - Omit redundant Homebrew version metadata so generated formulae pass strict audit.
