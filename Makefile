@@ -6,7 +6,7 @@ export KUBECONFIG := $(CURDIR)/.local/kubeconfig
 export PATH := $(CURDIR)/.local/bin:$(PATH)
 export GOCACHE := $(CURDIR)/.local/go-cache
 export GOMODCACHE := $(CURDIR)/.local/go-mod
-.PHONY: cluster-up cluster-down bootstrap build deploy test clean
+.PHONY: cluster-up cluster-down bootstrap build deploy test clean help
 # Default goal: plain `make` lists the available targets.
 .DEFAULT_GOAL := help
 
@@ -46,7 +46,7 @@ lint-go:
 	test -z "$$(mise exec -- gofmt -l cmd internal)"
 	mise exec -- go vet ./...
 
-## Build the panko and admin binaries into .local/bin.
+## Build all binaries under cmd/ (admin, agent, endpoint, gateway, hook, mirror, panko, runner) into .local/bin.
 build-go:
 	mkdir -p .local/bin
 	mise exec -- go build -o .local/bin/ ./cmd/...
@@ -58,21 +58,21 @@ test-unit: test-go
 lint:
 	$(PYTHON) -m ruff check test tools
 
-## Migrate existing cluster state to the current schema.
+## Move Tofu state secrets from infra-runners into the team state namespaces; needs a maintenance window (docs/operations.de.md).
 migrate-state: build-go
 	.local/bin/admin --kubeconfig "$(KUBECONFIG)" migrate-state
 
-## Remove the lab cluster and its data (keep the repo checkout).
+## Delete every team's Database resources; the platform and Postgres keep running (cluster/clean.sh).
 clean: build-go
 	mise exec -- bash cluster/clean.sh
 
 .PHONY: backup restore
 
-## Take an offline backup of the lab databases.
+## Quiesced backup of resources, state, credentials, database contents and lab S3 data to BACKUP_DIR=<dir>.
 backup: build-go
 	mise exec -- bash cluster/backup.sh
 
-## Restore the lab databases from the most recent backup.
+## Restore a backup from BACKUP_DIR=<dir> into a freshly deployed installation (cluster/restore.sh).
 restore: build-go
 	mise exec -- bash cluster/restore.sh
 
