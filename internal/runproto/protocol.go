@@ -7,6 +7,7 @@ const Version = 1
 const MaxCommitBytes = 256 << 10
 const MaxSpecBytes = 64 << 10
 const MaxBackendBytes = 16 << 10
+const MaxMigrationIDBytes = 32
 const MaxCapabilities = 16
 const MaxCredentials = 16
 const MaxCredentialKeyBytes = 64
@@ -54,6 +55,7 @@ type Checkpoint struct {
 
 // Claim contains immutable inputs. Opaque objects are bounded but their keys are
 // not interpreted here; the endpoint supplies the non-secret backend binding.
+// TargetBinding and MigrationID are carried only for migrate actions.
 type Claim struct {
 	Binding
 	Generation               int64           `json:"generation"`
@@ -62,6 +64,8 @@ type Claim struct {
 	ModulePath               string          `json:"modulePath"`
 	SpecSnapshot             json.RawMessage `json:"specSnapshot"`
 	BackendBinding           json.RawMessage `json:"backendBinding"`
+	TargetBinding            json.RawMessage `json:"targetBinding,omitempty"`
+	MigrationID              string          `json:"migrationId,omitempty"`
 	ExpectedCheckpoint       *Checkpoint     `json:"expectedCheckpoint,omitempty"`
 	LeaseDurationSeconds     int64           `json:"leaseDurationSeconds"`
 	HeartbeatIntervalSeconds int64           `json:"heartbeatIntervalSeconds"`
