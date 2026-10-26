@@ -78,6 +78,8 @@ type run struct {
 			Kind       string `json:"kind"`
 		} `json:"owner"`
 		Backend          json.RawMessage `json:"backend"`
+		TargetBackend    json.RawMessage `json:"targetBackend,omitempty"`
+		MigrationID      string          `json:"migrationId,omitempty"`
 		DeadlineSeconds  int64           `json:"deadlineSeconds"`
 		LeaseSeconds     int64           `json:"leaseSeconds"`
 		HeartbeatSeconds int64           `json:"heartbeatSeconds"`

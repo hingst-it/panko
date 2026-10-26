@@ -145,7 +145,7 @@ func (s *Server) claim(w http.ResponseWriter, req *http.Request, id, pool string
 				return
 			}
 			r.Status.Baseline = baseline
-			result := runproto.Claim{Binding: b, Generation: r.Spec.Generation, ModuleRepository: r.Spec.Module.Repository, ModuleRevision: r.Spec.Module.Revision, ModulePath: r.Spec.Module.Path, SpecSnapshot: jsonx.Encode(object(r.source["spec"])["resource"]), BackendBinding: r.Spec.Backend, ExpectedCheckpoint: baseline, LeaseDurationSeconds: r.Spec.LeaseSeconds, HeartbeatIntervalSeconds: r.Spec.HeartbeatSeconds, Deadline: r.deadline().UTC().Format(time.RFC3339)}
+			result := runproto.Claim{Binding: b, Generation: r.Spec.Generation, ModuleRepository: r.Spec.Module.Repository, ModuleRevision: r.Spec.Module.Revision, ModulePath: r.Spec.Module.Path, SpecSnapshot: jsonx.Encode(object(r.source["spec"])["resource"]), BackendBinding: r.Spec.Backend, TargetBinding: r.Spec.TargetBackend, MigrationID: r.Spec.MigrationID, ExpectedCheckpoint: baseline, LeaseDurationSeconds: r.Spec.LeaseSeconds, HeartbeatIntervalSeconds: r.Spec.HeartbeatSeconds, Deadline: r.deadline().UTC().Format(time.RFC3339)}
 			if runproto.ValidateClaim(result) != nil {
 				failure(w, 503)
 				return
