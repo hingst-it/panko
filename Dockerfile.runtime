@@ -9,7 +9,7 @@ COPY cmd/ cmd/
 COPY internal/ internal/
 RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags='-s -w' -o /out/panko ./cmd/$COMPONENT
 
-FROM alpine:3.23
+FROM alpine:3.24
 RUN apk add --no-cache ca-certificates
 COPY --from=build /out/panko /usr/local/bin/panko
 USER 1000:1000
