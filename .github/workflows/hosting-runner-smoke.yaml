@@ -28,7 +28,7 @@ jobs:
           platforms: arm64
       - name: Verify ARM64 image execution for release builds
         run: docker run --rm --platform linux/arm64 alpine:3.23 uname -m
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v5
       - name: Create a nested disposable k3d cluster
         run: |
           mkdir -p .local

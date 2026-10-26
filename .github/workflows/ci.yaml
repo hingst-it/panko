@@ -20,8 +20,8 @@ jobs:
     runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || vars.PANKO_CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
       - name: Install test dependencies
         run: |
           python3 -m venv .venv
@@ -46,8 +46,8 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
           sudo docker image prune --all --force > /dev/null
           df -h /
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
       - name: Install test dependencies
         run: |
           python3 -m venv .venv
@@ -75,7 +75,7 @@ jobs:
             kubectl -n "$ns" logs --all-containers --prefix -l app=database-hook > ".local/diagnostics/$ns-hook.log" 2>&1 || true
             kubectl -n "$ns" logs --all-containers --prefix -l app=platform-gateway > ".local/diagnostics/$ns-gateway.log" 2>&1 || true
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: lab-diagnostics
