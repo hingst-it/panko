@@ -17,6 +17,24 @@ func binding() Binding {
 		Attempt: 2, Action: "apply", AgentID: "agent-1", LeaseEpoch: 3}
 }
 
+func migrateBinding() Binding {
+	b := binding()
+	b.Action = "migrate"
+	return b
+}
+
+func s3Target() json.RawMessage {
+	return json.RawMessage(`{"type":"s3","config":{"bucket":"lab","key":"panko/install-1/resource-uid/terraform.tfstate","use_lockfile":true},"credentialsSecret":"creds"}`)
+}
+
+func migrateClaim() Claim {
+	c := claim()
+	c.Binding = migrateBinding()
+	c.TargetBinding = s3Target()
+	c.MigrationID = "m1"
+	return c
+}
+
 func point() *Checkpoint {
 	return &Checkpoint{Lineage: "lineage-1", Serial: 0, Digest: strings.Repeat("a", 64)}
 }
@@ -104,7 +122,6 @@ func TestBinding(t *testing.T) {
 		func(b *Binding) { b.RunName = "../run" },
 		func(b *Binding) { b.Attempt = -1 },
 		func(b *Binding) { b.LeaseEpoch = -1 },
-		func(b *Binding) { b.Action = "migrate" },
 	} {
 		bad := b
 		edit(&bad)
@@ -473,4 +490,45 @@ func TestClaimCheckpointDigestOptional(t *testing.T) {
 	c := commit()
 	c.Checkpoint.Digest = ""
 	wantError(t, ValidateCommit(c, binding()), ErrInvalid)
+}
+
+func TestMigrateClaim(t *testing.T) {
+	// A migrate action with an S3 target binding and a migration ID passes.
+	if err := ValidateClaim(migrateClaim()); err != nil {
+		t.Fatal(err)
+	}
+	for name, edit := range map[string]func(*Claim){
+		"migrate without target":   func(c *Claim) { c.TargetBinding = nil },
+		"migrate absent target":    func(c *Claim) { c.TargetBinding = json.RawMessage(`null`) },
+		"migrate array target":     func(c *Claim) { c.TargetBinding = json.RawMessage(`[]`) },
+		"migrate malformed target": func(c *Claim) { c.TargetBinding = json.RawMessage(`{`) },
+		"migrate large target": func(c *Claim) {
+			c.TargetBinding = json.RawMessage(`{"x":"` + strings.Repeat("a", MaxBackendBytes) + `"}`)
+		},
+		"migrate non-s3 target": func(c *Claim) { c.TargetBinding = json.RawMessage(`{"type":"kubernetes","config":{}}`) },
+		"migrate missing id":    func(c *Claim) { c.MigrationID = "" },
+		"migrate bad id":        func(c *Claim) { c.MigrationID = "Bad-ID" },
+		"migrate long id":       func(c *Claim) { c.MigrationID = strings.Repeat("a", MaxMigrationIDBytes+1) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := migrateClaim()
+			edit(&c)
+			wantError(t, ValidateClaim(c), ErrInvalid)
+		})
+	}
+	// A non-migrate action must reject a target binding and a migration ID.
+	for _, action := range []string{"apply", "destroy", "plan"} {
+		t.Run(action+" rejects target", func(t *testing.T) {
+			c := claim()
+			c.Action = action
+			c.TargetBinding = s3Target()
+			wantError(t, ValidateClaim(c), ErrInvalid)
+		})
+		t.Run(action+" rejects migration ID", func(t *testing.T) {
+			c := claim()
+			c.Action = action
+			c.MigrationID = "m1"
+			wantError(t, ValidateClaim(c), ErrInvalid)
+		})
+	}
 }
