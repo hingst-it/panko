@@ -36,9 +36,11 @@ spec:
               required: [pool, action, generation, attempt, hash, module, resource, backend, deadlineSeconds, leaseSeconds, heartbeatSeconds]
               x-kubernetes-validations:
                 - {rule: "self == oldSelf", message: "spec is immutable"}
+                - {rule: "(self.action == 'migrate') == has(self.targetBackend)", message: "targetBackend is required for migrate and forbidden otherwise"}
+                - {rule: "(self.action == 'migrate') == (has(self.migrationId) && self.migrationId != '')", message: "migrationId is required for migrate and forbidden otherwise"}
               properties:
                 pool: {type: string, maxLength: 40}
-                action: {type: string, enum: [apply, destroy, plan]}
+                action: {type: string, enum: [apply, destroy, plan, migrate]}
                 generation: {type: integer, format: int64, minimum: 1}
                 attempt: {type: integer, format: int64, minimum: 1}
                 retryToken: {type: string, maxLength: 128}
@@ -58,6 +60,14 @@ spec:
                   type: object
                   description: Non-secret state backend binding; credentials stay at the agent.
                   x-kubernetes-preserve-unknown-fields: true
+                targetBackend:
+                  type: object
+                  description: Non-secret destination backend for migrate; required only for migrate.
+                  x-kubernetes-preserve-unknown-fields: true
+                migrationId:
+                  type: string
+                  maxLength: 32
+                  pattern: "^[a-z0-9]([-a-z0-9]{0,30}[a-z0-9])?$"
                 owner:
                   type: object
                   description: API version and kind of the resource; its artifacts get it as owner.
