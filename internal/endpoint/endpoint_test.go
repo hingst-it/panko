@@ -687,3 +687,26 @@ func TestABlockedLogDoesNotStallClaimsOrCommits(t *testing.T) {
 		t.Fatal("a blocked log stalled the claim or the commit")
 	}
 }
+
+func TestClaimMigrateRunCarriesTargetBindingAndMigrationID(t *testing.T) {
+	s, f, token := fixture(t)
+	target := Object{"type": "s3", "config": Object{"bucket": "lab", "key": "panko/install-1/resource-uid/terraform.tfstate", "use_lockfile": true}, "credentialsSecret": "creds"}
+	object(f.objects[runPath("team-a", "run-1")]["spec"])["action"] = "migrate"
+	object(f.objects[runPath("team-a", "run-1")]["spec"])["targetBackend"] = target
+	object(f.objects[runPath("team-a", "run-1")]["spec"])["migrationId"] = "m1"
+	c := claimed(t, s, token)
+	if c.Action != "migrate" {
+		t.Fatal("claim action", c.Action)
+	}
+	if string(c.TargetBinding) == "" || !bytes.Contains(c.TargetBinding, []byte(`"type":"s3"`)) {
+		t.Fatal("target binding missing from claim", string(c.TargetBinding))
+	}
+	if c.MigrationID != "m1" {
+		t.Fatal("migration ID missing from claim", c.MigrationID)
+	}
+	// The target binding is the same non-secret object the Run stored: only a reference name,
+	// never actual credential values.
+	if bytes.Contains(c.TargetBinding, []byte("password")) || bytes.Contains(c.TargetBinding, []byte("secret-key")) {
+		t.Fatal("credential values leaked into the target binding")
+	}
+}
