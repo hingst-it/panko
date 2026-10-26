@@ -35,6 +35,9 @@ var revision = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
 var digest = regexp.MustCompile(`^[0-9a-f]{64}$`)
 var idempotency = regexp.MustCompile(`^[A-Za-z0-9_-]{16,128}$`)
 
+// migrationID matches the admin tool's identifier, so a Run and a migration Job share the same name.
+var migrationID = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,30}[a-z0-9])?$`)
+
 // secretKey is the key syntax of a Kubernetes Secret, so a validated commit can always be stored;
 // Kubernetes also rejects "." and keys starting with "..".
 var secretKey = regexp.MustCompile(`^[-._a-zA-Z0-9]{1,64}$`)
@@ -70,7 +73,7 @@ func validateBinding(b Binding) error {
 		{"runUid", identity.MatchString(b.RunUID)},
 		{"runName", name(b.RunName)},
 		{"attempt", b.Attempt >= 1},
-		{"action", b.Action == "apply" || b.Action == "destroy" || b.Action == "plan"},
+		{"action", b.Action == "apply" || b.Action == "destroy" || b.Action == "plan" || b.Action == "migrate"},
 		{"agentId", identifier.MatchString(b.AgentID)},
 		{"leaseEpoch", b.LeaseEpoch >= 1},
 	} {
@@ -135,13 +138,24 @@ func object(raw json.RawMessage, limit int) bool {
 	return len(raw) <= limit && len(data) > 0 && data[0] == '{' && json.Valid(data)
 }
 
+// backendType returns the "type" field of a bounded binding object, or empty.
+func backendType(raw json.RawMessage) string {
+	var b struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(raw, &b) != nil {
+		return ""
+	}
+	return b.Type
+}
+
 func timestamp(s string) bool {
 	_, err := time.Parse(time.RFC3339, s)
 	return len(s) <= 64 && err == nil
 }
 
 func text(s string, limit int) bool {
-	return s != "" && len(s) <= limit && utf8.ValidString(s) && !strings.ContainsFunc(s, unicode.IsControl)
+	return s != "" && len(s) < limit && utf8.ValidString(s) && !strings.ContainsFunc(s, unicode.IsControl)
 }
 
 func ValidateClaim(c Claim) error {
@@ -166,6 +180,18 @@ func ValidateClaim(c Claim) error {
 	}
 	if !object(c.BackendBinding, MaxBackendBytes) {
 		return invalid("backendBinding")
+	}
+	// A migrate action carries a non-secret S3 target binding and a migration ID;
+	// every other action rejects both, so apply/destroy/plan behave exactly as before.
+	if c.Action == "migrate" {
+		if !object(c.TargetBinding, MaxBackendBytes) || backendType(c.TargetBinding) != "s3" {
+			return invalid("targetBinding")
+		}
+		if !migrationID.MatchString(c.MigrationID) {
+			return invalid("migrationId")
+		}
+	} else if len(c.TargetBinding) != 0 || c.MigrationID != "" {
+		return invalid("targetBinding")
 	}
 	if err := checkpoint(c.ExpectedCheckpoint, true); err != nil {
 		return err
