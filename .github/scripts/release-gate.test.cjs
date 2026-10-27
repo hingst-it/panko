@@ -4,7 +4,7 @@ const gate = require('./release-gate.cjs');
 
 const sha = 'a'.repeat(40);
 const goodRun = { id: 42, run_number: 8, head_sha: sha, head_branch: 'main', event: 'push', status: 'completed', conclusion: 'success', html_url: 'https://example.com/run/42' };
-const goodJobs = ['unit', 'e2e'].map(name => ({ name, status: 'completed', conclusion: 'success' }));
+const goodJobs = ['unit', 'e2e (a)', 'e2e (b)', 'e2e (c)'].map(name => ({ name, status: 'completed', conclusion: 'success' }));
 
 function fixture({ runs = [goodRun], jobs = goodJobs, ref = 'refs/tags/v0.0.1' } = {}) {
   const outputs = {};
@@ -19,7 +19,7 @@ function fixture({ runs = [goodRun], jobs = goodJobs, ref = 'refs/tags/v0.0.1' }
   return { outputs, requests, args: { github, sha, context: { ref, repo: { owner: 'hingst-it', repo: 'panko' } }, core: { info() {}, setOutput: (key, value) => { outputs[key] = value; } } } };
 }
 
-test('accepts the exact main commit with both required jobs', async () => {
+test('accepts the exact main commit with all required jobs', async () => {
   const f = fixture();
   await gate(f.args);
   assert.deepEqual(f.outputs, { tag: 'v0.0.1', sha, prerelease: false });
@@ -53,7 +53,7 @@ test('rejects missing CI and a newer failed run despite an older success', async
   await assert.rejects(gate(fixture({ runs: [goodRun, { ...goodRun, run_number: 9, conclusion: 'failure' }] }).args), /successful Checks run/);
 });
 
-for (const jobs of [[], [goodJobs[0]], [goodJobs[1]], [goodJobs[0], { ...goodJobs[1], conclusion: 'skipped' }]]) {
+for (const jobs of [[], [goodJobs[0]], goodJobs.slice(0, 2), goodJobs.slice(0, 3), [goodJobs[0], { ...goodJobs[1], conclusion: 'skipped' }], [goodJobs[0], ...goodJobs.slice(2)]]) {
   test(`rejects missing or skipped required jobs: ${JSON.stringify(jobs)}`, async () => {
     await assert.rejects(gate(fixture({ jobs }).args), /must include a successful/);
   });

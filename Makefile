@@ -6,7 +6,7 @@ export KUBECONFIG := $(CURDIR)/.local/kubeconfig
 export PATH := $(CURDIR)/.local/bin:$(PATH)
 export GOCACHE := $(CURDIR)/.local/go-cache
 export GOMODCACHE := $(CURDIR)/.local/go-mod
-.PHONY: cluster-up cluster-down bootstrap build deploy test clean help
+.PHONY: cluster-up cluster-down bootstrap build deploy test test-shard clean help
 # Default goal: plain `make` lists the available targets.
 .DEFAULT_GOAL := help
 
@@ -33,6 +33,10 @@ deploy: build-go
 ## Run the end-to-end tests against a deployed lab (requires a running cluster).
 test:
 	mise exec -- bash test/e2e.sh
+
+## Run one e2e shard (a, b, or c) against a deployed lab (requires a running cluster).
+test-shard:
+	mise exec -- bash test/e2e-shard.sh "$(SHARD)"
 
 .PHONY: test-unit lint migrate-state
 .PHONY: test-go lint-go build-go

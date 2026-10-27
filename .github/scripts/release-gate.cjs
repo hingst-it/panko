@@ -20,7 +20,9 @@ module.exports = async ({ github, context, core, sha }) => {
   const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
     ...context.repo, run_id: run.id, filter: 'latest', per_page: 100,
   });
-  for (const name of ['unit', 'e2e']) {
+  // The e2e suites are sharded across parallel matrix jobs named "e2e (a)", "e2e (b)",
+  // "e2e (c)"; every shard must be successful for the release gate to pass.
+  for (const name of ['unit', 'e2e (a)', 'e2e (b)', 'e2e (c)']) {
     const job = jobs.find(job => job.name === name);
     if (!job || job.status !== 'completed' || job.conclusion !== 'success') {
       throw new Error(`Checks run ${run.id} must include a successful ${name} job; skipped jobs do not qualify.`);

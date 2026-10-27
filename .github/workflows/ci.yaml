@@ -33,11 +33,17 @@ jobs:
 
   e2e:
     needs: unit
-    # The 45-minute lab runs once per pull request commit and once per main commit (the release
-    # gate requires it), not on every branch push; workflow_dispatch starts it by hand.
+    # The e2e suites are sharded across three parallel jobs, each with its own k3d lab, so the
+    # total wall time is the slowest shard plus setup rather than the sum of every suite. The
+    # suites run once per pull request commit and once per main commit (the release gate
+    # requires every shard), not on every branch push; workflow_dispatch starts them by hand.
     if: github.event_name != 'push' || github.ref == 'refs/heads/main'
     runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || vars.PANKO_CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [a, b, c]
     steps:
       # The lab images are imported, not pullable; near a full disk the kubelet garbage-collects them.
       - name: Free disk space
@@ -52,14 +58,16 @@ jobs:
         run: |
           python3 -m venv .venv
           .venv/bin/python -m pip install -r requirements-dev.txt
-      - name: Build local lab and run lifecycle, RBAC and gateway tests
+      - name: Build local lab and run shard ${{ matrix.shard }}
+        env:
+          CLUSTER_NAME: panko-shard-${{ matrix.shard }}
         run: |
           mkdir -p .local
           make cluster-up bootstrap build deploy
           # All images are built and imported; release the Go build layers.
           docker builder prune --all --force
           df -h /
-          make test
+          make test-shard SHARD=${{ matrix.shard }}
       - name: Collect diagnostics
         if: failure()
         env:
@@ -78,8 +86,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: lab-diagnostics
+          name: lab-diagnostics-${{ matrix.shard }}
           path: .local/diagnostics/
       - name: Remove test cluster
         if: always()
+        env:
+          CLUSTER_NAME: panko-shard-${{ matrix.shard }}
         run: make cluster-down
