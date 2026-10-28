@@ -3,6 +3,7 @@ package roles
 import (
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -39,5 +40,22 @@ func Mirror(args []string) error {
 	if os.Getenv("LISTEN_ADDRESS") == "" {
 		_ = os.Setenv("LISTEN_ADDRESS", ":8443")
 	}
-	return serve.RunTLS(handler, *cert, *key)
+	return serve.RunTLS(&serve.Instrumented{Role: "mirror", Route: mirrorRoute, Next: handler}, *cert, *key)
+}
+
+// mirrorRoute classifies provider mirror requests without provider names or versions.
+func mirrorRoute(r *http.Request) string {
+	switch {
+	case r.URL.Path == "/healthz":
+		return "healthz"
+	case !strings.HasPrefix(r.URL.Path, "/providers/"):
+		return "other"
+	case strings.HasSuffix(r.URL.Path, "/index.json"):
+		return "index"
+	case strings.HasSuffix(r.URL.Path, ".zip"):
+		return "archive"
+	case strings.HasSuffix(r.URL.Path, ".json"):
+		return "version"
+	}
+	return "other"
 }
