@@ -18,10 +18,20 @@ concurrency:
 jobs:
   unit:
     runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || vars.PANKO_CI_RUNNER || 'ubuntu-latest' }}
-    timeout-minutes: 10
+    # A cold cache (new dependencies) compiles everything with the race detector.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
+      # The Helm SDK, controller-runtime and the embedded Metacontroller make a cold race build take
+      # most of ten minutes; the Makefile keeps Go's module and build caches under .local.
+      - uses: actions/cache@v6
+        with:
+          path: |
+            .local/go-mod
+            .local/go-cache
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum', 'mise.toml') }}
+          restore-keys: go-${{ runner.os }}-${{ runner.arch }}-
       - name: Install test dependencies
         run: |
           python3 -m venv .venv
@@ -54,6 +64,15 @@ jobs:
           df -h /
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
+      # The Helm SDK, controller-runtime and the embedded Metacontroller make a cold race build take
+      # most of ten minutes; the Makefile keeps Go's module and build caches under .local.
+      - uses: actions/cache@v6
+        with:
+          path: |
+            .local/go-mod
+            .local/go-cache
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum', 'mise.toml') }}
+          restore-keys: go-${{ runner.os }}-${{ runner.arch }}-
       - name: Install test dependencies
         run: |
           python3 -m venv .venv
