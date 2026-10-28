@@ -54,10 +54,14 @@ spec:
             limits: {memory: 512Mi}
           volumeMounts:
             - {name: data, mountPath: /var/lib/postgresql/data}
+  # Written out as the API server stores it, so GitOps diffs stay empty.
   volumeClaimTemplates:
-    - metadata: {name: data}
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata: {name: data}
       spec:
         accessModes: [ReadWriteOnce]
+        volumeMode: Filesystem
         resources:
           requests: {storage: {{ .Values.lab.postgres.storage }}}
 {{- end }}

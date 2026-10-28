@@ -45,3 +45,8 @@ spec:
       kind: Deployment
       jsonPointers:
         - /spec/template/metadata/annotations/kubectl.kubernetes.io~1restartedAt
+    # The API server stores a status inside volumeClaimTemplates, which no chart can render.
+    - group: apps
+      kind: StatefulSet
+      jqPathExpressions:
+        - .spec.volumeClaimTemplates[]?.status
