@@ -235,7 +235,11 @@ func Preflight(ctx context.Context, api kube.API, target Target, o Options) erro
 			if a.namespace != "" {
 				scope = "in " + a.namespace
 			}
-			missing = append(missing, fmt.Sprintf("%s %s %s", a.verb, strings.TrimPrefix(a.resource+"."+a.group, "."), scope))
+			resource := a.resource
+			if a.group != "" {
+				resource += "." + a.group
+			}
+			missing = append(missing, fmt.Sprintf("%s %s %s", a.verb, resource, scope))
 		}
 	}
 	if len(missing) > 0 {

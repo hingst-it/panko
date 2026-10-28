@@ -94,7 +94,7 @@ func TestDownNeedsConfirmationAndOwnership(t *testing.T) {
 	}
 	// k3d never sees the user's kubeconfig.
 	for _, line := range strings.Split(calls(t, log), "\n") {
-		if strings.HasPrefix(line, "KUBECONFIG=") && !strings.HasSuffix(line, filepath.Join("dev", "lab", "k3d-kubeconfig")) {
+		if strings.HasPrefix(line, "KUBECONFIG=") && !strings.HasSuffix(line, filepath.Join("home", "k3d-kubeconfig")) {
 			t.Fatalf("k3d ran with %s", line)
 		}
 	}

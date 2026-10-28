@@ -116,8 +116,8 @@ first: chart defaults, `panko dev` lab settings, `--config`, `--values` files, `
 | Local copy of team tokens | — | — | `--tokens-file` |
 
 Nothing that `panko install` does is required for a working installation: the checks prevent
-mistakes, the CRD step is the same as Flux's `crds: CreateReplace` or `kubectl apply` of `crds/`,
-and the token file is a convenience. GitOps installations get everything else from the chart and
+mistakes, the CRD step corresponds to `kubectl apply --server-side` of `crds/` (or Flux's
+`crds: CreateReplace`), and the token file is a convenience. GitOps installations get everything else from the chart and
 its setup Job.
 
 ### CRDs and existing resources

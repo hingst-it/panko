@@ -61,7 +61,20 @@ eigenen Wegwerf-Clustern; vorhandene Cluster und Kubeconfigs blieben unveränder
 | `kubectl auth can-i` je Rolle: Controller/Gateway/Setup/Endpoint ohne fremde Secrets, Runner nur im eigenen State-Namespace, Setup ohne Workloads, Endpoint nur `runs/status` | wie vorgesehen |
 | Migration einer v0.0.1-Installation (`make bootstrap build deploy` von `main`) mit Ressource, siehe [Migration](#migration) | bestanden nach drei Korrekturen |
 | Abgebrochenes `panko install` (Prozess während des Helm-Wartens beendet): nächster Lauf markiert die hängende Revision als fehlgeschlagen und installiert erneut | bestanden |
+| Eigener Wegwerf-Cluster: nur lesende Identität → Ablehnung mit allen fehlenden Rechten; vorgerenderte Manifeste mit `kubectl apply --server-side`; Ablehnung von Legacy-States und entfernten Pools; Umstellung auf Helm-Release mit `--take-ownership`; `helm uninstall` behält Daten | bestanden |
 | Abgebrochenes `panko dev up` (SIGTERM während des Helm-Wartens), erneutes `dev up` ohne Port-Angabe: Lab und Port wiederverwendet, Revision `pending-install` fortgesetzt, danach `dev status`, Lebenszyklus in `team-b`, `dev down --yes`; globale Kubeconfig vor und nach dem Lauf byte-identisch (Änderungszeit, Größe, SHA-256) | bestanden |
+
+### Start, Shutdown, Readiness, Logs und Metriken je Rolle
+
+| Rolle | Start | Shutdown | Readiness | Logs | Metriken |
+| --- | --- | --- | --- | --- | --- |
+| `controller` | Deployment `database-hook`, SA `panko-controller`; wartet auf `panko-installation` | SIGTERM: Manager stoppt, danach leeren die Hook-Listener laufende Anfragen; Grace 40 s | `/readyz`: Hook-Listener aktiv und Cache-Sync (geprüft: 200); `/healthz` Liveness | Hook-Ereignisse JSON auf stdout (`event`), Metacontroller zap-JSON auf stderr | `:8080/metrics` Hook (E2E Observability), `:9999/metrics` controller-runtime (geprüft) |
+| `gateway` | Deployment, SA `platform-gateway`; wartet auf `gateway-auth` | SIGTERM: geordnetes Herunterfahren (`internal/serve`, Unit-Test) | `/healthz` Readiness und Liveness | JSON-Schreibprotokoll | `/metrics` Discovery-Cache (geprüft) |
+| `endpoint` | Deployment, SA `runner-endpoint`; wartet auf TLS-Secret | wie Gateway, Sweeper endet mit dem Prozess | `/healthz` über HTTPS | JSON | **keine** (bestehende Lücke) |
+| `mirror` | Deployment ohne Token, PVC-Cache | wie Gateway | `/healthz` über HTTPS | Warnungen bei Ausfällen | **keine** (bestehende Lücke) |
+| `runner` | Job je Ausführung, SA `tofu-runner` des Teams | SIGTERM wird an OpenTofu weitergereicht (Lock-Freigabe) | Job-Status und Termination-Message | JSON auf stdout | über die Ausführungsmetriken des Hooks |
+| `agent` | außerhalb des Clusters (Container, systemd, anderer Cluster) | SIGTERM, Grace 90 s in den Beispielen | `agent check` | stdout | keine |
+| `setup` | Job mit Digest-Namen, SA `panko-setup` | SIGTERM bzw. Zeitlimit 5 min | Job `Complete` | `ok <Schritt>`, nie Werte | keine (Job-Status) |
 
 ## Metacontroller-Einbettung und Integrationsgrenzen
 
@@ -101,6 +114,36 @@ die folgenden Grenzen gezeigt, die in die Umsetzung eingeflossen sind:
   `panko install` sie unverändert.
 - **Lizenz.** Metacontroller steht unter Apache-2.0 wie Panko.
 
+## Prüfung der Dokumentation
+
+Geändert bzw. neu: README, `docs/quickstart.md`, `docs/agent-install.md`, `docs/installation.md`,
+`docs/gitops.md`, `docs/local-lab.de.md`, `docs/operations.de.md`, `docs/remote-runners.de.md`,
+`docs/state-backends.de.md`, `docs/go-porting.de.md`, `docs/releases.md`, `AGENTS.md`,
+`CHANGELOG.md`, `charts/panko/README.md`, `examples/gitops/*`. Alle relativen Links und Anker
+lösen auf; keine Verweise auf entfernte Dateien, Make-Ziele oder Binaries (Ausnahme: der als
+historisch markierte Python-Rückwechsel in `go-porting.de.md`).
+
+| Aussage | Beleg |
+| --- | --- |
+| `dev up` ohne Checkout, private k3d-Installation mit Prüfsumme, Ablehnung ohne Zustimmung | Lauf ohne Checkout, `PATH` ohne k3d |
+| `dev up` wiederholt, Neustart, Fortsetzen nach Abbruch, Port wiederverwendet | manuelle Läufe (siehe Tabelle oben) |
+| Fremder Cluster gleichen Namens bzw. fremdes Owner-Label wird abgelehnt und nicht verändert | Unit-Tests `internal/devlab` |
+| Belegter Port wird vor jeder Änderung abgelehnt | Lauf mit belegtem Port: kein Cluster, kein Zustand |
+| `dev status` ohne Secrets; `dev down` nur nach Bestätigung, nur das eigene Lab | Unit-Test und manuelle Läufe |
+| Globale Kubeconfig unverändert | Vergleich von Änderungszeit, Größe, SHA-256 |
+| `panko install` nennt Ziel und Kontext, prüft Rechte | Lauf mit nur lesender Identität: alle fehlenden Rechte genannt, nichts angelegt |
+| Ablehnung: Installation ohne Helm, separater Metacontroller, Legacy-States, entfernte Pools | je ein Lauf gegen einen echten Cluster |
+| CRDs vor jedem Upgrade, Metacontroller-CRDs fremder Installationen bleiben | Ausgaben der Läufe; Übernahme bei `--take-ownership` |
+| Setup-Job bei jedem `panko install` erneut, Credentials unverändert | erneutes `make deploy`; Token-Hash vor/nach |
+| Abbruch während des Helm-Wartens wird fortgesetzt | `panko install` und `panko dev up` abgebrochen und erneut gestartet |
+| Migration mit `--take-ownership` | v0.0.1-Lab, siehe [Migration](#migration) |
+| GitOps: reproduzierbares Rendering, keine Secrets, vorgerenderte Manifeste, Reihenfolge CRDs → Rest | `make lint-chart`, Chart-Tests, Lauf mit `kubectl apply --server-side` |
+| `helm uninstall` behält Namespaces, CRDs, StatefulSets, PVCs und Secrets | Lauf gegen echten Cluster |
+| Argo-CD- und Flux-Optionen (`ServerSideApply`, `SkipDryRunOnMissingResource`, `CreateReplace`, Pruning-Annotationen, Self-Heal) | **nicht geprüft**; in `gitops.md` als Erwartung gemäß deren Dokumentation gekennzeichnet |
+| Bilder per `docker save`/`docker load` übertragen | **nicht geprüft** (Standard-Docker-Funktion) |
+| Zertifikatserneuerung (Löschen des TLS-Secrets, Setup erneut, Neustart) | Setup-Teil geprüft (Job läuft erneut), Erneuerung selbst **nicht geprüft** |
+| SSH-Modul über `module.sshSecret` | Chart-Test (Schlüssel nur im Mirror), Lauf **nicht geprüft** |
+
 ## Bekannte Einschränkungen und offene Entscheidungen
 
 - **Images und Chart sind nicht veröffentlicht.** Der Release-Workflow baut `panko-server`
@@ -134,6 +177,8 @@ die folgenden Grenzen gezeigt, die in die Umsetzung eingeflossen sind:
   Controller angewendet.
 - **Binary-Größe.** `panko` wächst durch das Helm-SDK auf rund 98 MB, `panko-admin` auf
   68 MB, `panko-server` auf 49 MB (Image 58 MB).
+- **Metriken** fehlen weiterhin für `endpoint` und `mirror` (wie vor dem PoC); Readiness und
+  Logs sind für alle Rollen vorhanden.
 - **`test/portability_e2e.py`** (Python/Go-Übergänge mit gesicherten Images) ist nicht Teil der
   Suiten und für den eingebetteten Controller nicht mehr aussagekräftig.
 
@@ -213,4 +258,5 @@ Installationen aus der Zeit vor der State-Isolation (zuerst mit v0.0.1 migrieren
 8. Migration als ein Befehl (Pause, Entfernen des separaten Metacontrollers, Aufräumen der
    Altobjekte, Resume) und als CI-Test mit einem v0.0.1-Lab.
 9. Leader-Election und mehrere Controller-Replikate im Lab prüfen (vorhanden, nicht getestet).
-10. Dokumentation der Release-Version aktualisieren (Quickstart verweist für 0.0.1 auf den Tag).
+10. Prometheus-Metriken für `endpoint` und `mirror`.
+11. Dokumentation der Release-Version aktualisieren (Quickstart verweist für 0.0.1 auf den Tag).

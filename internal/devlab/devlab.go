@@ -153,10 +153,10 @@ func (o Options) run(ctx context.Context, name string, args ...string) (string, 
 	if strings.HasPrefix(filepath.Base(name), "k3d") {
 		// k3d edits the default kubeconfig on create and delete even when told not to switch
 		// contexts; a lab-private file keeps ~/.kube/config untouched.
-		if err := os.MkdirAll(o.dir(), 0o700); err != nil {
+		if err := os.MkdirAll(o.Home, 0o700); err != nil {
 			return "", err
 		}
-		cmd.Env = append(os.Environ(), "KUBECONFIG="+filepath.Join(o.dir(), "k3d-kubeconfig"))
+		cmd.Env = append(os.Environ(), "KUBECONFIG="+filepath.Join(o.Home, "k3d-kubeconfig"))
 	}
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
