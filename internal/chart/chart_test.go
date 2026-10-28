@@ -186,6 +186,9 @@ func TestEmbeddedControllerCallsTheHookOverLoopback(t *testing.T) {
 	if jsonx.Str(jsonx.Obj(jsonx.Obj(controller["metadata"])["labels"])["platform.example.com/controller"]) != "panko" {
 		t.Fatal("the CompositeController lacks the label the embedded controller selects")
 	}
+	if jsonx.Str(jsonx.Obj(jsonx.Obj(controller["metadata"])["annotations"])["helm.sh/resource-policy"]) != "keep" {
+		t.Fatal("an uninstall would delete the CompositeController and strip the Databases' finalizers")
+	}
 	for _, hook := range jsonx.Obj(jsonx.Obj(controller["spec"])["hooks"]) {
 		if url := jsonx.Str(jsonx.Obj(jsonx.Obj(hook)["webhook"])["url"]); !strings.HasPrefix(url, "http://127.0.0.1:8090/") {
 			t.Fatalf("hook URL %s leaves the controller pod", url)

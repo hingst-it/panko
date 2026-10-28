@@ -14,6 +14,26 @@ Image-Build ein dediziertes k3d-Lab, ohne Hintergrundprozess und ohne die global
 zu verändern. Die bestehenden E2E-Suiten bestehen unverändert in ihrem fachlichen Umfang
 (nur Image- und Adressanpassungen der Testfixtures).
 
+## Akzeptanzkriterien des Auftrags
+
+Die Kriterien stammen wörtlich aus der lokalen Aufgabenbeschreibung `POC.md`.
+
+| Kriterium | Stand | Beleg |
+| --- | --- | --- |
+| Umsetzung vollständig auf dem separaten PoC-Branch | erfüllt | Branch `poc/unified-server-dev-install`, kein Merge, kein Push |
+| Gemeinsame Server-Binary startet alle vorgesehenen Rollen | erfüllt | `panko-server gateway/controller/endpoint/mirror/runner/agent/setup`; alle laufen in Lab, E2E und GitOps-Läufen |
+| Metacontroller läuft integriert in der Controller-Rolle | erfüllt | kein Namespace `metacontroller`; CompositeController über Loopback, Metriken auf `:9999` |
+| Rollen behalten getrennte ServiceAccounts und Berechtigungen | erfüllt | Chart-Tests, `kubectl auth can-i`, `rbac_e2e` |
+| `panko install` funktioniert in einem dedizierten vorhandenen Testcluster | erfüllt | CI-Weg `make cluster-up build deploy`, Migration, Wegwerf-Cluster |
+| `panko dev up/status/down` funktioniert ohne Checkout beim Anwender | erfüllt | Läufe aus einem leeren Verzeichnis ohne `make`, Go oder k3d auf `PATH` |
+| Wiederholter Start und Neustarts erhalten Ressourcen und State | erfüllt | Fingerprints vor/nach Cluster-Neustart, wiederholtem `dev up`, Migration |
+| Ein Ressourcenlebenszyklus einschließlich Fehler, Retry und Destroy ist geprüft | erfüllt | Dev-Lab (Provider-Fehler, `retry`, `delete`) und `failures_e2e` |
+| Helm-Lint und Rendering-Prüfungen bestehen | erfüllt | `make lint-chart`, `internal/chart`-Tests |
+| GitOps-Rendering ist reproduzierbar und benötigt keine verborgenen CLI-Schritte | erfüllt | byteidentisches Rendering; vorgerenderte Manifeste, Argo CD und Flux ohne `panko install` |
+| Argo-CD- und Flux-Beispiele sind enthalten; der Validierungsumfang ist dokumentiert | erfüllt | `examples/gitops`, [gitops.md](gitops.md#validation-scope) |
+| Fremde Cluster, Kontexte und Daten bleiben unverändert | erfüllt, mit Vorbehalt | globale Kubeconfig byteidentisch; fremde k3d-Cluster und Metacontroller werden abgelehnt. Vorbehalt: die nicht versionierte Datei `tsystems.apikey` im Repository-Wurzelverzeichnis fehlte nach der Sitzung; kein Befehl dieser Arbeit hat sie angesprochen, die Ursache ist ungeklärt |
+| Relevante Unit-, RBAC- und E2E-Prüfungen bestehen | erfüllt | `make test-unit lint lint-go`, E2E-Shards a/b/c, Observability-E2E mit Rollenmetriken |
+
 ## Was funktioniert und wie es reproduziert wird
 
 | Bereich | Umsetzung | Nachweis |

@@ -188,6 +188,11 @@ metadata:
   labels:
     platform.example.com/controller: panko
     {{- include "panko.labels" . | nindent 4 }}
+  # Kept on uninstall: Metacontroller finalizes a deleted CompositeController by removing its
+  # finalizer from every Database. With the controller gone it would hang in Terminating, and a
+  # later reinstall would strip the Databases' destroy finalizers.
+  annotations:
+    {{- include "panko.retain" . | nindent 4 }}
 spec:
   generateSelector: true
   resyncPeriodSeconds: 30
