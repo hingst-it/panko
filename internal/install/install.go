@@ -31,8 +31,9 @@ type Options struct {
 	// Config is an optional panko.json; it becomes the chart's installation values.
 	Config string
 	// Values files and --set expressions override the chart defaults, in this order.
-	Values []string
-	Set    []string
+	Values  []string
+	Set     []string
+	SetJSON []string
 	// Base values are the lowest layer above the chart defaults (panko dev up's lab settings).
 	Base map[string]any
 	// TokensFile receives a private copy of the team tokens; empty writes none.
@@ -41,9 +42,11 @@ type Options struct {
 	TakeOwnership bool
 	// AllowForeignMetacontroller accepts a separately running Metacontroller.
 	AllowForeignMetacontroller bool
-	Timeout                    time.Duration
-	In                         io.Reader
-	Out                        io.Writer
+	// RecoverPending recovers a pending Helm revision that is known to be abandoned.
+	RecoverPending bool
+	Timeout        time.Duration
+	In             io.Reader
+	Out            io.Writer
 }
 
 // Target is the resolved cluster: the context actually used and its API server.
@@ -106,11 +109,16 @@ func Values(o Options) (map[string]any, error) {
 			return nil, fmt.Errorf("invalid --set %q: %w", expression, err)
 		}
 	}
+	for _, expression := range o.SetJSON {
+		if err := strvals.ParseJSON(expression, values); err != nil {
+			return nil, fmt.Errorf("invalid --set-json %q: %w", expression, err)
+		}
+	}
 	return values, nil
 }
 
 // Run checks the target, installs or upgrades Panko and verifies that it is ready.
-func Run(ctx context.Context, o Options) error {
+func Run(ctx context.Context, o Options) (err error) {
 	if o.Out == nil {
 		o.Out = os.Stdout
 	}
@@ -120,6 +128,14 @@ func Run(ctx context.Context, o Options) error {
 	if o.Timeout == 0 {
 		o.Timeout = 10 * time.Minute
 	}
+	// Validate the configuration and render once before reading the kubeconfig or the cluster.
+	values, err := Values(o)
+	if err != nil {
+		return err
+	}
+	if _, err := installationConfig(values); err != nil {
+		return err
+	}
 	target, err := Resolve(o.Kubeconfig, o.Context)
 	if err != nil {
 		return err
@@ -128,11 +144,6 @@ func Run(ctx context.Context, o Options) error {
 	if err != nil {
 		return err
 	}
-	values, err := Values(o)
-	if err != nil {
-		return err
-	}
-	// Validate the configuration and render once before touching the cluster.
 	rendered, err := chart.Render(values, false)
 	if err != nil {
 		return fmt.Errorf("the chart does not render with these values: %w", err)
@@ -149,6 +160,29 @@ func Run(ctx context.Context, o Options) error {
 	if !o.Yes && !confirm(o.In, o.Out, fmt.Sprintf("Install or upgrade Panko in context %q (%s)? [y/N] ", target.Context, target.Server)) {
 		return fmt.Errorf("aborted; nothing was changed")
 	}
+	lease, err := acquireLease(ctx, api, 45*time.Second, o.Out)
+	if err != nil {
+		return err
+	}
+	defer lease.release(context.Background())
+	// From here on every change uses the lease's context, which ends if ownership is lost.
+	ctx = lease.Context()
+	defer func() {
+		if cause := context.Cause(ctx); errors.Is(cause, errLeaseLost) {
+			err = cause
+		}
+	}()
+	recoverPending := o.RecoverPending || lease.Interrupted
+	if lease.Interrupted {
+		fmt.Fprintln(o.Out, "A previous panko install was interrupted; resuming it")
+	}
+	// A pending revision of another tool is refused before anything changes.
+	release := chart.Target{Kubeconfig: target.Kubeconfig, Context: target.Context}
+	if current, err := release.Current(io.Discard); err != nil {
+		return err
+	} else if current != nil && current.Info.Status.IsPending() && !recoverPending {
+		return fmt.Errorf("release revision %d is %s: another Helm operation may still be running; nothing was changed. If it was interrupted, rerun with --recover-pending", current.Version, current.Info.Status)
+	}
 	// Adopting an installation whose separate Metacontroller was removed also adopts its CRDs.
 	if err := ApplyCRDs(ctx, api, o.TakeOwnership && !o.AllowForeignMetacontroller, o.Out); err != nil {
 		return err
@@ -162,7 +196,7 @@ func Run(ctx context.Context, o Options) error {
 		}
 	}
 	fmt.Fprintf(o.Out, "Applying the Helm release and waiting up to %s for workloads and Jobs...\n", o.Timeout)
-	rel, err := chart.Target{Kubeconfig: target.Kubeconfig, Context: target.Context}.Apply(ctx, values, chart.ApplyOptions{Timeout: o.Timeout, TakeOwnership: o.TakeOwnership}, o.Out)
+	rel, err := chart.Target{Kubeconfig: target.Kubeconfig, Context: target.Context}.Apply(ctx, values, chart.ApplyOptions{Timeout: o.Timeout, TakeOwnership: o.TakeOwnership, RecoverPending: recoverPending}, o.Out)
 	if err != nil {
 		return fmt.Errorf("helm release failed (rerun to resume; existing resources and state are kept): %w", err)
 	}
@@ -208,6 +242,7 @@ var required = []access{
 	{"create", "", "secrets", chart.Namespace},
 	{"get", "", "secrets", "infra-gateway"},
 	{"create", "metacontroller.k8s.io", "compositecontrollers", ""},
+	{"create", "coordination.k8s.io", "leases", chart.Namespace},
 }
 
 // Preflight checks reachability, version, permissions and conflicts; it changes nothing.
@@ -287,9 +322,14 @@ func Preflight(ctx context.Context, api kube.API, target Target, o Options) erro
 		if err != nil {
 			return err
 		}
-		if c, ok := installationConfig(values); ok {
+		if c, err := installationConfig(values); err == nil {
 			if err := m.CheckPools(ctx, c); err != nil {
 				return err
+			}
+			if current, err := ClusterConfig(ctx, api); err == nil {
+				if err := m.CheckRemovedTeams(ctx, current, c); err != nil {
+					return err
+				}
 			}
 		}
 		fmt.Fprintln(o.Out, "ok existing resources keep their state backend and runner pool")
@@ -297,22 +337,26 @@ func Preflight(ctx context.Context, api kube.API, target Target, o Options) erro
 	return nil
 }
 
-// installationConfig reads the installation values the chart will render, if they are complete.
-func installationConfig(values map[string]any) (admin.Config, bool) {
+// installationConfig reads and validates the installation values the chart will render. The
+// setup Job validates the same configuration in the cluster; refusing it here changes nothing.
+func installationConfig(values map[string]any) (admin.Config, error) {
 	defaults, err := chart.Load()
 	if err != nil {
-		return admin.Config{}, false
+		return admin.Config{}, err
 	}
 	merged := loader.MergeMaps(defaults.Values, values)
 	data, err := yaml.Marshal(merged["installation"])
 	if err != nil {
-		return admin.Config{}, false
+		return admin.Config{}, err
 	}
 	var c admin.Config
-	if yaml.Unmarshal(data, &c) != nil || c.Validate() != nil {
-		return admin.Config{}, false
+	if err := yaml.Unmarshal(data, &c); err != nil {
+		return admin.Config{}, fmt.Errorf("invalid installation values: %w", err)
 	}
-	return c, true
+	if err := c.Validate(); err != nil {
+		return admin.Config{}, fmt.Errorf("invalid installation values: %w", err)
+	}
+	return c, nil
 }
 
 // ApplyCRDs server-side applies Panko's CRDs, because Helm never upgrades crds/. Metacontroller's

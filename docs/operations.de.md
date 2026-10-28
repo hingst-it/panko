@@ -57,8 +57,17 @@ make deploy
 
 `make deploy` ergänzt über den Setup-Job fehlende Team-Tokens im Secret `gateway-auth` und
 über `--tokens-file` in `.local/team-tokens.json`; vorhandene Tokens bleiben unverändert. Geht die lokale Datei
-verloren, stellt `make deploy` sie aus dem Secret wieder her. Teams zu entfernen wird
-nicht unterstützt; ihre Ressourcen und States müssten vorher gelöscht werden.
+verloren, stellt `make deploy` sie aus dem Secret wieder her.
+
+Ein Team wird stillgelegt, indem zuerst seine Ressourcen über die API gelöscht werden (Destroy
+samt State-Bereinigung) und das Team danach aus `teams` entfernt wird. `panko install` (auch
+`make deploy`) verweigert das Entfernen, solange im Team-Namespace noch Ressourcen eines
+exponierten Typs liegen. Entfernt ein GitOps-Werkzeug das Team trotzdem, verliert es nur den
+API-Zugang (Gateway-Rolle, Token); Runner-Identität, Team- und State-RBAC, Endpoint-Rechte und
+das BackendProfile tragen `helm.sh/resource-policy: keep` und die Pruning-Annotationen und
+bleiben, sodass verbliebene Ressourcen weiter aktualisiert und zerstört werden können (z. B. per
+`kubectl delete`). Nach dem letzten Destroy räumt der Administrator Namespaces und diese
+Objekte von Hand ab.
 
 Mit `"s3": false` installiert das Chart weder den S3-Gateway noch Team-Profile; Ressourcen
 verwenden dann das Kubernetes-Backend.
@@ -238,10 +247,15 @@ den ausgewählten Cluster.
 
 Das Chart startet `provider-mirror` (Rolle `mirror` von `panko-server`) in `infra-runners`
 unter `https://provider-mirror.infra-runners.svc:8443` (`providerMirror.enabled`). Der
-Setup-Job erzeugt nur bei fehlendem Secret `provider-mirror-tls` eine ECDSA-P-256-CA (fünf
-Jahre) und ein Serverzertifikat (ein Jahr) für beide Service-DNS-Namen, und erneuert beide
-30 Tage vor Ablauf. Der CA-Schlüssel wird nach dem Signieren verworfen; gespeichert wird nur
-der Server-Schlüssel. Danach verteilt der Setup-Job allein das CA-Zertifikat als ConfigMap
+Setup-Job erzeugt einmal eine stabile ECDSA-P-256-CA (zehn Jahre) im Secret
+`provider-mirror-tls-ca`, das nur die Setup-Rolle liest, und daraus ein Serverzertifikat (ein
+Jahr) für beide Service-DNS-Namen in `provider-mirror-tls`. Das Serverzertifikat wird 30 Tage vor
+Ablauf aus derselben CA erneuert, sodass Clients ihr Vertrauen behalten. Der Setup-Job läuft dafür
+zusätzlich täglich als CronJob `panko-setup-scheduled` (`secrets.renewSchedule`), auch bei
+GitOps ohne geänderte Werte. Mirror und Endpoint laden ein geändertes Zertifikat aus dem
+Secret-Volume ohne Neustart (Prüfung alle 10 s, nach der Volume-Aktualisierung durch das Kubelet,
+typisch unter einer Minute); das gilt auch für extern verwaltete Secrets, etwa von cert-manager.
+Danach verteilt der Setup-Job allein das CA-Zertifikat als ConfigMap
 `panko-mirror-ca` an die Team-Namespaces (manuell: `admin --kubeconfig "$KUBECONFIG" mirror-ca | kubectl apply -f -`).
 
 `PROVIDER_MIRROR` am Hook aktiviert die optionale CA-Einbindung in neue Jobs.
@@ -267,12 +281,16 @@ Runner brauchen ihn weiterhin für den Direktbetrieb.
 
 Zur Diagnose `kubectl -n infra-runners get pods -l app=provider-mirror` und
 `kubectl -n infra-runners rollout status deploy/provider-mirror` verwenden.
-Vor Ablauf des Serverzertifikats in einem Wartungsfenster das TLS-Secret löschen,
-`make deploy` bzw. `panko install` ausführen (beide starten den Setup-Job neu; bei GitOps den
-Setup-Job löschen, damit ihn die nächste Synchronisierung neu anlegt), dann
-`kubectl -n infra-runners rollout restart deploy/provider-mirror` und die CA-Verteilung prüfen.
-Der Mirror liest sein Zertifikat nur beim Start. Dies erzeugt auch eine neue CA; bereits
-laufende Jobs vorher abschließen lassen.
+Eine sofortige Erneuerung: TLS-Secret löschen und `make deploy`, `panko install` oder den
+CronJob (`kubectl -n infra-runners create job --from=cronjob/panko-setup-scheduled renew`)
+ausführen; die CA bleibt dieselbe. Die CA selbst wird nicht automatisch ersetzt; der Setup-Job
+meldet ein Jahr vor ihrem Ablauf eine Warnung. Ihr Austausch (CA-Secret löschen, alle Clients
+und Agenten auf die neue CA umstellen) ist ein geplanter manueller Schritt. Installationen aus der
+Zeit vor stabilen CAs behalten ihr gültiges Serverzertifikat: `ca.crt` enthält dann die bisherige
+und die neue stabile CA, Runner erhalten beide über `panko-mirror-ca`, Agenten über
+`admin endpoint-ca`. Erst die nächste Erneuerung wechselt auf die stabile CA und entfernt die
+bisherige aus `ca.crt`; Agenten müssen das Bündel bis dahin übernommen haben. Muss das
+Zertifikat bei der Umstellung ohnehin sofort erneuert werden, wechselt das Vertrauen sofort.
 
 ## Ausführungsvertrag
 

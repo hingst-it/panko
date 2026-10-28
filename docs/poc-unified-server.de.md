@@ -169,6 +169,44 @@ historisch markierte Python-Rückwechsel in `go-porting.de.md`).
 | Zertifikatserneuerung (TLS-Secrets löschen, `make deploy`, Mirror und Endpoint neu starten) | neue CAs, Team-ConfigMaps aktualisiert, folgender Apply lud alle Provider über den Mirror ohne Rückfall |
 | SSH-Modul über `module.sshSecret` | SSH-Git-Server im Lab-Netz: Mirror klont per SSH (sshd-Log), Ressource Ready, Schlüssel nur in `infra-runners`, kein Job-Pod mountet ihn |
 
+## Review-Befunde (Codex, PR #70)
+
+Drei Review-Runden; jeder Befund wurde am Code bzw. durch Rendering nachvollzogen, alle trafen zu.
+
+| Befund | Umsetzung | Beleg |
+| --- | --- | --- |
+| P1 Entfernen eines Teams entzieht Runner-Rechte, Ressourcen bleiben | Runner-Identität, Team-/State-RBAC, Endpoint-Rechte und BackendProfile werden behalten (Keep-/Pruning-Annotationen), gemeinsame Bindings je Team; `panko install` verweigert das Entfernen eines Teams mit Ressourcen | Chart-Test `TestTeamRemovalKeepsExecutionAccess`, Unit-Test; live: Verweigerung, nach `helm upgrade` ohne das Team bleiben die Rechte, Destroy gelingt |
+| P1 GitOps umgeht die Pool-Prüfung | Controller hält Pool-Definitionen in `panko-runner-pools-retained`; gebundene, nicht mehr konfigurierte Pools bleiben ausführbar. Folgerunden: Aufzeichnung nur wachsend (kein Löschen nach Momentaufnahme), Schreiber geordnet nach Deployment (UID, Erstellzeit) und Rollout-Revision, Owner per UID geprüft | Unit-Tests für Entfernen, ältere Replika, neu erstelltes Deployment, überlappende Neuerstellung; live (siehe unten) |
+| P1 Zweiter Installer übernimmt laufende Operation | Lease `panko-system/panko-install`; Wiederaufnahme nur nach nachweislich abgebrochenem `panko install`, sonst `--recover-pending`. Folgerunden: Prüfung vor jeder Änderung, Abbruch aller Änderungen bei Verlust der Lease, Watchdog ab geschriebenem `renewTime` unabhängig von hängenden Anfragen, zu langsame Übernahme abgelehnt | Unit-Tests (Übernahme, API weg, API hängt, langsame Übernahme); live: zweiter Lauf wartet, echte `pending-upgrade`-Revision eines `helm upgrade` verweigert ohne eine Änderung |
+| P1 Zertifikatserneuerung ohne Koordination | Stabile CA (Schlüssel nur für Setup), Neuladen in Mirror und Endpoint ohne Neustart, täglicher Setup-CronJob; Migration bestehender Installationen gestaffelt (CA-Bündel bis zur nächsten Erneuerung) | Unit-Tests inkl. Migration vom alten Verfahren; live: neues Zertifikat nach ~20–40 s ausgeliefert, gleiche CA, gleicher Pod |
+| P2 S3-Image-Änderung auf unveränderlichem Job | Job-Name aus Teamliste und gerendertem Pod-Template (erste Fassung hashte wegen `.Files` einen leeren String) | Chart-Tests für Image-, Team- und Template-Änderung; live: neuer Job-Name beim Image-Wechsel über `helm upgrade` |
+| P2 Pull-Secrets erreichen Runner-Jobs nicht | `imagePullSecrets` an den `tofu-runner`-ServiceAccounts | Chart-Test; live: privates Registry mit Passwort, Runner-Job zieht `panko-server` nur über das Pull-Secret |
+| Zusatz: CRDs ohne Pruning-Schutz | Argo-CD- und Flux-Annotationen an allen CRDs | Chart-Test `TestCRDsAreProtectedFromPruning` |
+| Folgebefund aus dem Live-Test | Helm-SDK verwendete den Feldmanager `panko`; ein späteres `helm upgrade` scheiterte an Konflikten. Jetzt Feldmanager `helm` wie das Helm-CLI | live: `helm upgrade` nach `panko install` ohne Konflikte |
+| Folgebefund aus dem Live-Test | Chart setzte kein `MODULE_REPO`; Runner-Pools ohne eigenes Modul liefen nie | Chart-Test; live: Run für Pool ohne Modul |
+| Folgebefund aus dem Live-Test | Ungültige Installationswerte übersprangen still alle Vorabprüfungen | Unit-Test; Ablehnung vor jedem Clusterzugriff |
+
+Live geprüft in Wegwerf-Clustern (k3d, Build mit allen Korrekturen):
+
+- Privates Registry mit Passwort (TLS, anonymer Abruf 401), Image nur dort: Installation, Setup-Job,
+  alle Rollen und der Runner-Job einer Database ziehen `panko-server` über die Pull-Secrets.
+- Zwei gleichzeitige `panko install`: der zweite wartet auf den ersten, beide nacheinander erfolgreich.
+- Echte `pending-upgrade`-Revision eines hängenden `helm upgrade`: `panko install` endet mit Fehler,
+  ohne CRD-, Job- oder Deployment-Änderung; danach regulär fortsetzbar.
+- TLS-Secret des Mirrors gelöscht, `panko install`: neue Seriennummer wird nach 20–60 s ausgeliefert,
+  gleiche CA, gleicher Pod; der CronJob läuft manuell ausgelöst durch.
+- `helm upgrade` nach `panko install` ohne Feldmanager-Konflikte; S3-Image-Wechsel erzeugt einen
+  neuen Onboarding-Job, der abschließt.
+- Pool `edge` mit gebundener Database (S3-StateBackend): `panko install` verweigert das Entfernen;
+  ein `helm upgrade` entfernt ihn trotzdem, der Controller meldet `runner_pool_retained`, und nach
+  einer Spec-Änderung entsteht ein neuer Run (Phase `Applying`).
+- Team entfernt über `helm upgrade`: Gateway-Rolle weg, Runner-Identität und State-RBAC bleiben,
+  Destroy der verbliebenen Database samt State-Bereinigung gelingt; `panko install` hatte das
+  Entfernen verweigert.
+- Dabei gefunden und behoben: Pools ohne eigenes Modul konnten mit dem Chart nie ausgeführt werden
+  (`MODULE_REPO` fehlte); ungültige Installationswerte ließen die Vorabprüfungen still aus und
+  werden jetzt vor jedem Clusterzugriff abgelehnt.
+
 ## Bekannte Einschränkungen und offene Entscheidungen
 
 - **Images und Chart sind nicht veröffentlicht.** Der Release-Workflow baut `panko-server`
@@ -189,7 +227,8 @@ historisch markierte Python-Rückwechsel in `go-porting.de.md`).
   hätten Namespaces und RBAC außerhalb des Releases benötigt. Bei GitOps läuft der Job nur
   bei geänderten Eingaben; ein gelöschtes Credential entsteht erst nach Löschen des Jobs
   neu. `panko install` startet ihn bei jedem Lauf neu.
-- **Zertifikatserneuerung** erneuert die Secrets, startet Mirror und Endpoint aber nicht neu.
+- **CA-Austausch** (nicht die Erneuerung der Serverzertifikate) bleibt ein manueller Schritt, der
+  Setup-Job warnt ein Jahr vor Ablauf; Agenten brauchen dann die neue CA.
 - **Gateway-RBAC** wird aus `gateway.exposedResources` gerendert. Zur Laufzeit ergänzte CRDs
   brauchen weiterhin `panko admin gateway-rbac`; ein Upgrade setzt diese Ergänzungen zurück.
 - **Modul-Rollout.** Controller und Modul-Mirror rollen im selben Upgrade aus; ein weniger als
@@ -273,8 +312,7 @@ Installationen aus der Zeit vor der State-Isolation (zuerst mit v0.0.1 migrieren
 2. Die Argo-CD- und Flux-Prüfungen in CI übernehmen (heute manuelle Skripte).
 3. Entscheidung zum Hook-Prozess (eigener Container) und zur Umbenennung von `database-hook`.
 4. Konfigurierbare Namen vorhandener Secrets oder eine dokumentierte External-Secrets-Vorlage.
-5. Neustart von Mirror und Endpoint nach Zertifikatserneuerung (z. B. Checksum-Annotation
-   aus dem Setup-Job oder Neuladen des Zertifikats im Prozess).
+5. Automatischer CA-Austausch mit Vertrauensübergang (heute manuell, mit Warnung).
 6. Modul-Rollout: Controller erst nach Bereitschaft des Mirrors mit der neuen Revision.
 7. Automatische Prüfung der Metacontroller-Version (Renovate-Regel oder CI-Check für
    `replace` und `crds/metacontroller.yaml`).

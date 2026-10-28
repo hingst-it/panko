@@ -95,9 +95,20 @@ context, kubeconfig, release) before asking for confirmation. It then:
 6. verifies the controller's `/readyz` (embedded Metacontroller synced) and the gateway through
    its Service, and with `--tokens-file` writes a private copy of the team tokens.
 
+The release is applied with the field manager `helm`, like the helm CLI, so an installation can
+alternate between `panko install` and `helm upgrade`; GitOps controllers use their own managers
+(Flux: `helm-controller`) and may need to take over fields once when an installation moves to them.
 A failed upgrade is not rolled back. Panko's state lives in its own objects, so rerunning the
-same command resumes; a revision left pending by an interrupted run is marked failed first. Every
-run also starts the setup Job again, so a deleted credential is recreated.
+same command resumes. Runs are serialized by the Lease `panko-system/panko-install`: a second
+`panko install` waits up to 45 seconds and then refuses while the first is active. A run that can
+no longer be sure it holds the Lease cancels all its changes, including the Helm operation: when
+another holder appears, and in any case 20 seconds after the last successful renewal, even while a
+renewal request still hangs; the Lease lasts 30 seconds. Directly after
+acquiring the Lease and before any change, a pending Helm revision is checked: it is recovered
+(marked failed, then installed again) only when the previous `panko install` holding the Lease
+stopped without releasing it. A pending revision from Helm, Flux or another tool may still be in
+progress, so `panko install` refuses it and changes nothing unless `--recover-pending` is given. Every run also starts the setup Job again, so a deleted credential is recreated, and
+it refuses to remove a team that still has resources.
 
 `panko.json` (`--config`) is the same document as the chart's `installation` values: teams,
 `s3`, `egress`, `egressTargets`, `runnerPools` and `runnerEndpoint`. Value layers, lowest

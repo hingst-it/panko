@@ -144,6 +144,10 @@ func Render(values map[string]any, includeCRDs bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return renderChart(c, values, includeCRDs)
+}
+
+func renderChart(c *chartv2.Chart, values map[string]any, includeCRDs bool) (string, error) {
 	kubeVersion, err := common.ParseKubeVersion("v1.35.0")
 	if err != nil {
 		return "", err
@@ -187,6 +191,10 @@ func (t Target) flags() *genericclioptions.ConfigFlags {
 	flags.Namespace = &namespace
 	return flags
 }
+
+// Releases are applied as the field manager "helm", like the helm CLI, so an installation made with
+// panko install can later be upgraded with helm (or the reverse) without conflicts.
+func init() { kube.ManagedFieldsManager = "helm" }
 
 func (t Target) configuration(log io.Writer) (*action.Configuration, error) {
 	cfg := action.NewConfiguration(action.ConfigurationSetLogger(slog.NewTextHandler(log, &slog.HandlerOptions{Level: slog.LevelWarn})))
@@ -238,6 +246,9 @@ type ApplyOptions struct {
 	// TakeOwnership adopts objects that exist without Helm ownership, e.g. from make deploy. Their
 	// fields belong to kubectl's field manager, so adoption also forces server-side apply conflicts.
 	TakeOwnership bool
+	// RecoverPending marks a pending revision failed before applying. Only set it when the
+	// operation that left it pending is known to have stopped; otherwise it may still be running.
+	RecoverPending bool
 }
 
 // Apply installs or upgrades the release and waits until its workloads and Jobs are ready.
@@ -255,8 +266,12 @@ func (t Target) Apply(ctx context.Context, values map[string]any, o ApplyOptions
 	if err != nil {
 		return nil, err
 	}
-	// An interrupted panko install leaves its revision pending, which blocks every later Helm
-	// operation. Marking it failed lets this run resume; Panko's own objects are unaffected.
+	// A pending revision is either an operation in progress (Helm, Flux, another installer) or one
+	// that was interrupted. Only a known interruption is recovered: marking it failed lets this
+	// run resume; Panko's own objects are unaffected.
+	if current != nil && current.Info.Status.IsPending() && !o.RecoverPending {
+		return nil, fmt.Errorf("release revision %d is %s: another Helm operation may still be running; if it was interrupted, rerun with --recover-pending", current.Version, current.Info.Status)
+	}
 	if current != nil && current.Info.Status.IsPending() {
 		fmt.Fprintf(log, "Release revision %d was left %s by an interrupted run; resuming\n", current.Version, current.Info.Status)
 		current.SetStatus(rcommon.StatusFailed, "interrupted; marked failed by panko install to resume")

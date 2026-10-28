@@ -122,3 +122,20 @@ func TestSetupWithoutGenerationOnlyVerifies(t *testing.T) {
 		t.Fatalf("verification without S3 or mirrors: %v", err)
 	}
 }
+
+func TestRemovedTeamsMustBeEmpty(t *testing.T) {
+	api := &memoryAPI{objects: map[string]Object{
+		"/apis/apiextensions.k8s.io/v1/customresourcedefinitions?labelSelector=platform.example.com%2Fexpose%3Dtrue": {"items": []any{
+			Object{"spec": Object{"group": "platform.example.com", "names": Object{"plural": "databases"}, "versions": []any{Object{"name": "v1", "storage": true}}}}}},
+		"/apis/platform.example.com/v1/namespaces/team-b/databases": {"items": []any{Object{"metadata": Object{"name": "orders"}}}},
+		"/apis/platform.example.com/v1/namespaces/team-c/databases": {"items": []any{}},
+	}}
+	m := &Migrator{API: api}
+	err := m.CheckRemovedTeams(context.Background(), Config{Teams: []string{"team-a", "team-b"}}, Config{Teams: []string{"team-a"}})
+	if err == nil || !strings.Contains(err.Error(), "team team-b still has 1 databases") {
+		t.Fatalf("removing a team with resources was accepted: %v", err)
+	}
+	if err := m.CheckRemovedTeams(context.Background(), Config{Teams: []string{"team-a", "team-c"}}, Config{Teams: []string{"team-a"}}); err != nil {
+		t.Fatalf("removing an empty team was refused: %v", err)
+	}
+}

@@ -52,7 +52,9 @@ and `internal/chart/chart_test.go`):
 - **Images** reachable by the cluster: the proof of concept publishes none. Push
   `panko-server` and `panko-module-mirror` built from the branch to your registry and pin their
   tags in the values ([Images](installation.md#images-for-the-proof-of-concept)). Pull secrets
-  (`images.pullSecrets`) must exist in `infra-runners`, `infra-gateway`, and `infra-backends`.
+  (`images.pullSecrets`) must exist in `infra-runners`, `infra-gateway`, `infra-backends` and every
+  team namespace: runner Jobs pull `panko-server` through the teams' `tofu-runner` ServiceAccounts,
+  which carry the same pull-secret names.
 - **The chart** reachable by the controller: Argo CD and Flux read `charts/panko` from the Git
   repository (pin a commit); a packaged chart in an OCI registry is future work.
 - **No other Metacontroller** reconciling Panko's CompositeController. The embedded controller
@@ -85,13 +87,16 @@ and `internal/chart/chart_test.go`):
   other resources, with `ServerSideApply=true` for the large Metacontroller CRDs (tested).
   CRD changes are additive; existing resources are not converted.
 - **Jobs**: the setup and S3 onboarding Jobs are named by a digest of their inputs (installation
-  config, image, arguments; team list). Unchanged values keep the completed Job, so there is no
+  config, image, arguments; team list, S3 image and template). Job templates are immutable, so
+  every template input is part of the name. Unchanged values keep the completed Job, so there is no
   perpetual drift; changed values create a new Job, and pruning removes the old one.
 - **Pruning**: namespaces, the provider cache PVC, the lab StatefulSets and the CompositeController carry
   `helm.sh/resource-policy: keep`, `argocd.argoproj.io/sync-options: Prune=false,Delete=false`
   and `kustomize.toolkit.fluxcd.io/prune: disabled`. Team resources, state and credentials are
-  never part of the render and are never pruned. CRDs are not deleted by Helm; protect them in
-  Argo CD with the same annotation if your policy prunes CRDs.
+  never part of the render and are never pruned. All CRDs in `crds/` carry the same Argo CD and
+  Flux annotations, because deleting a CRD deletes every resource of its kind; Helm never deletes
+  `crds/`. A team's runner identity and execution RBAC are retained as well when the team is
+  removed (see [operations](operations.de.md#teams-und-konfiguration)).
 - **Persistent data**: PostgreSQL, S3 and provider cache volumes are retained when their
   StatefulSet or the release is deleted (`persistentVolumeClaimRetentionPolicy: Retain`).
 - **Manual changes**: `panko admin pause` scales the controller and gateway to zero; Argo CD
@@ -100,18 +105,32 @@ and `internal/chart/chart_test.go`):
   The same applies to `kubectl set env` on the controller.
 - **Module upgrades**: change `module.revision` in Git. With `rollout: manual`, resources stay
   on their revision until `panko admin upgrade-module`.
-- **Runner pools**: before removing a pool from the values, check the new configuration with
-  `panko admin --config new-panko.json --kubeconfig ... check-pools` (the `installation` values
-  as JSON); the chart cannot refuse it, while `panko install` does.
+- **Runner pools**: removing a pool that resources are still bound to does not block them. Every
+  starting controller replica merges the configured pool definitions into
+  `infra-runners/panko-runner-pools-retained` and executes with the configured definitions plus all
+  recorded ones; the record only grows, so neither a rollout nor a replica that is not yet leader
+  can drop a definition an older controller still uses. Each definition carries its writer: the
+  controller Deployment (UID and creation time) and the rollout revision of its ReplicaSet. Within
+  one Deployment only the same or a newer revision may replace a definition, so a restarting older
+  replica cannot bring back an outdated module (a rollback is a new revision); a Deployment created
+  later replaces definitions of an earlier one, so a reinstall that restarts the revisions works.
+  Owners are verified by UID, so an old replica cannot claim a recreated Deployment's identity. Bound pools that are no longer configured
+  are logged as `runner_pool_retained`; their resources keep executing, including destroy. New
+  resources still bind only to configured pools. A bound pool without any recorded definition (for
+  example removed in the same change that introduced the record) stays blocked rather than
+  guessing its module. Delete a definition from the record by hand once nothing is bound to it.
+  `panko install` additionally refuses such a change up front; `panko admin --config
+  new-panko.json --kubeconfig ... check-pools` does the same check for GitOps changes.
 
 ## Secrets
 
 With `secrets.generate: true` (default) the setup Job creates each missing credential once:
 random tokens and passwords, the provider mirror and runner endpoint certificates from their own
 CAs, the empty agent registry, and S3 keys. It never replaces an existing value, so a re-render,
-resync or new chart version keeps every credential. Rotation stays explicit (`panko admin
-rotate-token`, certificate renewal 30 days before expiry, which also needs a restart of the
-mirror and endpoint pods).
+resync or new chart version keeps every credential. Token rotation stays explicit (`panko admin
+rotate-token`). Server certificates are renewed 30 days before expiry from stable CAs by the
+daily CronJob `panko-setup-scheduled`, also when no value changes, and the mirror and endpoint
+reload them without a restart. Replacing a CA itself is a planned manual step.
 
 With `secrets.generate: false`, provide them yourself, for example with SOPS, External Secrets
 or cert-manager. The setup Job then only verifies them and fails listing every missing name
@@ -121,6 +140,7 @@ or cert-manager. The setup Job then only verifies them and fails listing every m
 |---|---|
 | `infra-backends/postgres-admin` | `password` |
 | `infra-gateway/gateway-auth` | `tokens.json`: `{"<team>": "<token>", ...}` for every team |
+| `infra-runners/provider-mirror-tls-ca`, `infra-runners/runner-endpoint-tls-ca` (only with `generate: true`) | `ca.crt`, `ca.key`: the stable CAs; readable only by the setup role |
 | `infra-runners/provider-mirror-tls` | `tls.crt`, `tls.key`, `ca.crt` (names `provider-mirror.infra-runners.svc[.cluster.local]`) |
 | `infra-runners/runner-endpoint-tls` | `tls.crt`, `tls.key`, `ca.crt` (names `runner-endpoint.infra-runners.svc[.cluster.local]` and `runnerEndpoint.names`) |
 | `infra-runners/panko-runner-agents` | none initially; `panko admin add-agent` adds hashed entries |

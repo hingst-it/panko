@@ -104,11 +104,14 @@ Ein privates Modul-Repository braucht `GIT_SSH_COMMAND` mit Schlüssel und `know
 
 ## Zertifikate
 
-Der Endpunkt erhält sein Zertifikat von einer eigenen CA wie der Provider-Mirror. Es wird 30 Tage
-vor Ablauf oder bei geänderten Namen neu ausgestellt, mit einer neuen CA, sobald der Setup-Job
-läuft (`make deploy`, `panko install`). Der Endpunkt liest sein Zertifikat nur beim Start:
-`kubectl -n infra-runners rollout restart deploy/runner-endpoint`. Danach brauchen alle Agenten die neue CA (`admin endpoint-ca`) und einen
-Neustart.
+Der Endpunkt erhält sein Zertifikat von einer eigenen stabilen CA (`runner-endpoint-tls-ca`) wie
+der Provider-Mirror. Es wird 30 Tage vor Ablauf oder bei geänderten Namen aus derselben CA neu
+ausgestellt, sobald der Setup-Job läuft (täglich per CronJob, sowie bei `make deploy` und
+`panko install`), und vom laufenden Endpunkt ohne Neustart übernommen. Agenten behalten ihre CA
+(`admin endpoint-ca`). Nur ein Austausch der CA selbst, angekündigt ein Jahr vor ihrem Ablauf,
+verlangt, dass alle Agenten die neue CA erhalten. Nach dem Upgrade von einer Installation ohne
+stabile CA liefert `admin endpoint-ca` ein Bündel aus bisheriger und neuer CA; Agenten sollten es
+vor der nächsten Zertifikatserneuerung erhalten.
 
 ## Grenzen
 

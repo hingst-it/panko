@@ -26,7 +26,8 @@ images:
     repository: registry.example.internal/panko/panko-module-mirror
     tag: 0.1.0-poc.1
     pullPolicy: IfNotPresent
-  # Pull secret names in infra-runners, infra-gateway and infra-backends, created outside the chart.
+  # Pull secret names in infra-runners, infra-gateway, infra-backends and every team namespace,
+  # created outside the chart; runner Jobs use them through the teams' tofu-runner accounts.
   pullSecrets: []
 
 module:

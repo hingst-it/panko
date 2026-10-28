@@ -29,6 +29,8 @@ metadata:
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: runner-endpoint}
 subjects:
   - {kind: ServiceAccount, name: runner-endpoint, namespace: infra-runners}
+{{- /* Per-team access is retained when a team is removed, like the runner identity, so remote
+Runs of its remaining resources can still commit. */}}
 {{- range .Values.installation.teams }}
 {{- range list . (printf "panko-state-%s" .) }}
 ---
@@ -39,6 +41,8 @@ metadata:
   namespace: {{ . }}
   labels:
     {{- include "panko.labels" $ | nindent 4 }}
+  annotations:
+    {{- include "panko.retain" $ | nindent 4 }}
 rules:
   - {apiGroups: [""], resources: [secrets], verbs: [get, create, update, delete]}
   {{- if not (hasPrefix "panko-state-" .) }}
@@ -52,6 +56,8 @@ metadata:
   namespace: {{ . }}
   labels:
     {{- include "panko.labels" $ | nindent 4 }}
+  annotations:
+    {{- include "panko.retain" $ | nindent 4 }}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: runner-endpoint}
 subjects:
   - {kind: ServiceAccount, name: runner-endpoint, namespace: infra-runners}

@@ -56,10 +56,13 @@ func (a *App) install(ctx context.Context, args []string) int {
 	fs.StringVar(&o.Config, "config", "", "Optional panko.json with teams and lab options")
 	fs.Var(&values, "values", "Helm values file (repeatable)")
 	fs.Var(&set, "set", "Helm value key=value (repeatable)")
+	var setJSON list
+	fs.Var(&setJSON, "set-json", "Helm value key=<json> (repeatable), e.g. 'installation.runnerPools=[]'")
 	fs.StringVar(&o.TokensFile, "tokens-file", "", "Write a private copy of the team tokens to this file")
 	fs.BoolVar(&o.Yes, "yes", false, "Do not ask for confirmation")
 	fs.BoolVar(&o.TakeOwnership, "take-ownership", false, "Adopt objects of an installation made with make deploy")
 	fs.BoolVar(&o.AllowForeignMetacontroller, "allow-foreign-metacontroller", false, "Accept a separate Metacontroller in the cluster")
+	fs.BoolVar(&o.RecoverPending, "recover-pending", false, "Recover a Helm revision left pending by an interrupted operation that is not a panko install")
 	fs.DurationVar(&o.Timeout, "timeout", 10*time.Minute, "Time limit for the release and its Jobs")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -68,7 +71,7 @@ func (a *App) install(ctx context.Context, args []string) int {
 		fmt.Fprintln(a.Err, "usage: panko install --kubeconfig PATH [--context NAME] [--values FILE] [--set k=v] [--config panko.json] [--yes]")
 		return 2
 	}
-	o.Values, o.Set = values, set
+	o.Values, o.Set, o.SetJSON = values, set, setJSON
 	return a.fail(install.Run(ctx, o))
 }
 

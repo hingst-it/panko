@@ -112,3 +112,18 @@ func TestReplaceLegacyWorkloads(t *testing.T) {
 		t.Fatalf("deleted %v", deleted)
 	}
 }
+
+// An invalid installation stops before any cluster access, so no check is silently skipped.
+func TestInvalidInstallationIsRefusedUpFront(t *testing.T) {
+	values, err := Values(Options{Set: []string{"installation.teams={team-a}", `installation.runnerPools[0].name=edge`, `installation.runnerPools[0].teams={team-b}`}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := installationConfig(values); err == nil || !strings.Contains(err.Error(), "unknown team") {
+		t.Fatalf("a pool naming a removed team was accepted: %v", err)
+	}
+	err = Run(context.Background(), Options{Kubeconfig: "/nonexistent", Set: []string{"installation.teams={team-a}", `installation.runnerPools[0].name=edge`, `installation.runnerPools[0].teams={team-b}`}, Out: io.Discard})
+	if err == nil || !strings.Contains(err.Error(), "invalid installation values") {
+		t.Fatalf("Run did not refuse the invalid values first: %v", err)
+	}
+}

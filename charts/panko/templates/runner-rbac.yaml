@@ -1,4 +1,7 @@
-{{- /* Per-team runner identity: team resources and Secrets, state only in panko-state-<team>. */}}
+{{- /* Per-team runner identity: team resources and Secrets, state only in panko-state-<team>.
+Everything a team's executions need is retained when the team is removed from the values, so
+its remaining resources can still be updated and destroyed; see docs/operations.de.md. Bindings
+are per team for the same reason: removing a subject from a shared binding would revoke it. */}}
 {{- range .Values.installation.teams }}
 ---
 apiVersion: v1
@@ -8,6 +11,15 @@ metadata:
   namespace: {{ . }}
   labels:
     {{- include "panko.labels" $ | nindent 4 }}
+  annotations:
+    {{- include "panko.retain" $ | nindent 4 }}
+{{- /* Runner Jobs pull the panko-server image with this account; the Secrets must exist here. */}}
+{{- with $.Values.images.pullSecrets }}
+imagePullSecrets:
+{{- range . }}
+  - name: {{ . }}
+{{- end }}
+{{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -16,6 +28,8 @@ metadata:
   namespace: {{ . }}
   labels:
     {{- include "panko.labels" $ | nindent 4 }}
+  annotations:
+    {{- include "panko.retain" $ | nindent 4 }}
 rules:
   - {apiGroups: [platform.example.com], resources: [databases], verbs: [get]}
   - {apiGroups: [""], resources: [secrets], verbs: [get, list, create, update, patch, delete]}
@@ -28,6 +42,8 @@ metadata:
   namespace: {{ . }}
   labels:
     {{- include "panko.labels" $ | nindent 4 }}
+  annotations:
+    {{- include "panko.retain" $ | nindent 4 }}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: tofu-runner}
 subjects:
   - {kind: ServiceAccount, name: tofu-runner, namespace: {{ . }}}
@@ -39,6 +55,8 @@ metadata:
   namespace: panko-state-{{ . }}
   labels:
     {{- include "panko.labels" $ | nindent 4 }}
+  annotations:
+    {{- include "panko.retain" $ | nindent 4 }}
 rules:
   - {apiGroups: [""], resources: [secrets], verbs: [get, list, create, update, patch, delete]}
   - {apiGroups: [coordination.k8s.io], resources: [leases], verbs: [get, list, create, update, patch, delete]}
@@ -50,7 +68,34 @@ metadata:
   namespace: panko-state-{{ . }}
   labels:
     {{- include "panko.labels" $ | nindent 4 }}
+  annotations:
+    {{- include "panko.retain" $ | nindent 4 }}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: tofu-state}
+subjects:
+  - {kind: ServiceAccount, name: tofu-runner, namespace: {{ . }}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tofu-schema-reader-{{ . }}
+  labels:
+    {{- include "panko.labels" $ | nindent 4 }}
+  annotations:
+    {{- include "panko.retain" $ | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: tofu-schema-reader}
+subjects:
+  - {kind: ServiceAccount, name: tofu-runner, namespace: {{ . }}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: postgres-admin-reader-{{ . }}
+  namespace: infra-backends
+  labels:
+    {{- include "panko.labels" $ | nindent 4 }}
+  annotations:
+    {{- include "panko.retain" $ | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: postgres-admin-reader}
 subjects:
   - {kind: ServiceAccount, name: tofu-runner, namespace: {{ . }}}
 {{- end }}
@@ -61,20 +106,10 @@ metadata:
   name: tofu-schema-reader
   labels:
     {{- include "panko.labels" . | nindent 4 }}
+  annotations:
+    {{- include "panko.retain" . | nindent 4 }}
 rules:
   - {apiGroups: [apiextensions.k8s.io], resources: [customresourcedefinitions], verbs: [get, list]}
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: tofu-schema-reader
-  labels:
-    {{- include "panko.labels" . | nindent 4 }}
-roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: tofu-schema-reader}
-subjects:
-{{- range .Values.installation.teams }}
-  - {kind: ServiceAccount, name: tofu-runner, namespace: {{ . }}}
-{{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -83,18 +118,7 @@ metadata:
   namespace: infra-backends
   labels:
     {{- include "panko.labels" . | nindent 4 }}
+  annotations:
+    {{- include "panko.retain" . | nindent 4 }}
 rules:
   - {apiGroups: [""], resources: [secrets], resourceNames: [postgres-admin], verbs: [get]}
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: postgres-admin-reader
-  namespace: infra-backends
-  labels:
-    {{- include "panko.labels" . | nindent 4 }}
-roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: postgres-admin-reader}
-subjects:
-{{- range .Values.installation.teams }}
-  - {kind: ServiceAccount, name: tofu-runner, namespace: {{ . }}}
-{{- end }}

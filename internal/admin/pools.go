@@ -119,3 +119,40 @@ func (m *Migrator) CheckPools(ctx context.Context, c Config) error {
 	}
 	return nil
 }
+
+// CheckRemovedTeams refuses a configuration that drops a team whose namespace still has
+// resources of an exposed kind: they must be destroyed or moved first. The chart retains the
+// team's runner access either way, so GitOps installations keep them executable meanwhile.
+func (m *Migrator) CheckRemovedTeams(ctx context.Context, current, next Config) error {
+	keep := map[string]bool{}
+	for _, team := range next.Teams {
+		keep[team] = true
+	}
+	crds, err := m.items(ctx, "/apis/apiextensions.k8s.io/v1/customresourcedefinitions?labelSelector="+url.QueryEscape("platform.example.com/expose=true"))
+	if err != nil {
+		return err
+	}
+	for _, team := range current.Teams {
+		if keep[team] {
+			continue
+		}
+		for _, item := range crds {
+			spec := jsonx.Obj(jsonx.Obj(item)["spec"])
+			for _, v := range jsonx.Array(spec["versions"]) {
+				version := jsonx.Obj(v)
+				if version["storage"] != true {
+					continue
+				}
+				plural := jsonx.Str(jsonx.Obj(spec["names"])["plural"])
+				resources, err := m.items(ctx, "/apis/"+jsonx.Str(spec["group"])+"/"+jsonx.Str(version["name"])+"/namespaces/"+url.PathEscape(team)+"/"+plural)
+				if err != nil {
+					return err
+				}
+				if len(resources) > 0 {
+					return fmt.Errorf("team %s still has %d %s; delete them (their destroy needs the team's runner access) before removing the team", team, len(resources), plural)
+				}
+			}
+		}
+	}
+	return nil
+}

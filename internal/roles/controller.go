@@ -2,6 +2,7 @@ package roles
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"math"
@@ -22,6 +23,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"github.com/hingst-it/panko/internal/hook"
+	"github.com/hingst-it/panko/internal/jsonx"
+	"github.com/hingst-it/panko/internal/kube"
 	"github.com/hingst-it/panko/internal/serve"
 )
 
@@ -57,6 +60,9 @@ func Controller(args []string) error {
 	}
 	restConfig, err := ctrlconfig.GetConfig()
 	if err != nil {
+		return err
+	}
+	if err := retainPools(); err != nil {
 		return err
 	}
 	restConfig.QPS, restConfig.Burst = float32(*qps), *burst
@@ -120,6 +126,38 @@ func Controller(args []string) error {
 	}
 	logging.Logger.Info("Stopped embedded Metacontroller")
 	return result
+}
+
+// retainPools merges the definitions of runner pools that resources are still bound to into the
+// hook's RUNNER_POOLS before the hook serves its first request.
+func retainPools() error {
+	configured := hook.Pools{}
+	if value := os.Getenv("RUNNER_POOLS"); value != "" {
+		if err := json.Unmarshal([]byte(value), &configured); err != nil {
+			return fmt.Errorf("invalid RUNNER_POOLS")
+		}
+	}
+	api, err := kube.New("", 15*time.Second)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	writer, err := ControllerWriter(ctx, api, envOr("POD_NAMESPACE", "infra-runners"), os.Getenv("POD_NAME"))
+	if err != nil {
+		return fmt.Errorf("cannot determine the controller's rollout revision: %w", err)
+	}
+	merged, warnings, err := RetainBoundPools(ctx, api, configured, writer)
+	if err != nil {
+		return fmt.Errorf("cannot check runner pool bindings: %w", err)
+	}
+	for _, warning := range warnings {
+		fmt.Fprintln(os.Stdout, string(jsonx.Encode(Object{"level": "warning", "event": "runner_pool_retained", "message": warning})))
+	}
+	if err := os.Setenv("RUNNER_POOLS", string(jsonx.Encode(merged))); err != nil {
+		return err
+	}
+	return hook.LoadJobConfig().Validate()
 }
 
 // deleteAlert reads how long a blocked delete may last before the hook logs an alert.

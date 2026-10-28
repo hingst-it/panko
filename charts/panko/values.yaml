@@ -114,6 +114,9 @@ secrets:
   # infra-runners/panko-runner-agents and, with s3, infra-backends/s3-admin, infra-backends/s3-teams
   # and <team>/panko-state-s3.
   generate: true
+  # Daily setup run: renews server certificates 30 days before expiry from the stable CAs and
+  # refreshes the CA copies in team namespaces.
+  renewSchedule: "17 3 * * *"
 
 # Labels and annotations protect persistent data from deletion by helm uninstall and GitOps pruning.
 retain: true

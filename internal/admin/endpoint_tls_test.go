@@ -5,22 +5,35 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"strings"
 	"testing"
 
 	"github.com/hingst-it/panko/internal/jsonx"
+	"github.com/hingst-it/panko/internal/kube"
 )
 
 func TestEndpointTLSCoversTheConfiguredNamesAndReissuesOnChange(t *testing.T) {
-	var stored Object
+	var stored, ca Object
 	writes := 0
 	m := Migrator{API: fakeAPI(func(ctx context.Context, method, path string, b any, ct string) (Object, error) {
+		isCA := strings.HasSuffix(path, "-ca") || (b != nil && jsonx.Str(jsonx.Obj(jsonx.Obj(b)["metadata"])["name"]) == "runner-endpoint-tls-ca")
 		switch method {
 		case "GET":
+			if isCA {
+				if ca == nil {
+					return nil, &kube.Error{Code: 404}
+				}
+				return ca, nil
+			}
 			if stored == nil {
-				return nil, nil
+				return nil, &kube.Error{Code: 404}
 			}
 			return stored, nil
 		case "POST", "PUT":
+			if isCA {
+				ca = jsonx.Clone(b.(Object))
+				return Object{}, nil
+			}
 			writes++
 			stored = jsonx.Clone(b.(Object))
 			jsonx.Obj(stored["metadata"])["resourceVersion"] = "1"
@@ -55,8 +68,20 @@ func TestEndpointTLSCoversTheConfiguredNamesAndReissuesOnChange(t *testing.T) {
 	if err := m.EnsureEndpointTLS(context.Background(), c); err != nil || writes != 3 {
 		t.Fatal("removed endpoint name did not reissue the certificate", err, writes)
 	}
-	if _, err := m.EndpointCA(context.Background()); err != nil {
+	first, err := m.EndpointCA(context.Background())
+	if err != nil {
 		t.Fatal(err)
+	}
+	// Renewal keeps the CA: agents need no new trust when the server certificate changes.
+	c.RunnerEndpoint.Names = append(c.RunnerEndpoint.Names, "renewed.example.com")
+	if err := m.EnsureEndpointTLS(context.Background(), c); err != nil || writes != 4 {
+		t.Fatal("certificate not reissued", err, writes)
+	}
+	if again, _ := m.EndpointCA(context.Background()); string(again) != string(first) {
+		t.Fatal("reissuing the certificate replaced the CA")
+	}
+	if jsonx.Obj(stored["data"])["ca.key"] != nil {
+		t.Fatal("the serving Secret holds the CA key")
 	}
 	if (RunnerEndpoint{Names: []string{"bad name"}}).validate() == nil {
 		t.Fatal("invalid endpoint name accepted")

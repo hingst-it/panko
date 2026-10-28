@@ -1,3 +1,26 @@
+{{- define "panko.setupPod" -}}
+spec:
+  serviceAccountName: panko-setup
+  restartPolicy: Never
+  securityContext:
+    {{- include "panko.podSecurity" .root | nindent 4 }}
+  {{- include "panko.pullSecrets" .root | nindent 2 }}
+  containers:
+    - name: setup
+      image: {{ include "panko.serverImage" .root }}
+      imagePullPolicy: {{ .root.Values.images.server.pullPolicy }}
+      args: {{ toJson .args }}
+      securityContext:
+        {{- include "panko.restricted" .root | nindent 8 }}
+      resources:
+        requests: {cpu: 20m, memory: 32Mi}
+        limits: {memory: 128Mi}
+      volumeMounts:
+        - {name: config, mountPath: /etc/panko/config, readOnly: true}
+  volumes:
+    - name: config
+      configMap: {name: panko-config}
+{{- end }}
 {{- /* Setup role: creates missing credentials and cluster-derived objects next to the release
 and never replaces an existing credential. The Job name carries a digest of its inputs, so a
 changed configuration runs a new Job while an unchanged render keeps the completed one. */}}
@@ -72,24 +95,31 @@ spec:
       labels:
         app: panko-setup
         app.kubernetes.io/component: setup
+    {{- include "panko.setupPod" (dict "root" . "args" $args) | nindent 4 }}
+---
+# The same setup daily: certificates are renewed 30 days before expiry and CA copies refreshed
+# also when no input changed, which GitOps installations otherwise never rerun.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: panko-setup-scheduled
+  namespace: infra-runners
+  labels:
+    app: panko-setup
+    app.kubernetes.io/component: setup
+    {{- include "panko.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.secrets.renewSchedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
     spec:
-      serviceAccountName: panko-setup
-      restartPolicy: Never
-      securityContext:
-        {{- include "panko.podSecurity" . | nindent 8 }}
-      {{- include "panko.pullSecrets" . | nindent 6 }}
-      containers:
-        - name: setup
-          image: {{ include "panko.serverImage" . }}
-          imagePullPolicy: {{ .Values.images.server.pullPolicy }}
-          args: {{ toJson $args }}
-          securityContext:
-            {{- include "panko.restricted" . | nindent 12 }}
-          resources:
-            requests: {cpu: 20m, memory: 32Mi}
-            limits: {memory: 128Mi}
-          volumeMounts:
-            - {name: config, mountPath: /etc/panko/config, readOnly: true}
-      volumes:
-        - name: config
-          configMap: {name: panko-config}
+      backoffLimit: 3
+      activeDeadlineSeconds: 900
+      template:
+        metadata:
+          labels:
+            app: panko-setup-scheduled
+            app.kubernetes.io/component: setup
+        {{- include "panko.setupPod" (dict "root" . "args" $args) | nindent 8 }}

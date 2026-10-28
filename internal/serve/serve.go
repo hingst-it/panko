@@ -36,12 +36,12 @@ func Listen(ctx context.Context, addr string, handler http.Handler, cert, key st
 	if cert != "" || key != "" {
 		// A cold provider download can take longer than an ordinary API response.
 		server.WriteTimeout = 3 * time.Minute
-		pair, err := tls.LoadX509KeyPair(cert, key)
+		reloader, err := NewCertReloader(cert, key, 10*time.Second)
 		if err != nil {
 			listener.Close()
 			return err
 		}
-		listener = tls.NewListener(listener, &tls.Config{Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS12})
+		listener = tls.NewListener(listener, &tls.Config{GetCertificate: reloader.GetCertificate, MinVersion: tls.VersionTLS12})
 	}
 	return run(ctx, server, listener)
 }

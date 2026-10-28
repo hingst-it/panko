@@ -1,11 +1,14 @@
-# Metacontroller v4.17.6 CRDs (Apache-2.0), copied unchanged from
+# Metacontroller v4.17.6 CRDs (Apache-2.0), copied from
 # https://github.com/metacontroller/metacontroller/blob/v4.17.6/manifests/production/metacontroller-crds-v1.yaml
-# The embedded controller needs them; a cluster that already has them keeps its own (Helm skips existing CRDs).
+# with only Panko's pruning annotations added. The embedded controller needs them; a cluster that
+# already has them keeps its own (Helm skips existing CRDs).
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    kustomize.toolkit.fluxcd.io/prune: disabled
     api-approved.kubernetes.io: unapproved, request not yet submitted
     controller-gen.kubebuilder.io/version: v0.22.0
   name: compositecontrollers.metacontroller.k8s.io
@@ -1449,6 +1452,8 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    kustomize.toolkit.fluxcd.io/prune: disabled
     api-approved.kubernetes.io: unapproved, request not yet submitted
     controller-gen.kubebuilder.io/version: v0.22.0
   name: controllerrevisions.metacontroller.k8s.io
@@ -1516,6 +1521,8 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    kustomize.toolkit.fluxcd.io/prune: disabled
     api-approved.kubernetes.io: unapproved, request not yet submitted
     controller-gen.kubebuilder.io/version: v0.22.0
   name: decoratorcontrollers.metacontroller.k8s.io
