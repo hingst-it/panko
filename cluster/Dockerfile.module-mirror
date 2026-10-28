@@ -1,4 +1,4 @@
-# Keep the Alpine version aligned with Dockerfile.runtime.
+# Keep the Alpine version aligned with Dockerfile.server.
 FROM alpine:3.24
 RUN apk add --no-cache git git-daemon openssh-client \
     && addgroup -g 1000 panko \

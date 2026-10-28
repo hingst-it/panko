@@ -68,7 +68,12 @@ func (m *Migrator) ensureGatewayAuth(ctx context.Context, file string) error {
 	for team, token := range stored {
 		tokens[team] = token
 	}
-	if data, err := os.ReadFile(file); err == nil {
+	// The in-cluster setup role keeps no local copy; it passes no file.
+	localData, err := os.ReadFile(file)
+	if file == "" {
+		err = os.ErrNotExist
+	}
+	if data := localData; err == nil {
 		var local map[string]string
 		if json.Unmarshal(data, &local) != nil {
 			return fmt.Errorf("invalid team token file")
@@ -103,6 +108,9 @@ func (m *Migrator) ensureGatewayAuth(ctx context.Context, file string) error {
 		if err != nil {
 			return err
 		}
+	}
+	if file == "" {
+		return nil
 	}
 	// Publish the local copy only after the Secret holds the same tokens.
 	return writePrivate(file, data)

@@ -1,21 +1,24 @@
 # Go-Portierung: Aufbau, Upgrade und Rückwechsel
 
-Die Laufzeitkomponenten verwenden Go 1.27.3 und client-go v0.36.5. Metacontroller,
-CRDs und HCL behalten ihre bisherigen Aufgaben. Python bleibt für die externen
+Die Laufzeitkomponenten verwenden Go 1.27.3 und client-go v0.37.1. Metacontroller,
+CRDs und HCL behalten ihre bisherigen Aufgaben; auf dem PoC-Branch ist Metacontroller als
+Go-Abhängigkeit in die Controller-Rolle eingebettet ([Auswertung](poc-unified-server.de.md)). Python bleibt für die externen
 E2E-Tests und optionale Werkzeuge wie die Logo-Erzeugung verfügbar.
 
 ## Aufbau und Entwicklung
 
 | Einstiegspunkt | Implementierung | Aufgabe |
 | --- | --- | --- |
-| `cmd/gateway` | `internal/gateway` | HTTP, Team-Tokens, dynamische CRD-Discovery, OpenAPI und Discovery-Cache |
-| `cmd/hook` | `internal/hook` | Metacontroller-Reconciliation, Jobs, Status, Finalisierung und Metriken |
-| `cmd/runner` | `internal/runner` | Snapshot prüfen, technische Credentials laden, OpenTofu ausführen und State aufräumen |
-| `cmd/admin` | `internal/admin` | RBAC erzeugen, Auth-Secrets initialisieren, Deployment prüfen und Legacy-State migrieren |
+| `panko-server gateway` | `internal/gateway` | HTTP, Team-Tokens, dynamische CRD-Discovery, OpenAPI und Discovery-Cache |
+| `panko-server controller` | `internal/roles`, `internal/hook`, Metacontroller v4.17.6 | Eingebetteter Metacontroller, Reconciliation über Loopback-HTTP, Jobs, Status, Finalisierung und Metriken |
+| `panko-server runner` | `internal/runner` | Snapshot prüfen, technische Credentials laden, OpenTofu ausführen und State aufräumen |
+| `panko-server endpoint`, `mirror`, `agent`, `setup` | `internal/endpoint`, `internal/mirror`, `internal/agent`, `internal/admin` | Runner-Endpunkt, Provider-Mirror, entfernter Agent, Credentials und clusterabhängige Objekte |
+| `panko admin` (und `cmd/admin` als `panko-admin`) | `internal/admincmd`, `internal/admin` | RBAC erzeugen, Auth-Secrets initialisieren, Deployment prüfen und Legacy-State migrieren |
+| `panko install`, `panko dev`, `panko chart` | `internal/install`, `internal/devlab`, `internal/chart`, `charts/` | Helm-Chart (eingebettet) installieren, lokales Lab, Rendering |
 | gemeinsam | `internal/kube`, `internal/resource`, `internal/jsonx`, `internal/serve` | client-go-Transport, Snapshots, kompatible JSON-Hashes und geordnetes HTTP-Herunterfahren |
 
-`make build-go` erzeugt die lokalen Binaries unter `.local/bin/`. Administratoren
-verwenden normalerweise `make bootstrap`, `make deploy`, `make gateway-rbac` und
+`make build-go` erzeugt `panko`, `panko-server` und `admin` unter `.local/bin/`. Administratoren
+verwenden normalerweise `make deploy` (über `panko install`), `make gateway-rbac` und
 `make migrate-state`; diese Targets bauen die Verwaltungsbefehle bei Bedarf.
 Cluster-Zugriffe des Admin-Binaries verlangen eine explizite Kubeconfig oder
 `KUBECONFIG`. Runtime-Dienste authentifizieren sich mit ihrem ServiceAccount.
@@ -33,7 +36,7 @@ unerheblich. Der für Hashes verwendete JSON-Bytestrom muss dagegen exakt passen
 Die Referenzfälle werden bei fachlichen Änderungen bewusst geprüft und angepasst;
 sie werden nicht aus der Go-Implementierung als neuer Sollwert erzeugt.
 
-Go wird in `mise.toml` und beiden Runtime-Dockerfiles festgelegt; die Go-Direktive
+Go wird in `mise.toml`, `Dockerfile.server` und `Dockerfile.agent` festgelegt; die Go-Direktive
 steht in `go.mod`. Bei Abhängigkeitsänderungen `go.mod` und `go.sum` gemeinsam prüfen,
 `mise exec -- go mod tidy` und `mise exec -- go mod verify` ausführen und danach
 die Tests starten. Go-Caches liegen für lokale Make-Aufrufe unter `.local/`.
@@ -90,6 +93,11 @@ Sicherung gehört nicht zum ausgelieferten Go-Quellbaum. Für andere Umgebungen
 müssen die entsprechenden vorherigen Release-Images verfügbar sein.
 
 ## Rückwechsel ohne State-Migration
+
+> Gilt nur für Installationen vor dem PoC mit separatem Metacontroller. Mit dem eingebetteten
+> Controller (Container `controller` im Deployment `database-hook`) kann kein reines Hook-Image
+> eingesetzt werden; ein Rückwechsel bedeutet dort die Rückkehr zu v0.0.1 samt separatem
+> Metacontroller ([Auswertung](poc-unified-server.de.md#migration)).
 
 Vor einem Wechsel aktuelle Deployments, Jobs und Image-Referenzen aufnehmen.
 Den bestehenden State und seine Team-Namespaces unverändert lassen. Die Portierung

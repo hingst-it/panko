@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Restore a backup into a freshly deployed installation (make cluster-up bootstrap build deploy).
+# Restore a backup into a freshly deployed installation (make cluster-up build deploy).
 set -euo pipefail
 export KUBECONFIG="${KUBECONFIG:-$PWD/.local/kubeconfig}"
 dir="${BACKUP_DIR:?BACKUP_DIR must name an existing backup directory}"

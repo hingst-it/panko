@@ -15,24 +15,29 @@ make test-unit lint-go lint
 Das OpenTofu-Modul liegt im Repository `hingst-it/panko-database` und wird dort
 formatiert und validiert. `make test` ergänzt die effektiven
 RBAC-Prüfungen, PostgreSQL-Lebenszyklen, Gateway-/OpenAPI-Tests sowie externe
-Runner- und Migrationstests im lokalen Cluster. Voraussetzung sind `make cluster-up bootstrap build deploy` und die
+Runner- und Migrationstests im lokalen Cluster. Voraussetzung sind `make cluster-up build deploy` und die
 installierten Testabhängigkeiten. `PYTHON=/pfad/zum/python` überschreibt den
 Standard `.venv/bin/python` für Python-Linting. Unit-Tests laufen mit Go und Race Detector.
 
 `.github/workflows/ci.yaml` führt bei Push und Pull Request zuerst Unit-Tests,
-und Linting aus. Ein separater Job erstellt danach einen k3d-Cluster und führt
-`make test` aus. Er liest den Deploy-Key des Modul-Repositorys aus dem
-Actions-Secret `PANKO_MODULE_DEPLOY_KEY`. Fehlerdiagnosen enthalten Ressourcenstatus,
-Events und Dienstlogs; Secrets und States werden nicht als CI-Artefakte exportiert.
-Der Testcluster wird auch bei Fehlern entfernt.
+Chart-Lint mit reproduzierbarem Rendering und Linting aus. Danach erstellen drei
+parallele E2E-Jobs je einen k3d-Cluster (`make cluster-up build deploy`) und führen je
+einen Teil der Suiten aus (`make test-shard SHARD=a|b|c`); das öffentliche Beispielmodul
+braucht keinen Deploy-Key. Fehlerdiagnosen enthalten Ressourcenstatus, Events und
+Dienstlogs einschließlich des Setup-Jobs; Secrets und States werden nicht als
+CI-Artefakte exportiert. Der Testcluster wird auch bei Fehlern entfernt.
 
 Go-Aufbau, gesicherte Python-Images und geprüfter Rückwechsel: [Go-Portierung](go-porting.de.md).
 Team-definierte State-Backends, Sicherungen und Migration: [State-Backends](state-backends.de.md).
-Ein bestehendes Lab braucht für den S3-Gateway dieser Funktion einmalig `make bootstrap deploy`.
+Installation, Helm-Chart und Zuständigkeiten von Chart, Setup-Job und CLI: [Installation](installation.md),
+GitOps: [GitOps](gitops.md).
 
 ## Teams und Konfiguration
 
-`panko.json` im Repository legt fest, welche Teams es gibt und ob das Lab-S3 läuft:
+`panko.json` im Repository legt fest, welche Teams es gibt und ob das Lab-S3 läuft. Es ist
+dasselbe Dokument wie der Chart-Wert `installation`; `make deploy` übergibt es mit
+`panko install --config panko.json`, und das Chart legt es als ConfigMap
+`infra-runners/panko-config` ab (`panko admin --config cluster` liest diese Kopie):
 
 ```json
 {
@@ -42,33 +47,35 @@ Ein bestehendes Lab braucht für den S3-Gateway dieser Funktion einmalig `make b
 ```
 
 Teamnamen sind DNS-Labels mit höchstens 40 Zeichen; Präfixe wie `infra-`, `kube-` und
-`panko-` sind reserviert. Alle Generatoren lesen diese Datei: Namespaces, RBAC,
-Gateway-Tokens, Modul-Schlüssel, S3-Benutzer und Profile. Ein Team kommt hinzu mit
+`panko-` sind reserviert. Das Chart erzeugt daraus Namespaces, RBAC und S3-Profile, der
+Setup-Job Gateway-Tokens und S3-Benutzer. Ein Team kommt hinzu mit
 
 ```sh
 .local/bin/admin add-team --team home
 make deploy
 ```
 
-`make deploy` ergänzt fehlende Team-Tokens im Secret `gateway-auth` und in
-`.local/team-tokens.json`; vorhandene Tokens bleiben unverändert. Geht die lokale Datei
+`make deploy` ergänzt über den Setup-Job fehlende Team-Tokens im Secret `gateway-auth` und
+über `--tokens-file` in `.local/team-tokens.json`; vorhandene Tokens bleiben unverändert. Geht die lokale Datei
 verloren, stellt `make deploy` sie aus dem Secret wieder her. Teams zu entfernen wird
 nicht unterstützt; ihre Ressourcen und States müssten vorher gelöscht werden.
 
-Mit `"s3": false` installieren `make bootstrap` und `make deploy` weder den S3-Gateway
-noch Team-Profile; Ressourcen verwenden dann das Kubernetes-Backend.
+Mit `"s3": false` installiert das Chart weder den S3-Gateway noch Team-Profile; Ressourcen
+verwenden dann das Kubernetes-Backend.
 
 ### Upgrade
 
-Ein Upgrade von Panko selbst: neuen Stand auschecken, dann `make build deploy`. Images
-werden neu gebaut und ausgerollt; bestehende Ressourcen behalten Bindung, State und
-Status und werden nicht erneut angewendet. Nur eine geänderte `MODULE_REVISION` wendet
-jede Ressource einmal mit dem neuen Modul an. Neue Lab-Bestandteile wie der S3-Gateway
-erfordern zusätzlich `make bootstrap`.
+Ein Upgrade von Panko selbst: neuen Stand auschecken, dann `make build deploy` (ohne Checkout:
+`panko install` mit dem neuen CLI und neuen Image-Tags). Das Helm-Upgrade wendet zuvor die CRDs
+an, führt den Setup-Job erneut aus und rollt nur Pods mit geänderter Vorlage aus; `make build`
+vergibt dafür inhaltsabhängige Image-Tags. Bestehende Ressourcen behalten Bindung, State und
+Status und werden nicht erneut angewendet. Nur eine geänderte Modulrevision wendet jede
+Ressource einmal mit dem neuen Modul an. Ein Upgrade von einer Installation ohne Helm
+(`make deploy` vor diesem PoC) beschreibt die [Auswertung](poc-unified-server.de.md#migration).
 
 ## Egress-Regeln für Runner
 
-Mit `"egress": true` in `panko.json` erzeugt `make deploy` je Team-Namespace die
+Mit `"egress": true` in `panko.json` erzeugt der Setup-Job je Team-Namespace die
 NetworkPolicy `panko-runner-egress`. Sie gilt nur für Runner-Pods und erlaubt
 ausschließlich DNS, die Kubernetes-API, Provider- und Modul-Mirror, das Lab-S3 und die
 Ziele aus `egressTargets`:
@@ -85,7 +92,7 @@ sehen; externe Ziele werden als CIDR angegeben. Hostnamen sind mit Standard-Poli
 nicht möglich. Mit aktiven Regeln entfällt der direkte Rückfall auf die
 Provider-Registry: Ist der Provider-Mirror ausgefallen, scheitern Jobs. Deshalb ist die
 Einstellung standardmäßig aus. `"egress": false` entfernt die Policies beim nächsten
-Deployment wieder. `test/egress_e2e.py` prüft beide Seiten: Provisionierung und
+Lauf des Setup-Jobs wieder. `test/egress_e2e.py` prüft beide Seiten: Provisionierung und
 deklarierte Ziele funktionieren, Gateway und Internet sind gesperrt.
 
 Policy-Controller wie kube-router (k3s/k3d) installieren die Regeln eines neuen Pods
@@ -107,9 +114,11 @@ Zustand `Ready` eine lesende Prüfung: `init`, Backend- und Checkpoint-Prüfung,
 `tofu plan` ohne Speichern. Das Ergebnis steht in `status.lastPlan` mit `drift` und
 den Änderungszahlen; die Phase bleibt `Ready`, nichts wird repariert. Exit-Code 3
 meldet Drift. Mit `DRIFT_CHECK_INTERVAL` am Hook (mindestens `10m`, z. B. `6h`)
-prüft Panko jede Ressource in diesem Abstand selbst, höchstens einmal je Intervall.
+prüft Panko jede Ressource in diesem Abstand selbst, höchstens einmal je Intervall
+(Chart-Wert `module.driftCheckInterval`).
 
-Standardmäßig (`MODULE_ROLLOUT=auto`) wendet eine neue `MODULE_REVISION` jede
+Standardmäßig (`MODULE_ROLLOUT=auto`, Chart-Wert `module.rollout`) wendet eine neue
+`MODULE_REVISION` (`module.revision`) jede
 Ressource einmal an. Mit `MODULE_ROLLOUT=manual` bleiben bestehende Ressourcen auf
 ihrer angewendeten Revision; nur neue erhalten die konfigurierte. Umgestellt wird
 gezielt:
@@ -140,7 +149,7 @@ in ein neues, privates Verzeichnis:
 Danach laufen Hook und Gateway wieder an. Das Verzeichnis enthält Zugangsdaten und
 Datenbankinhalte und gehört nicht ins Repository oder auf geteilte Ablagen.
 
-`make restore` erwartet eine frische Installation (`make cluster-up bootstrap build deploy`)
+`make restore` erwartet eine frische Installation (`make cluster-up build deploy`)
 und prüft vor dem ersten Schreibzugriff, dass keine fremden Databases existieren. Es stoppt Hook und Gateway,
 spielt Zugangsdaten, Installations-ID, States, Checkpoints und Databases ein, stellt
 Datenbankinhalte und S3-Daten wieder her und gleicht `.local/team-tokens.json` mit dem
@@ -174,35 +183,37 @@ enthalten muss. Jobs benötigen Zugriff auf den Modul-Mirror und den
 Provider-Mirror beziehungsweise die Provider-Registry. Nur der Modul-Mirror
 benötigt für das Modul Zugriff auf GitHub.
 
-Ein Modul-Update bedeutet: neuen Commit-SHA als `MODULE_REVISION` in
-`controller/deployment.yaml` eintragen und `make deploy` ausführen. Der Commit
-muss auf einem Branch des in `cluster/module-mirror.yaml` konfigurierten
-`MODULE_REPO` liegen, den der Mirror abholt. Dieser klont beim Start einmal
-mit `git clone --mirror` und aktualisiert danach alle 60 Sekunden mit
-`git remote update --prune`. Vor einem Rollout muss der neue Commit im Mirror
-verfügbar sein; `make deploy` startet ihn neu und wartet auf seine Bereitschaft.
+Ein Modul-Update bedeutet: neuen Commit-SHA als Chart-Wert `module.revision` setzen
+(Werte-Datei, `--set` oder GitOps) und `make deploy` bzw. `panko install` ausführen. Der
+Commit muss auf einem Branch des in `module.repository` konfigurierten Repositorys liegen,
+den der Mirror abholt. Dieser klont beim Start einmal mit `git clone --mirror` und
+aktualisiert danach alle 60 Sekunden mit `git remote update --prune`. Eine neue Revision
+startet den Mirror neu; der neue Pod klont, bevor der alte endet. Controller und Mirror
+rollen im selben Helm-Upgrade aus: Ein Commit, der jünger als eine Minute ist, kann für
+die ersten Jobs noch fehlen und meldet dann `module_fetch` (danach `retry`).
 Jede Database wird danach einmal mit der neuen Revision angewendet. Der Status hält mit
 `lastAppliedRevision` fest, welche Revision zuletzt erfolgreich angewendet wurde;
 Destroy verwendet genau diese Revision. Ressourcen ohne erfasste Revision werden
 beim ersten Deployment dieses Aufbaus einmal angewendet.
 
 Liegt das Modul in einem Unterverzeichnis des Repositorys, nennt `MODULE_PATH` am Hook
-dieses Verzeichnis (relativ, ohne `..` und `.git`). Der Pfad wird wie das State-Backend
+(`module.path`) dieses Verzeichnis (relativ, ohne `..` und `.git`). Der Pfad wird wie das State-Backend
 vor dem ersten Job an die Ressource gebunden (`status.modulePath`). Eine spätere Änderung
 gilt nur für neue Ressourcen; bestehende, auch solche aus der Zeit vor `MODULE_PATH`,
 behalten ihren Pfad für Updates, Drift-Prüfungen, Migrationen und Destroy.
 
 Das öffentliche Beispielmodul wird standardmäßig über HTTPS geladen, ohne
-Deploy-Key oder GitHub-Konto. Für ein privates Modul wird `MODULE_REPO` in
-`cluster/module-mirror.yaml` auf eine SSH-URL gesetzt. Dann ist der
-Deploy-Key nur lesend für das Modul-Repository freigegeben. `make deploy`
-legt ihn mit `admin module-mirror-secret` als Secret `panko-module-git`
-ausschließlich in `infra-runners` ab, zusammen mit den Host-Schlüsseln aus
-`cluster/module-known-hosts`. Diese Host-Schlüssel stammen aus GitHubs API
+Deploy-Key oder GitHub-Konto. Für ein privates Modul wird `module.repository` auf eine
+SSH-URL gesetzt und `module.sshSecret` auf ein vorhandenes Secret in `infra-runners` mit den
+Schlüsseln `ssh` und `known_hosts`. Dann ist der Deploy-Key nur lesend für das
+Modul-Repository freigegeben. `MODULE_SSH_KEY_FILE=... make deploy` legt ihn mit
+`admin module-mirror-secret` als Secret `panko-module-git` ausschließlich in
+`infra-runners` ab, zusammen mit den Host-Schlüsseln aus `cluster/module-known-hosts`,
+und setzt `module.sshSecret`. Diese Host-Schlüssel stammen aus GitHubs API
 (`gh api meta`) und müssen bei einem Schlüsselwechsel von GitHub aktualisiert
 werden. Nur der Modul-Mirror mountet dieses Secret; SSH
-prüft die Host-Schlüssel strikt. Nach dem Hook-Rollout löscht das Deployment
-alte Kopien des Secrets aus den konfigurierten Team-Namespaces.
+prüft die Host-Schlüssel strikt. Alte Kopien des Secrets in Team-Namespaces (aus dem Modus
+ohne Mirror) entfernt das Chart nicht; sie sind vor der Umstellung zu löschen.
 Der Mirror stellt das Bare-Repository im Cluster über einen nur lesenden,
 unauthentifizierten Git-Dienst auf Port 9418 bereit; Push ist deaktiviert.
 Damit kann jeder Pod im Cluster den Modulcode lesen, aber keinen Schlüssel. Für eine
@@ -215,22 +226,23 @@ Fallback auf GitHub und keinen Deploy-Key im Job. Ein fehlgeschlagenes
 periodisches Update lässt den zuletzt geholten Stand weiter verfügbar. Das
 Repository liegt in einem `emptyDir` und wird nach einem Pod-Neustart neu
 geklont. Auch Admin-Migrationsjobs übernehmen `MODULE_MIRROR` aus der
-Hook-Konfiguration. Ohne `MODULE_MIRROR` bleibt der bisherige SSH-Modus mit
-`MODULE_REPO` und Team-Secrets (`admin module-secret`) verfügbar.
+Hook-Konfiguration. Das Chart setzt immer `MODULE_MIRROR`; der frühere Modus ohne Mirror
+(`MODULE_REPO` und Team-Secrets aus `admin module-secret`) ist im Hook noch vorhanden, wird
+vom Chart aber nicht mehr angeboten.
 
-Ein separates Lab lässt sich mit `make CLUSTER_NAME=infra-lab-go KUBECONFIG="$PWD/.local/go-fresh-kubeconfig" cluster-up bootstrap build deploy` erstellen. Für alle weiteren
+Ein separates Lab lässt sich mit `make CLUSTER_NAME=infra-lab-go KUBECONFIG="$PWD/.local/go-fresh-kubeconfig" cluster-up build deploy` erstellen. Für alle weiteren
 Make-Aufrufe dieselben Werte verwenden. `make cluster-down` entfernt ausschließlich
 den ausgewählten Cluster.
 
 ## Provider-Mirror
 
-`make build deploy` baut und startet `provider-mirror` in `infra-runners` unter
-`https://provider-mirror.infra-runners.svc:8443`. `admin ensure-mirror-tls` erzeugt
-nur bei fehlendem Secret `provider-mirror-tls` eine ECDSA-P-256-CA (fünf Jahre)
-und ein Serverzertifikat (ein Jahr) für beide Service-DNS-Namen. Der CA-Schlüssel
-wird nach dem Signieren verworfen; gespeichert wird nur der Server-Schlüssel.
-`admin --kubeconfig "$KUBECONFIG" mirror-ca | kubectl apply -f -` verteilt allein
-das CA-Zertifikat als ConfigMap `panko-mirror-ca` an die Team-Namespaces.
+Das Chart startet `provider-mirror` (Rolle `mirror` von `panko-server`) in `infra-runners`
+unter `https://provider-mirror.infra-runners.svc:8443` (`providerMirror.enabled`). Der
+Setup-Job erzeugt nur bei fehlendem Secret `provider-mirror-tls` eine ECDSA-P-256-CA (fünf
+Jahre) und ein Serverzertifikat (ein Jahr) für beide Service-DNS-Namen, und erneuert beide
+30 Tage vor Ablauf. Der CA-Schlüssel wird nach dem Signieren verworfen; gespeichert wird nur
+der Server-Schlüssel. Danach verteilt der Setup-Job allein das CA-Zertifikat als ConfigMap
+`panko-mirror-ca` an die Team-Namespaces (manuell: `admin --kubeconfig "$KUBECONFIG" mirror-ca | kubectl apply -f -`).
 
 `PROVIDER_MIRROR` am Hook aktiviert die optionale CA-Einbindung in neue Jobs.
 Der Runner prüft vor `init` (auch bei Migrationen) `/healthz` mit zwei Sekunden
@@ -249,15 +261,18 @@ und `linux_amd64`, `linux_arm64`. Flags `-hosts`, `-platforms` und `-index-ttl`
 Indizes gelten fünf Minuten (höchstens eine Stunde), Versionsmetadaten und ZIPs
 bleiben unverändert. Nur vollständig heruntergeladene, gegen `shasum` geprüfte
 ZIPs gelangen atomar in den Cache. Das Modul-Lockfile bleibt maßgeblich.
-Der Cache liegt auf `emptyDir`: Container-Neustarts behalten ihn, ein neuer Pod
-beginnt leer. Der Dienst braucht ausgehenden HTTPS-Zugriff auf Registry und Downloads;
+Der Cache liegt auf dem PVC `provider-mirror-cache` und überdauert Pod-Neustarts und das
+Entfernen des Releases. Der Dienst braucht ausgehenden HTTPS-Zugriff auf Registry und Downloads;
 Runner brauchen ihn weiterhin für den Direktbetrieb.
 
 Zur Diagnose `kubectl -n infra-runners get pods -l app=provider-mirror` und
 `kubectl -n infra-runners rollout status deploy/provider-mirror` verwenden.
 Vor Ablauf des Serverzertifikats in einem Wartungsfenster das TLS-Secret löschen,
-`make deploy` ausführen und die CA-Verteilung samt Rollout prüfen. Dies erzeugt
-auch eine neue CA; bereits laufende Jobs vorher abschließen lassen.
+`make deploy` bzw. `panko install` ausführen (beide starten den Setup-Job neu; bei GitOps den
+Setup-Job löschen, damit ihn die nächste Synchronisierung neu anlegt), dann
+`kubectl -n infra-runners rollout restart deploy/provider-mirror` und die CA-Verteilung prüfen.
+Der Mirror liest sein Zertifikat nur beim Start. Dies erzeugt auch eine neue CA; bereits
+laufende Jobs vorher abschließen lassen.
 
 ## Ausführungsvertrag
 
@@ -289,7 +304,7 @@ Python-Portierungsbaseline verwenden denselben Snapshot-Vertrag wie Go.
 | `panko-state-team-a` | State-Secrets und Lock-Leases von team-a | Nur Runner von team-a |
 | `panko-state-team-b` | State-Secrets und Lock-Leases von team-b | Nur Runner von team-b |
 | `infra-gateway` | Gateway und `gateway-auth` | Kein Zugriff |
-| `infra-runners` | Controller-Hook, Provider-Mirror und TLS-Secret | Kein Zugriff auf Secrets oder Leases |
+| `infra-runners` | Controller (eingebetteter Metacontroller und Hook), Endpoint, Mirrors, Setup-Job, TLS-Secrets | Kein Zugriff auf Secrets oder Leases |
 | `infra-backends` | PostgreSQL und Admin-Secret | Nur `get` auf `postgres-admin` |
 
 States und Leases behalten ihre bisherigen Namen; nur ihr Namespace wechselt.
@@ -302,11 +317,13 @@ beider Teams verwalten; der HTTP-Code erzwingt die Token-Team-Zuordnung.
 
 ### Vorhandene Installation migrieren
 
-Bei einer frischen Installation ist keine Migration erforderlich. `make deploy`
-verweigert den Backend-Wechsel, solange in `infra-runners` alte State-Secrets liegen.
-Ein vorhandenes `gateway-auth` wird bei einem Upgrade unter Beibehaltung der Tokens
-in `infra-gateway` kopiert. Nach erfolgreichem Gateway-Rollout entfernt Deploy die
-alte Gateway-Installation, das alte Auth-Secret und die alte State-Rolle samt Binding.
+Bei einer frischen Installation ist keine Migration erforderlich. `panko install` (auch über
+`make deploy`) verweigert den Backend-Wechsel, solange in `infra-runners` alte State-Secrets
+liegen, und kopiert ein altes `gateway-auth` unter Beibehaltung der Tokens nach
+`infra-gateway`. Das Aufräumen der alten Gateway-Installation in `infra-runners`, des alten
+Auth-Secrets und der alten State-Rolle samt Binding übernimmt nur noch das Deployment von
+v0.0.1: Installationen aus der Zeit vor der State-Isolation zuerst mit v0.0.1 migrieren und
+danach auf diesen PoC umstellen.
 
 Bei vorhandenen States:
 
@@ -322,9 +339,8 @@ Bei vorhandenen States:
 4. `make build deploy` ausführen. Erst die neuen Runner dürfen wieder Jobs starten.
    Anschließend `make test` ausführen und das Wartungsfenster beenden.
 
-Die Go-Verwaltungsbefehle übernehmen auch die zufällige Initialisierung von
-PostgreSQL-Adminpasswort und Team-Tokens; Bootstrap und Deployment benötigen dafür
-keinen Python-Interpreter. Vor dem Löschen kopierter Quell-Secrets prüft Kubernetes
+Der Setup-Job übernimmt die zufällige Initialisierung von PostgreSQL-Adminpasswort und
+Team-Tokens im Cluster; dafür ist kein Python-Interpreter nötig. Vor dem Löschen kopierter Quell-Secrets prüft Kubernetes
 zusätzlich deren UID und ResourceVersion, damit zwischenzeitliche Änderungen zum
 Abbruch führen.
 
@@ -382,7 +398,9 @@ JSON-Logzeilen mit Ressourcenidentität, Generation und Aktion. Controller und
 Runner ergänzen die Job-Identität, der Runner die Laufzeit. Spec, Token und
 Zugangsdaten werden nicht in diese strukturierten Felder aufgenommen.
 
-Gateway und Hook stellen im Cluster unter `/metrics` Prometheus-Text bereit:
+Gateway und Hook stellen im Cluster unter `/metrics` Prometheus-Text bereit (der Hook über den
+Controller-Service `database-hook:8080`, der eingebettete Metacontroller seine
+controller-runtime-Metriken unter `database-hook:9999`):
 
 - `panko_discovery_cache_requests_total{result="hit|miss|error"}` am Gateway.
 - `panko_execution_total{action="apply|destroy",outcome="success|failure"}` am Hook.
@@ -406,8 +424,10 @@ und [mise GitHub Action](https://github.com/jdx/mise-action/tree/v2).
 
 ## CLI für den Alltag
 
-`make build-go` baut auch `.local/bin/panko`. Alle Befehle aus dem Repository-Root
-aufrufen; in einem zweiten Terminal `make gateway-forward` starten. Die CLI spricht
+`make build-go` baut auch `.local/bin/panko`. In einem Checkout-Lab alle Befehle aus dem
+Repository-Root aufrufen und in einem zweiten Terminal `make gateway-forward` starten. Für ein
+Lab aus `panko dev up` genügen die ausgegebenen `PANKO_URL`, `PANKO_TOKENS_FILE` und
+`PANKO_KUBECONFIG`, aus jedem Verzeichnis. Die CLI spricht
 für Datenbankbefehle mit dem Gateway unter `http://127.0.0.1:8081`.
 `--url` oder `PANKO_URL` überschreibt die Adresse. Globale Flags dürfen vor oder
 nach dem Befehl stehen.
@@ -425,7 +445,7 @@ nach dem Befehl stehen.
 `--team` hat Vorrang vor `PANKO_TEAM`. Ohne beides wird genau ein Team aus
 `panko.json` übernommen; bei mehreren Teams ist die Auswahl erforderlich.
 `--config` kann eine andere Konfigurationsdatei wählen. Der Token kommt aus
-`PANKO_TOKEN`, sonst aus `.local/team-tokens.json` (`--tokens-file`). Tokens werden
+`PANKO_TOKEN`, sonst aus `.local/team-tokens.json` (`--tokens-file` oder `PANKO_TOKENS_FILE`). Tokens werden
 nicht ausgegeben und nicht an Unterprozesse übergeben.
 
 `create` setzt `owner` standardmäßig auf das Team. Optional sind `--owner TEAM`,
@@ -450,7 +470,7 @@ Abschluss: danach `wait` beziehungsweise bei einem Destroy `delete --wait` verwe
 
 `connect` liest ausschließlich das in `status.connectionSecretRef` benannte Secret
 im Team-Namespace über den lokalen Kubernetes-Zugang. `--kubeconfig` hat Vorrang
-vor `KUBECONFIG`, Standard ist `.local/kubeconfig`; es gibt keinen impliziten
+vor `PANKO_KUBECONFIG` und `KUBECONFIG`, Standard ist `.local/kubeconfig`; es gibt keinen impliziten
 In-Cluster-Zugang. Der Gateway bekommt dafür keine zusätzlichen Secret-Rechte.
 Standardausgabe ist nur die PostgreSQL-URI. `--format env` liefert shell-quotierte
 `export PGHOST/PGPORT/PGDATABASE/PGUSER/PGPASSWORD`-Zeilen, `--format json` die
@@ -458,8 +478,9 @@ dekodierten Secret-Felder. Alle Formate enthalten bewusst Zugangsdaten; nicht in
 Logs oder Tickets übernehmen.
 
 `.local/bin/panko doctor` zeigt pro Prüfung `ok` oder `fail` mit Hinweis und endet
-bei Fehlern mit 1. Geprüft werden Konfiguration, Kubernetes-Erreichbarkeit,
-Hook-/Gateway-/Metacontroller-Rollouts, Modul-Secrets in allen Team-Namespaces,
+bei Fehlern mit 1. Geprüft werden Konfiguration (`panko.json`, sonst die Kopie
+`infra-runners/panko-config` im Cluster), Kubernetes-Erreichbarkeit, Controller- und
+Gateway-Rollouts (ein separater Metacontroller nur, wenn der Namespace `metacontroller` existiert), Modul-Secrets in allen Team-Namespaces,
 Gateway-Tokens für alle Teams, eine gültige lokale Token-Datei mit Modus 0600 und
 bei aktiviertem S3 dessen StatefulSet. Dies prüft vorhandene Modul-Secrets, keinen
 Git-Zugriff aus einem Runner. Ein nicht erreichbares `/healthz` am lokalen Gateway

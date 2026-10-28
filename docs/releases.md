@@ -33,9 +33,10 @@ tests on tag pushes.
 - `SHA256SUMS`, covering the six archives. These are checksums, not publisher
   signatures. No paid signing service is used.
 - `panko.rb`, generated from the archive checksums for the Homebrew tap.
-- Five images, each with Linux AMD64 and ARM64 manifests:
-  `ghcr.io/hingst-it/panko-runner:TAG`, `panko-hook:TAG`, `panko-gateway:TAG`,
-  `panko-mirror:TAG`, and `panko-module-mirror:TAG` under the same namespace.
+- Two images, each with Linux AMD64 and ARM64 manifests:
+  `ghcr.io/hingst-it/panko-server:TAG` (every in-cluster role of `panko-server`) and
+  `panko-module-mirror:TAG` under the same namespace. (Release 0.0.1 published five
+  per-component images instead.) The proof-of-concept branch is not released.
 
 All builds check out the verified commit SHA. The GitHub release is created only
 after every binary and image build succeeds. Images are pushed by their individual
@@ -54,9 +55,10 @@ does not guarantee public package visibility. Organization package policies must
 allow the workflow to create packages. Subsequent releases can use the same
 packages and token permissions.
 
-These artifacts do not install the Kubernetes services by themselves. The local
-lab still uses the repository's manifests and `make` commands with local `:dev`
-images. [homebrew-tap](https://github.com/hingst-it/homebrew-tap) contains the formula;
+These artifacts do not install the Kubernetes services by themselves. On the
+proof-of-concept branch, `panko install` and `panko dev up` install the Helm chart that
+is embedded in the CLI ([installation](installation.md)); publishing the chart to an OCI
+registry and the images with the chart's `appVersion` is not part of the release workflow yet. [homebrew-tap](https://github.com/hingst-it/homebrew-tap) contains the formula;
 copy the published `panko.rb` to `Formula/panko.rb` and commit it for each new
 release. This cross-repository update intentionally uses no extra CI credential.
 [asdf-panko](https://github.com/hingst-it/asdf-panko) discovers version tags and

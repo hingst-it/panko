@@ -1,0 +1,17 @@
+{{- /* Namespaces hold team resources, state and credentials, so they outlive the release. */}}
+{{- $namespaces := list "infra-runners" "infra-gateway" "infra-backends" }}
+{{- range .Values.installation.teams }}
+{{- $namespaces = append $namespaces . }}
+{{- $namespaces = append $namespaces (printf "panko-state-%s" .) }}
+{{- end }}
+{{- range $namespaces }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ . }}
+  labels:
+    {{- include "panko.labels" $ | nindent 4 }}
+  annotations:
+    {{- include "panko.retain" $ | nindent 4 }}
+{{- end }}

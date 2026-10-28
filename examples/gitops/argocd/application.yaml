@@ -1,0 +1,47 @@
+# Argo CD Application installing Panko from the chart in the Panko repository, with values from
+# your own GitOps repository (multiple sources). Validated with helm template only; see docs/gitops.md.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: panko
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://github.com/hingst-it/panko.git
+      # Pin a commit or tag; a branch is only acceptable for the proof of concept.
+      targetRevision: poc/unified-server-dev-install
+      path: charts/panko
+      helm:
+        releaseName: panko
+        valueFiles:
+          - $values/panko/values.yaml
+    - repoURL: https://git.example.internal/platform/gitops.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    # Holds no workloads; Panko's objects carry their own namespaces.
+    namespace: panko-system
+  syncPolicy:
+    automated:
+      prune: true
+      # Self-heal reverts manual changes such as panko admin pause (which scales the controller
+      # to 0); disable it for maintenance windows.
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # The Metacontroller CRDs are large; server-side apply avoids the annotation size limit.
+      - ServerSideApply=true
+      # The CompositeController and BackendProfiles need their CRDs, applied in the same sync.
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 10
+      backoff: {duration: 10s, factor: 2, maxDuration: 3m}
+  # The setup Job and the s3-onboard Job are named by a digest of their inputs; old ones are pruned.
+  ignoreDifferences:
+    # kubectl rollout restart and panko admin pause/resume change these fields on purpose.
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/template/metadata/annotations/kubectl.kubernetes.io~1restartedAt

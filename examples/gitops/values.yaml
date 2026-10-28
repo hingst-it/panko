@@ -1,0 +1,47 @@
+# Example values for an existing cluster managed with GitOps (helm template, Argo CD, Flux).
+# No real credentials belong here: the chart never renders Secrets. Keep this file in your own
+# GitOps repository and pin every version.
+
+installation:
+  # Team namespaces <team> and panko-state-<team> are created by the chart and kept on uninstall.
+  teams: [team-a, team-b]
+  # Lab S3 gateway: off for a shared cluster; teams use operator-approved BackendProfiles instead.
+  s3: false
+  # Runner pods may reach only Panko's components and these targets (policies kept by setup).
+  egress: true
+  egressTargets:
+    - {service: infra-backends/postgres, port: 5432}
+  runnerPools: []
+  runnerEndpoint:
+    names: []
+
+images:
+  # Proof of concept: the images are not published. Push your build to a registry the cluster can
+  # pull from and pin the tag (or use a digest-pinned tag of your own); see docs/gitops.md.
+  server:
+    repository: registry.example.internal/panko/panko-server
+    tag: 0.1.0-poc.1
+    pullPolicy: IfNotPresent
+  moduleMirror:
+    repository: registry.example.internal/panko/panko-module-mirror
+    tag: 0.1.0-poc.1
+    pullPolicy: IfNotPresent
+  # Pull secret names in infra-runners, infra-gateway and infra-backends, created outside the chart.
+  pullSecrets: []
+
+module:
+  repository: https://github.com/hingst-it/panko-database.git
+  # A full commit SHA; changing it rolls the module out (rollout: auto) or waits (manual).
+  revision: 8304ffda663aa0943890cd1d8966a8c50b1fdc05
+  rollout: manual
+
+lab:
+  # The example module needs PostgreSQL. With an external server, disable the lab instance and
+  # provide infra-backends/postgres-admin (key: password) before the first sync.
+  postgres:
+    enabled: true
+
+secrets:
+  # true: the setup Job creates missing credentials once and never rotates them on re-render.
+  # false: provide every Secret yourself (SOPS, External Secrets, cert-manager); setup verifies.
+  generate: true

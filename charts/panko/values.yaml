@@ -1,0 +1,119 @@
+# Panko Helm chart values. The same chart serves `panko install`, `panko dev up` and GitOps
+# (helm template, Argo CD, Flux). Rendering is deterministic: the chart never generates
+# credentials or random values. The setup Job creates missing credentials in the cluster and
+# keeps existing ones (see secrets.generate).
+
+# Installation configuration, the same shape as panko.json. The chart renders it into the
+# ConfigMap infra-runners/panko-config, which the setup Job and `panko admin` read.
+installation:
+  # Team namespaces; each team also gets panko-state-<team> for its OpenTofu state.
+  teams: [team-a, team-b]
+  # Lab S3 gateway (VersityGW) with one user, bucket and BackendProfile per team.
+  s3: false
+  # Restrict runner pods to Panko's components and egressTargets (NetworkPolicies, kept by setup).
+  egress: false
+  egressTargets: []
+  #  - {service: infra-backends/postgres, port: 5432}
+  #  - {cidr: 10.0.0.0/8, port: 443}
+  # Remote runner pools; teams without a pool keep in-cluster Jobs.
+  runnerPools: []
+  #  - name: edge
+  #    teams: [team-b]
+  # Additional DNS names or IPs on the runner endpoint certificate.
+  runnerEndpoint:
+    names: []
+
+images:
+  # One image for every runtime role (gateway, controller, endpoint, mirror, runner, setup).
+  server:
+    repository: ghcr.io/hingst-it/panko-server
+    # Empty uses the chart's appVersion.
+    tag: ""
+    pullPolicy: IfNotPresent
+  # git daemon serving the pinned module to runner Jobs without credentials.
+  moduleMirror:
+    repository: ghcr.io/hingst-it/panko-module-mirror
+    tag: ""
+    pullPolicy: IfNotPresent
+  # Runner Jobs copy OpenTofu from this image and fetch the module with git-sync.
+  engine: ghcr.io/opentofu/opentofu:1.11.7@sha256:6166f12d09520dbbb431a13951973c5b1046c01f801fa8c7b73e89511a0fff34
+  engineBinary: /usr/local/bin/tofu
+  gitSync: registry.k8s.io/git-sync/git-sync:v4.5.1@sha256:1df295fdab03031f932f2b7dae82fa19bd77334e2510c311bbdfc7e09ef49ece
+  postgres: postgres:17.11-alpine
+  s3: versity/versitygw:v1.10.0@sha256:89cad13cc981986ee284cbafea4613f9533ce6fd5f37a2c96c4c4fb8adb3a316
+  # Pull secrets for private registries, by name in each namespace that runs Panko pods.
+  pullSecrets: []
+
+module:
+  # The module repository; HTTPS needs no credentials, SSH needs module.sshSecret.
+  repository: https://github.com/hingst-it/panko-database.git
+  # A full commit SHA; moving branches or tags are refused.
+  revision: 8304ffda663aa0943890cd1d8966a8c50b1fdc05
+  # Module directory inside the repository; empty is the root.
+  path: ""
+  # auto applies a new revision to every resource; manual waits for `panko admin upgrade-module`.
+  rollout: auto
+  # Read-only drift plans for Ready resources, e.g. 6h; empty disables them.
+  driftCheckInterval: ""
+  # Existing Secret in infra-runners with the keys ssh and known_hosts, for SSH repositories only.
+  sshSecret: ""
+
+controller:
+  # More than one replica requires leaderElection.
+  replicas: 1
+  leaderElection: false
+  workers: 5
+  # Only CompositeControllers with this label are managed, so a Metacontroller of another
+  # installation in the same cluster keeps its own controllers.
+  targetLabelSelector: platform.example.com/controller=panko
+  externalStateBackends: true
+  deleteAlertSeconds: 300
+  resources:
+    requests: {cpu: 50m, memory: 96Mi}
+    limits: {memory: 384Mi}
+
+gateway:
+  replicas: 1
+  # Lab only: NodePort for direct local access (k3d maps it to localhost).
+  labNodePort: null
+  # Resources the gateway may manage in team namespaces. CRDs added later need their own entry,
+  # or `panko admin gateway-rbac` for a discovered set.
+  exposedResources:
+    - group: platform.example.com
+      resources: [databases, statebackends]
+  resources:
+    requests: {cpu: 20m, memory: 64Mi}
+    limits: {memory: 256Mi}
+
+endpoint:
+  # Runner endpoint for remote agents; idle while no team uses a runner pool.
+  enabled: true
+  # Lab only: NodePort for agents outside the cluster.
+  labNodePort: null
+
+providerMirror:
+  enabled: true
+  cacheSize: 2Gi
+
+moduleMirror:
+  # The mirror polls the repository every minute and serves fetched refs during outages.
+  storage: 1Gi
+
+lab:
+  # In-cluster PostgreSQL for the example module. Disable it for an external database and create
+  # infra-backends/postgres-admin (key: password) before installing.
+  postgres:
+    enabled: true
+    storage: 1Gi
+
+secrets:
+  # true: the setup Job creates missing credentials and never replaces existing ones.
+  # false: the setup Job only verifies that they exist (bring your own via SOPS, External
+  # Secrets, cert-manager, ...). Names are fixed: infra-backends/postgres-admin,
+  # infra-gateway/gateway-auth, infra-runners/provider-mirror-tls, infra-runners/runner-endpoint-tls,
+  # infra-runners/panko-runner-agents and, with s3, infra-backends/s3-admin, infra-backends/s3-teams
+  # and <team>/panko-state-s3.
+  generate: true
+
+# Labels and annotations protect persistent data from deletion by helm uninstall and GitOps pruning.
+retain: true

@@ -59,7 +59,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@v7
         with:
-          # Keep aligned with mise.toml and Dockerfile.runtime.
+          # Keep aligned with mise.toml and Dockerfile.server.
           go-version: '1.27.3'
       - name: Build and package CLI and administrator commands
         env:
@@ -98,14 +98,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - component: runner
-            file: Dockerfile.runtime
-          - component: hook
-            file: Dockerfile.runtime
-          - component: gateway
-            file: Dockerfile.runtime
-          - component: mirror
-            file: Dockerfile.runtime
+          # One image for every in-cluster role of panko-server; the chart selects the role.
+          - component: server
+            file: Dockerfile.server
           - component: module-mirror
             file: cluster/Dockerfile.module-mirror
     steps:
@@ -130,7 +125,7 @@ jobs:
         with:
           context: .
           file: ${{ matrix.file }}
-          build-args: COMPONENT=${{ matrix.component }}
+          build-args: VERSION=${{ needs.verify.outputs.tag }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.image.outputs.name }}:${{ needs.verify.outputs.tag }}

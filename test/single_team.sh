@@ -11,7 +11,7 @@ if [ "$KUBECONFIG" = "$PWD/.local/kubeconfig" ]; then
   exit 1
 fi
 lab=(CLUSTER_NAME="${CLUSTER_NAME:?CLUSTER_NAME must name a dedicated lab}" KUBECONFIG="$KUBECONFIG")
-make "${lab[@]}" cluster-up bootstrap build deploy
+make "${lab[@]}" cluster-up build deploy
 python3 test/single_team_e2e.py create
 make "${lab[@]}" build deploy
 python3 test/single_team_e2e.py after-upgrade

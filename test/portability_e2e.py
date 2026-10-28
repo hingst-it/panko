@@ -11,7 +11,7 @@ from e2e import create, credentials, delete_and_check, get, kube, ready, sql, wa
 
 
 def hook_image(image):
-    kube('set', 'image', '-n', 'infra-runners', 'deploy/database-hook', 'hook=' + image)
+    kube('set', 'image', '-n', 'infra-runners', 'deploy/database-hook', 'controller=' + image)
     kube('scale', '-n', 'infra-runners', 'deploy/database-hook', '--replicas=1')
     kube('rollout', 'status', '-n', 'infra-runners', 'deploy/database-hook', '--timeout=120s')
 

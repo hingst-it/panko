@@ -157,7 +157,7 @@ def start_agent(container, directory):
            '-e', 'PANKO_AGENT_TOKEN_FILE=/etc/panko-agent/token', '-e', 'PANKO_POOL=cloud', '-e', 'PANKO_PROFILES=/etc/panko-agent/profiles',
            '-e', 'PANKO_WORK=/tmp', '-e', 'PANKO_PLUGIN_CACHE=/var/cache/panko-plugins', 'panko-agent:dev', 'run')
     docker('network', 'connect', '--alias', container, NETWORK, container)
-    check = docker('exec', container, 'panko-agent', 'check', check=False)
+    check = docker('exec', container, 'panko-server', 'agent', 'check', check=False)
     assert check.returncode == 0, check.stdout + check.stderr
 
 

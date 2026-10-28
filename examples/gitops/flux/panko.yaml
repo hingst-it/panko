@@ -1,0 +1,50 @@
+# Flux source and HelmRelease installing Panko from the chart in the Panko repository.
+# Validated with helm template only; see docs/gitops.md.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: panko
+  namespace: flux-system
+spec:
+  interval: 10m
+  url: https://github.com/hingst-it/panko.git
+  ref:
+    # Pin a commit or tag; a branch is only acceptable for the proof of concept.
+    branch: poc/unified-server-dev-install
+  ignore: |
+    /*
+    !/charts/panko/
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: panko
+  namespace: flux-system
+spec:
+  interval: 30m
+  releaseName: panko
+  # The release record lives in panko-system; the objects carry their own namespaces.
+  targetNamespace: panko-system
+  storageNamespace: panko-system
+  chart:
+    spec:
+      chart: ./charts/panko
+      sourceRef: {kind: GitRepository, name: panko}
+      reconcileStrategy: Revision
+  install:
+    createNamespace: true
+    # Helm itself never upgrades crds/; Flux creates and replaces them explicitly.
+    crds: CreateReplace
+    timeout: 15m
+  upgrade:
+    crds: CreateReplace
+    timeout: 15m
+    # Panko keeps state in its own objects; retry instead of rolling back.
+    remediation:
+      retries: 3
+      remediateLastFailure: false
+  # Values from your own repository, e.g. a ConfigMap generated from examples/gitops/values.yaml.
+  valuesFrom:
+    - kind: ConfigMap
+      name: panko-values
+      valuesKey: values.yaml

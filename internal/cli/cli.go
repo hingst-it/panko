@@ -72,12 +72,18 @@ func (a *App) Run(ctx context.Context, args []string) int {
 	if a.PollInterval <= 0 {
 		a.PollInterval = time.Second
 	}
+	if len(args) > 0 {
+		if command, ok := subcommands[args[0]]; ok {
+			return command(a, ctx, args[1:])
+		}
+	}
 	for _, arg := range args {
 		if arg == "--help" || arg == "-h" {
 			fmt.Fprintln(a.Out, "usage: panko [--url URL] [--team TEAM] [--tokens-file PATH] [--kubeconfig PATH] [--config PATH] COMMAND")
 			fmt.Fprintln(a.Out, "list [--json] | get NAME [--json] | create NAME [-f spec.json | --owner TEAM --extensions a,b --connection-limit N --state-backend REF]")
 			fmt.Fprintln(a.Out, "wait NAME [--timeout 5m] | retry NAME [--wait] | plan NAME [--wait] | delete NAME [--wait] [--timeout 5m] | connect NAME [--format uri|env|json] | doctor")
-			fmt.Fprintln(a.Out, "Environment: PANKO_URL, PANKO_TEAM, PANKO_TOKEN, KUBECONFIG. Exit codes: 0 success, 1 failure, 2 usage/timeout, 3 drift (plan --wait).")
+			fmt.Fprintln(a.Out, "install --kubeconfig PATH [--context NAME] [--values FILE] | dev up|status|down | chart export|template | admin COMMAND")
+			fmt.Fprintln(a.Out, "Environment: PANKO_URL, PANKO_TEAM, PANKO_TOKEN, PANKO_TOKENS_FILE, PANKO_KUBECONFIG, KUBECONFIG. Exit codes: 0 success, 1 failure, 2 usage/timeout, 3 drift (plan --wait).")
 			return 0
 		}
 	}
@@ -86,8 +92,8 @@ func (a *App) Run(ctx context.Context, args []string) int {
 	fs.SetOutput(io.Discard)
 	fs.StringVar(&o.url, "url", env("PANKO_URL", "http://127.0.0.1:8081"), "Gateway URL")
 	fs.StringVar(&o.team, "team", os.Getenv("PANKO_TEAM"), "Team namespace")
-	fs.StringVar(&o.tokens, "tokens-file", ".local/team-tokens.json", "Private token file")
-	fs.StringVar(&o.kubeconfig, "kubeconfig", env("KUBECONFIG", ".local/kubeconfig"), "Explicit owner kubeconfig")
+	fs.StringVar(&o.tokens, "tokens-file", env("PANKO_TOKENS_FILE", ".local/team-tokens.json"), "Private token file")
+	fs.StringVar(&o.kubeconfig, "kubeconfig", env("PANKO_KUBECONFIG", env("KUBECONFIG", ".local/kubeconfig")), "Explicit owner kubeconfig")
 	fs.StringVar(&o.config, "config", env("PANKO_CONFIG", "panko.json"), "Installation configuration")
 	fs.StringVar(&o.owner, "owner", "", "Database owner (defaults to team)")
 	fs.StringVar(&o.extensions, "extensions", "", "Comma-separated extensions")

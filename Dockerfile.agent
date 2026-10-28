@@ -1,4 +1,4 @@
-# Remote runner agent: the agent binary with OpenTofu and git. It runs outside the cluster and
+# Remote runner agent: panko-server (agent role) with OpenTofu and git. It runs outside the cluster and
 # needs only outbound HTTPS to the runner endpoint, the module repository and the providers.
 FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS build
 ARG TARGETOS=linux
@@ -8,18 +8,18 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd/ cmd/
 COPY internal/ internal/
-RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags='-s -w' -o /out/panko-agent ./cmd/agent
+RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags='-s -w' -o /out/panko-server ./cmd/panko-server
 
 FROM alpine:3.24
 RUN apk add --no-cache ca-certificates git openssh-client \
  && adduser -D -u 1000 -h /home/panko panko
 # The OpenTofu image refuses to be a build stage (ONBUILD), so the binary is copied directly.
 COPY --from=ghcr.io/opentofu/opentofu:1.13.2@sha256:25bdfbe87000b8a88d44c7ef0cca53381da95f6203f7aed1e8cf5b81ecbe18eb /usr/local/bin/tofu /usr/local/bin/tofu
-COPY --from=build /out/panko-agent /usr/local/bin/panko-agent
+COPY --from=build /out/panko-server /usr/local/bin/panko-server
 # Profiles and the token are mounted read-only; executions work in /work.
 # OpenSSH needs a named user; host keys come from a mounted known_hosts (see deploy/agent).
 RUN mkdir -p /work /etc/panko-agent/profiles && chown panko:panko /work
 USER panko
 ENV PANKO_WORK=/work PANKO_TOFU=/usr/local/bin/tofu
-ENTRYPOINT ["/usr/local/bin/panko-agent"]
+ENTRYPOINT ["/usr/local/bin/panko-server", "agent"]
 CMD ["run"]

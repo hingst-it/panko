@@ -40,7 +40,7 @@ func (m *Migrator) registry(ctx context.Context) (map[string]endpoint.AgentEntry
 		return nil, "", err
 	}
 	if secret == nil {
-		return nil, "", fmt.Errorf("the agent registry does not exist; run make deploy first")
+		return nil, "", fmt.Errorf("the agent registry does not exist; run panko install first")
 	}
 	entries := map[string]endpoint.AgentEntry{}
 	for id, value := range jsonx.Obj(secret["data"]) {

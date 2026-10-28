@@ -1,8 +1,12 @@
-# Test-only controller for Buckets; the same hook serves them like Databases.
+# Test-only controller for Buckets; the same hook serves them like Databases, over the
+# controller pod's loopback address like the chart's database-controller.
 apiVersion: metacontroller.k8s.io/v1alpha1
 kind: CompositeController
 metadata:
   name: bucket-controller
+  # The embedded Metacontroller only manages controllers with this label.
+  labels:
+    platform.example.com/controller: panko
 spec:
   generateSelector: true
   resyncPeriodSeconds: 30
@@ -21,13 +25,13 @@ spec:
   hooks:
     customize:
       webhook:
-        url: http://database-hook.infra-runners.svc:8080/customize
+        url: http://127.0.0.1:8090/customize
         timeout: 10s
     sync:
       webhook:
-        url: http://database-hook.infra-runners.svc:8080/sync
+        url: http://127.0.0.1:8090/sync
         timeout: 10s
     finalize:
       webhook:
-        url: http://database-hook.infra-runners.svc:8080/finalize
+        url: http://127.0.0.1:8090/finalize
         timeout: 10s

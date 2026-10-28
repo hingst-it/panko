@@ -19,10 +19,16 @@ func RunTLS(handler http.Handler, cert, key string) error {
 	if addr == "" {
 		addr = ":8080"
 	}
-	server := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
+	return Listen(ctx, addr, handler, cert, key)
+}
+
+// Listen serves until ctx ends and then drains in-flight requests; roles that run several
+// listeners share one signal context instead of each installing its own handler.
+func Listen(ctx context.Context, addr string, handler http.Handler, cert, key string) error {
+	server := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err

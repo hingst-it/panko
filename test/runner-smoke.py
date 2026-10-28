@@ -47,8 +47,10 @@ def main():
             child = copy.deepcopy(fixture)
             child['metadata'] = {'name': job_name, 'namespace': 'team-a'}
             container = child['spec']['template']['spec']['containers'][0]
-            container['image'] = os.environ.get('RUNNER_IMAGE', 'panko-runner:dev')
-            container['args'] = [action, 'team-a', name]
+            # The shared panko-server image runs the runner role, as the hook's Jobs do.
+            container['image'] = os.environ.get('RUNNER_IMAGE', hook_env.get('RUNNER_IMAGE', 'panko-server:dev'))
+            container['imagePullPolicy'] = hook_env.get('RUNNER_IMAGE_PULL_POLICY', 'Never')
+            container['args'] = hook_env.get('RUNNER_COMMAND', '').split() + [action, 'team-a', name]
             backend = {'type': 'kubernetes', 'config': {'in_cluster_config': True, 'namespace': 'panko-state-team-a',
                                                         'secret_suffix': 'team-a-' + name}}
             values = {'PANKO_RESOURCE': json.dumps(snapshot), 'PANKO_HASH': digest, 'PANKO_JOB': job_name,

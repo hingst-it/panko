@@ -31,7 +31,9 @@ That is where **Panko** comes in: a thin wrapper between the people requesting i
 
 The ambition is simple: keep the joy of Terraform coding as infrastructure becomes a shared service. Build on open-source tools, keep the moving parts small, and make the path from a request to a resource easy to follow.
 
-**Current status:** v0.0.1 is the first public experimental release for local evaluation and personal installations. It provisions PostgreSQL databases with OpenTofu in a k3d cluster and exposes a team-scoped REST API. APIs and configuration may change. Production readiness and large-scale performance have not been established; Terraform CLI execution is not tested or configured. See the [changelog](CHANGELOG.md) and [release notes](docs/release-notes/v0.0.1.md).
+**This branch** (`poc/unified-server-dev-install`) is a proof of concept: one `panko-server` binary for all runtime roles with Metacontroller embedded in the controller role, a Helm chart used by `panko install`, `panko dev up` and GitOps, and a local lab without checkout or background processes. See the [evaluation (Deutsch)](docs/poc-unified-server.de.md), [installation](docs/installation.md) and [GitOps](docs/gitops.md). It is not released.
+
+**Current release:** v0.0.1 is the first public experimental release for local evaluation and personal installations. It provisions PostgreSQL databases with OpenTofu in a k3d cluster and exposes a team-scoped REST API. APIs and configuration may change. Production readiness and large-scale performance have not been established; Terraform CLI execution is not tested or configured. See the [changelog](CHANGELOG.md) and [release notes](docs/release-notes/v0.0.1.md).
 
 ## How it works
 
@@ -39,7 +41,7 @@ The ambition is simple: keep the joy of Terraform coding as infrastructure becom
 flowchart LR
   Team[Team / API client] --> Gateway[REST API + OpenAPI]
   Gateway --> CR[Kubernetes custom resource]
-  CR --> Controller[Metacontroller + Go hook]
+  CR --> Controller[panko-server controller: embedded Metacontroller + Go hook]
   Controller -->|captures spec snapshot| Job[Short-lived OpenTofu job]
   Job --> Infrastructure[PostgreSQL database + role]
   Job --> Secrets[Connection secret + state]
@@ -55,51 +57,49 @@ flowchart LR
 - **Remote runners.** A team can be assigned to a runner pool whose agents run outside the cluster, as a container, a systemd service or in another cluster, and reach only outbound to Panko's runner endpoint. Teams without a pool keep in-cluster Jobs. See [remote runners](docs/remote-runners.de.md).
 - **Team-selected state.** Teams choose an operator-approved state destination (S3) through a `StateBackend`; the built-in Kubernetes backend stays the default. Each resource binds once, and the runner refuses to run when the backend or established state does not match. See [state backends](docs/state-backends.de.md).
 
-“Thin” describes Panko's own layer. It still relies on Kubernetes, Metacontroller, and OpenTofu. This approach is aimed at teams that want to use those building blocks to expose infrastructure code as a service.
+- **Two programs, one chart.** `panko` manages resources, administers (`panko admin`), installs (`panko install`) and runs a local lab (`panko dev`); `panko-server` runs the roles `gateway`, `controller`, `endpoint`, `mirror`, `runner`, `agent` and `setup`, each in its own pod or Job with its own ServiceAccount. The Helm chart in [charts/panko](charts/panko) is the only installation path.
+
+“Thin” describes Panko's own layer. It still relies on Kubernetes, Metacontroller (embedded as a pinned Go dependency), and OpenTofu. This approach is aimed at teams that want to use those building blocks to expose infrastructure code as a service.
 
 ## Quick start
 
-Follow the [complete quickstart](docs/quickstart.md) to install the CLI and deploy
-the lab. For help from an AI assistant, use the [agent installation guide](docs/agent-install.md).
+Follow the [quickstart](docs/quickstart.md) for this proof of concept. For help from an AI
+assistant, use the [agent installation guide](docs/agent-install.md).
 
-Install the CLI with **one** of these methods:
-
-```sh
-brew install hingst-it/tap/panko
-# Or:
-mise use -g github:hingst-it/panko@0.0.1
-# Or:
-asdf plugin add panko https://github.com/hingst-it/asdf-panko.git
-asdf install panko 0.0.1
-asdf set -u panko 0.0.1
-```
-
-Installing the CLI does not deploy the Kubernetes services. For the local lab,
-you need Docker, git, make, and [mise](https://mise.jdx.dev/) on macOS or Linux.
-Tool versions are pinned in [mise.toml](mise.toml); teams and optional lab parts
-are configured in [panko.json](panko.json). The example module is fetched over
-public HTTPS, with no deploy key or GitHub account required. From a fresh checkout:
+The released 0.0.1 CLI (Homebrew, mise, asdf) has no `install` or `dev` command; build
+`panko` and the two images from this branch once (no registry is used):
 
 ```sh
-git clone --branch v0.0.1 --depth 1 https://github.com/hingst-it/panko.git panko-0.0.1
-cd panko-0.0.1
-mise trust
-mise install
-export CLUSTER_NAME=panko-quickstart
-make cluster-up bootstrap build deploy
+go build -o panko ./cmd/panko
+docker build -t panko-server:dev -f Dockerfile.server .
+docker build -t panko-module-mirror:dev -f cluster/Dockerfile.module-mirror .
 ```
 
-This creates the `panko-quickstart` k3d cluster, bootstraps PostgreSQL and Metacontroller, builds the service images, and deploys Panko. Commands use `.local/kubeconfig` and leave existing default Kubernetes contexts unchanged. Initial setup and image builds require internet access. The optional full test suite additionally requires a Python `.venv` with `requirements-dev.txt` installed.
+Then, from any directory and without a checkout:
+
+```sh
+./panko dev up --server-image panko-server:dev --module-mirror-image panko-module-mirror:dev
+```
+
+This needs a running Docker engine on macOS or Linux; a missing k3d is installed privately after
+you agree, with its checksum verified. It creates the dedicated cluster `k3d-panko-dev`, installs
+the chart with PostgreSQL and a local S3 service, and maps the API to `http://127.0.0.1:8081`.
+`~/.kube/config` stays unchanged. `panko dev status` shows the lab; `panko dev down` removes it.
+For an existing cluster use `panko install --kubeconfig ./config --context mein-cluster`; for
+GitOps see [docs/gitops.md](docs/gitops.md).
+
+Contributors can use the pinned tools in [mise.toml](mise.toml) and the same chart from a
+checkout: `make cluster-up build deploy` builds the images, imports them into k3d and runs
+`panko install` with [cluster/lab-values.yaml](cluster/lab-values.yaml) and
+[panko.json](panko.json). That lab has no port mapping; run `make gateway-forward` for
+`http://127.0.0.1:8081`. The optional full test suite additionally requires a Python `.venv`
+with `requirements-dev.txt` installed.
 
 ### Request a database
 
-Start the local gateway in a separate terminal:
-
-```sh
-make gateway-forward
-```
-
-Build the CLI (also built by bootstrap/deploy), then run the database lifecycle:
+With `panko dev up`, export the printed `PANKO_URL`, `PANKO_TOKENS_FILE` and `PANKO_KUBECONFIG`
+and drop the `.local/bin/` prefix below. From a checkout lab, start `make gateway-forward` in a
+separate terminal and run the database lifecycle:
 
 ```sh
 make build-go
@@ -114,9 +114,9 @@ make build-go
 ```
 
 `connect` prints the connection URI and deliberately reads the connection Secret with
-`.local/kubeconfig`; keep that output private. The gateway has no Secret access.
-For diagnostics, run `.local/bin/panko doctor`. Tokens are read from `PANKO_TOKEN` or
-`.local/team-tokens.json` without putting them in command arguments. `--team` defaults
+`.local/kubeconfig` (or `PANKO_KUBECONFIG`); keep that output private. The gateway has no Secret access.
+For diagnostics, run `.local/bin/panko doctor`. Tokens are read from `PANKO_TOKEN` or the token file
+(`PANKO_TOKENS_FILE`, default `.local/team-tokens.json`) without putting them in command arguments. `--team` defaults
 to `PANKO_TEAM`, or the only team in `panko.json`. `--url` / `PANKO_URL` defaults to
 `http://127.0.0.1:8081`. See the [CLI operations guide](docs/operations.de.md#cli-für-den-alltag)
 for spec files, connection formats, exit codes, and token rotation.
@@ -157,7 +157,7 @@ Explore the API at [Swagger UI](http://127.0.0.1:8081/docs) or retrieve the [Ope
 
 | Command | Purpose |
 | --- | --- |
-| `make test-unit lint-go` | Run Go unit/contract tests with the race detector, formatting checks and go vet. |
+| `make test-unit lint-go` | Run Go unit/contract tests with the race detector, Helm lint and reproducible rendering, formatting checks and go vet. |
 | `make lint` | Lint the Python E2E tests and tools after installing `requirements-dev.txt`. |
 | `make test` | Exercise provisioning, updates, schema validation, deletion, and parallel resources across two team namespaces. |
 | `make test-gateway` | Check HTTP lifecycle, team isolation, dynamic CRD discovery, OpenAPI validation, and generated Python client code. |
@@ -169,24 +169,26 @@ Explore the API at [Swagger UI](http://127.0.0.1:8081/docs) or retrieve the [Ope
 
 | Path | Responsibility |
 | --- | --- |
-| [api/](api/) | Database, StateBackend and BackendProfile CRDs, validation, and an example resource. |
-| [cmd/](cmd/) / [internal/](internal/) | Go gateway, reconciliation hook, runner, administrator commands and shared packages. |
-| [controller/](controller/) | Metacontroller configuration and hook deployment, including the pinned engine image and module revision. |
-| [runner/](runner/) | Image build script for runner, hook and gateway. |
-| [gateway/](gateway/) | Gateway deployment; implementation and CRD-derived OpenAPI live under `internal/gateway`. |
-| [cluster/](cluster/) | Local cluster setup, PostgreSQL, and deployment scripts. |
+| [charts/panko/](charts/panko/) | The Helm chart: CRDs (Panko and Metacontroller), RBAC, roles, setup Job, optional lab PostgreSQL and S3. |
+| [cmd/](cmd/) / [internal/](internal/) | `panko` and `panko-server` (roles under `internal/roles`), the legacy `admin` wrapper, chart, install and lab code, and shared packages. |
+| [api/](api/) | An example Database resource. |
+| [examples/gitops/](examples/gitops/) | Values for an existing cluster, Argo CD and Flux examples, pre-rendered manifests. |
+| [runner/](runner/) | Image build script for `panko-server` and the module mirror. |
+| [cluster/](cluster/) | Local k3d cluster, lab values, `make deploy` wrapper around `panko install`, backup and restore scripts. |
 | [test/](test/) | Controller checks and cluster-backed lifecycle/API tests. |
 | [docs/local-lab.de.md](docs/local-lab.de.md) | Original German technical guide and implementation/verification notes. |
 | [docs/state-backends.de.md](docs/state-backends.de.md) | Team-defined state backends, safety checks, lab S3 and migration. |
 | [docs/remote-runners.de.md](docs/remote-runners.de.md) | Remote runner pools, agents, tokens, recovery and limits. |
 | [docs/releases.md](docs/releases.md) | Tag releases, required CI checks, binary archives and GHCR images. |
 | [docs/self-hosted-ci.md](docs/self-hosted-ci.md) | Flux-managed hosting workers, isolation, job routing and recovery. |
-| [docs/quickstart.md](docs/quickstart.md) / [docs/agent-install.md](docs/agent-install.md) | Public installation and instructions for AI-assisted setup. |
+| [docs/quickstart.md](docs/quickstart.md) / [docs/agent-install.md](docs/agent-install.md) | Installation and instructions for AI-assisted setup. |
+| [docs/installation.md](docs/installation.md) / [docs/gitops.md](docs/gitops.md) | `panko install`, `panko dev`, Helm and CLI responsibilities; `helm template`, Argo CD and Flux. |
+| [docs/poc-unified-server.de.md](docs/poc-unified-server.de.md) | Evaluation of this proof of concept (Deutsch). |
 | [docs/brand/](docs/brand/) | Logos, wordmarks, monochrome variants, icons, and social artwork. |
 
 ## Scope and limitations
 
-Gateway, Metacontroller hook, runner and administrator commands are implemented in Go. Python remains for external E2E tests and optional tooling. The [Go migration guide](docs/go-porting.de.md) records the component transitions and rollback procedure.
+Gateway, controller (embedded Metacontroller and hook), runner and administrator commands are implemented in Go. Python remains for external E2E tests and optional tooling. The [Go migration guide](docs/go-porting.de.md) records the component transitions and rollback procedure.
 
 The local example demonstrates the full request-to-resource lifecycle for a personal installation. It uses one PostgreSQL instance with a PVC, teams declared in `panko.json`, local development images, and static team tokens. A rehearsed backup and restore (`make backup`, `make restore`) covers Panko's resources and the example PostgreSQL. High availability, PostgreSQL TLS, OIDC authentication, and production-grade tenant isolation are outside the implemented scope; Database is the only resource type.
 

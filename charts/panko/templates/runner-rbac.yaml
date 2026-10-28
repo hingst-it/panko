@@ -1,0 +1,100 @@
+{{- /* Per-team runner identity: team resources and Secrets, state only in panko-state-<team>. */}}
+{{- range .Values.installation.teams }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tofu-runner
+  namespace: {{ . }}
+  labels:
+    {{- include "panko.labels" $ | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tofu-runner
+  namespace: {{ . }}
+  labels:
+    {{- include "panko.labels" $ | nindent 4 }}
+rules:
+  - {apiGroups: [platform.example.com], resources: [databases], verbs: [get]}
+  - {apiGroups: [""], resources: [secrets], verbs: [get, list, create, update, patch, delete]}
+  - {apiGroups: [""], resources: [configmaps], verbs: [get, create, update]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tofu-runner
+  namespace: {{ . }}
+  labels:
+    {{- include "panko.labels" $ | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: tofu-runner}
+subjects:
+  - {kind: ServiceAccount, name: tofu-runner, namespace: {{ . }}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tofu-state
+  namespace: panko-state-{{ . }}
+  labels:
+    {{- include "panko.labels" $ | nindent 4 }}
+rules:
+  - {apiGroups: [""], resources: [secrets], verbs: [get, list, create, update, patch, delete]}
+  - {apiGroups: [coordination.k8s.io], resources: [leases], verbs: [get, list, create, update, patch, delete]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tofu-state
+  namespace: panko-state-{{ . }}
+  labels:
+    {{- include "panko.labels" $ | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: tofu-state}
+subjects:
+  - {kind: ServiceAccount, name: tofu-runner, namespace: {{ . }}}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tofu-schema-reader
+  labels:
+    {{- include "panko.labels" . | nindent 4 }}
+rules:
+  - {apiGroups: [apiextensions.k8s.io], resources: [customresourcedefinitions], verbs: [get, list]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tofu-schema-reader
+  labels:
+    {{- include "panko.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: tofu-schema-reader}
+subjects:
+{{- range .Values.installation.teams }}
+  - {kind: ServiceAccount, name: tofu-runner, namespace: {{ . }}}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: postgres-admin-reader
+  namespace: infra-backends
+  labels:
+    {{- include "panko.labels" . | nindent 4 }}
+rules:
+  - {apiGroups: [""], resources: [secrets], resourceNames: [postgres-admin], verbs: [get]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: postgres-admin-reader
+  namespace: infra-backends
+  labels:
+    {{- include "panko.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: postgres-admin-reader}
+subjects:
+{{- range .Values.installation.teams }}
+  - {kind: ServiceAccount, name: tofu-runner, namespace: {{ . }}}
+{{- end }}

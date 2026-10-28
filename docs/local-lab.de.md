@@ -5,6 +5,9 @@
 > Aktuelle Betriebs-, Migrations- und Testanleitung: [operations.de.md](operations.de.md).
 > Die Runtime ist inzwischen nach Go portiert; Aufbau und Rückwechsel: [go-porting.de.md](go-porting.de.md).
 > Die folgenden Prüfvermerke dokumentieren frühere Implementierungsläufe; sie sind kein aktueller CI-Status.
+> Auf dem PoC-Branch `poc/unified-server-dev-install` laufen alle Rollen als `panko-server`, der
+> Metacontroller ist in die Controller-Rolle eingebettet und installiert wird über das Helm-Chart:
+> [Installation](installation.md), [Auswertung](poc-unified-server.de.md).
 
 Lokales Infrastruktur-Labor: Kubernetes ist API und Trigger, OpenTofu provisioniert Postgres.
 
@@ -12,8 +15,8 @@ Lokales Infrastruktur-Labor: Kubernetes ist API und Trigger, OpenTofu provisioni
 flowchart LR
   Dev[Entwickler / curl] --> Gateway[REST + generiertes OpenAPI]
   Gateway --> CR[Database CR + CRD-Schema]
-  CR --> Meta[Metacontroller]
-  Meta --> Hook[Go Hook]
+  CR --> Meta[Metacontroller, eingebettet in panko-server controller]
+  Meta -->|Loopback-HTTP| Hook[Go Hook im selben Pod]
   Hook -->|fixiert Spec-Snapshot| Job[OpenTofu Job]
   Job --> PG[Postgres]
   Job --> Secret[Connection Secret + State Secret]
@@ -26,10 +29,12 @@ mise trust && mise install
 mise exec -- python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements-dev.txt
 make cluster-up
-make bootstrap && make build && make deploy
+make build deploy
 make test
 ```
 
+`make deploy` ruft `panko install` mit dem Chart, `panko.json` und `cluster/lab-values.yaml` auf.
+Ohne Checkout erstellt `panko dev up` ein gleichwertiges Lab ([Installation](installation.md)).
 Alle Befehle verwenden `.local/kubeconfig`; bestehende Kubernetes-Kontexte bleiben unberührt.
 `make cluster-down` entfernt ausschließlich den k3d-Cluster `infra-lab` einschließlich seiner Daten.
 
@@ -37,8 +42,9 @@ Alle Befehle verwenden `.local/kubeconfig`; bestehende Kubernetes-Kontexte bleib
 
 - k3d mit einem Server und einem Agent; Versionen in `mise.toml`.
 - [k3d Installationsdokumentation](https://k3d.io/stable/).
-- [Metacontroller Installation](https://metacontroller.github.io/metacontroller/guide/install.html)
-  und [OCI Helm-Chart](https://metacontroller.github.io/metacontroller/guide/helm-install.html).
+- [Metacontroller](https://metacontroller.github.io/metacontroller/) v4.17.6, als festgelegte
+  Go-Abhängigkeit (`replace` auf den Commit des Tags in `go.mod`) in die Controller-Rolle eingebettet;
+  früher separat über das [OCI Helm-Chart](https://metacontroller.github.io/metacontroller/guide/helm-install.html) installiert.
 - [OpenTofu Kubernetes-Backend](https://opentofu.org/docs/language/settings/backends/kubernetes/):
   ein Secret pro Instanz; Leases sperren parallele State-Zugriffe.
 
@@ -52,9 +58,9 @@ Docker läuft hier über Colima; Docker selbst ist bereits installiert.
 Postgres läuft als einzelnes StatefulSet mit PVC und offiziellem `postgres:17.11-alpine`
 ([offizielle Image-Tags](https://github.com/docker-library/official-images/blob/master/library/postgres)).
 Für dieses Labor ist ein StatefulSet einfacher als ein Chart oder zusätzlicher Operator.
-Das Admin-Secret wird zufällig und nur beim ersten Bootstrap erzeugt. Anwendungsdienste
+Das Admin-Secret erzeugt der Setup-Job des Charts zufällig und nur, wenn es fehlt. Anwendungsdienste
 bekommen keinen Zugriff darauf; die Runner erhalten später gezielt `get` auf dieses Secret.
-Der kurzlebige Bootstrap-Debug-Pod prüft als Administrator die TCP-/Passwortanmeldung.
+Der kurzlebige Debug-Pod aus `cluster/check-backends.sh` (am Ende von `make deploy`) prüft als Administrator die TCP-/Passwortanmeldung.
 Cluster-Administratoren und Kubelets bleiben naturgemäß privilegiert.
 
 Phase 1 geprüft: Metacontroller v4.17.6 läuft; Debug-Pod meldet eine erfolgreiche
@@ -94,7 +100,9 @@ im jeweiligen Namespace `panko-state-team-a` bzw. `panko-state-team-b` verwalten
 State liegt standardmäßig dort; Teams können per `StateBackend` einen freigegebenen
 S3-Bucket wählen, siehe [State-Backends](state-backends.de.md).
 In `infra-backends` dürfen sie ausschließlich `postgres-admin` lesen. Der Kubernetes-Provider braucht außerdem lesenden Cluster-Zugriff auf die
-CRD-Schemas. Der Hook bekommt keinen API-Token.
+CRD-Schemas. Der Hook selbst stellt keine API-Anfragen; er läuft jedoch im Controller-Pod, dessen
+ServiceAccount `panko-controller` die Rechte des eingebetteten Metacontrollers hat (früher lief der
+Hook ohne API-Token in einem eigenen Pod).
 
 Nach erfolgreichem Destroy entfernt der Runner das leere Backend-State-Secret und
 seine Lease. Er meldet erst danach Job-Erfolg. Der Ressourcen-Snapshot bleibt
@@ -208,8 +216,10 @@ oder Entfernen einer exponierten CRD synchronisiert der Administrator mit
 `make gateway-rbac` die daraus generierten Role-Regeln. Dadurch erhält der Gateway
 keine Rechte zur eigenen RBAC-Erweiterung und keine Ressourcen-Wildcards. Auch ohne
 diese Synchronisierung erscheint die neue CRD bereits im OpenAPI-Dokument; für
-CRUD werden die expliziten Rechte benötigt. `make deploy` führt den Abgleich ebenfalls
-aus. `test/dummy-crd.yaml` demonstriert dies und wird beim Gateway-Test wieder entfernt.
+CRUD werden die expliziten Rechte benötigt. Das Chart rendert die Regeln aus
+`gateway.exposedResources` (Standard: `databases`, `statebackends`); dauerhaft hinzugefügte
+CRDs gehören dort hinein, sonst setzt das nächste Upgrade die per `make gateway-rbac`
+ergänzten Regeln zurück. `test/dummy-crd.yaml` demonstriert dies und wird beim Gateway-Test wieder entfernt.
 
 ### Später OIDC
 
@@ -231,9 +241,10 @@ Team-Namespaces, die Teamgrenze setzt der Gateway durch.
 - Kubernetes-State-Secrets enthalten Login-Passwörter; Secret-Größe maximal 1 MiB.
   Runner verwalten ausschließlich den State ihres Teams, teilen sich aber weiterhin
   den PostgreSQL-Adminzugang.
-  Die Metacontroller-Installation verwendet die breiten Standardrechte des Charts.
-- Teams sind in `panko.json` konfiguriert; Deployment erzeugt Namespaces, RBAC
-  und Token für diese Teams. Exponierte APIs
+  Der eingebettete Metacontroller hat eine explizite ClusterRole (`panko-controller`): die eigene
+  API-Gruppe `platform.example.com`, Jobs, lesend Pods, Namespaces und CRDs, Events; keine Secrets.
+- Teams sind in `panko.json` bzw. den Chart-Werten `installation.teams` konfiguriert; das Chart
+  erzeugt Namespaces und RBAC, der Setup-Job die Token für diese Teams. Exponierte APIs
   sind namespaced und verwenden `spec`; keine clusterweiten Team-Routen.
 - Applies erfolgen bei Spec-/Generationsänderungen. Ein verlorenes Secret oder
   externe Drift löst derzeit keinen periodischen Apply aus. Kein automatischer
@@ -242,8 +253,8 @@ Team-Namespaces, die Teamgrenze setzt der Gateway durch.
   des Jobs, folgt anschließend ein weiterer Job für die neue Generation.
 - Gleichzeitige Änderungen werden als Merge Patches verarbeitet; kein ETag-Vertrag.
   Listen sind für das kleine Labor ungepaginiert. Swagger lädt UI-Dateien vom CDN.
-- Images verwenden lokale `:dev`-Tags; `make build && make deploy` importiert und
-  startet die Dienste neu. Bestehende Jobs werden nicht verändert. Provider werden
+- Images verwenden lokale Tags; `make build` importiert sie zusätzlich mit einem aus dem
+  Image-Inhalt abgeleiteten Tag, sodass `make deploy` genau die geänderten Dienste neu ausrollt. Bestehende Jobs werden nicht verändert. Provider werden
   über den Pull-Through-Mirror oder direkt geladen; der erstmalige Image-Build
   und lokale Tests brauchen Internet.
 

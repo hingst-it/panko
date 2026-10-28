@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Proof of concept (branch `poc/unified-server-dev-install`, not for release)
+
+- `panko-server`: one binary and one image for the roles `gateway`, `controller`,
+  `endpoint`, `mirror`, `runner`, `agent` and `setup`. The controller role embeds
+  Metacontroller v4.17.6 and calls the hook over loopback HTTP; there is no separate
+  Metacontroller deployment. The per-role commands under `cmd/` are removed.
+- Helm chart `charts/panko` with CRDs, explicit RBAC per role, the setup Job for
+  generated credentials, optional lab PostgreSQL and S3, and GitOps examples for
+  `helm template`, Argo CD and Flux.
+- `panko install`, `panko dev up|status|down`, `panko chart export|template` and
+  `panko admin` (the former `panko-admin` commands); the CLI embeds the chart.
+- `make deploy` installs through `panko install`; `make bootstrap` is removed.
+- Evaluation: `docs/poc-unified-server.de.md`.
+
 ### Added
 
 - Optional per-pool `leaseSeconds` and `heartbeatSeconds` for remote runner pools;

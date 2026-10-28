@@ -73,7 +73,10 @@ func Children(r Request) []Object {
 // JobConfig selects the engine image and the pinned module revision each Job assembles at start.
 type JobConfig struct {
 	RunnerImage, EngineImage, EngineBinary, GitSyncImage, ModuleRepo, ModuleRevision, ModuleSecret string
-	ProviderMirror, ModuleMirror                                                                   string
+	// RunnerCommand prefixes the runner's arguments, e.g. "runner" for the shared panko-server image;
+	// RunnerPullPolicy defaults to Never for images imported into a local lab.
+	RunnerCommand, RunnerPullPolicy string
+	ProviderMirror, ModuleMirror    string
 	// ModulePath is the module's directory inside the repository for newly bound resources; empty
 	// means the repository root. Each resource keeps the path it was bound with (status.modulePath).
 	ModulePath string
@@ -102,6 +105,7 @@ func JobConfigFrom(lookup func(string) string) JobConfig {
 	}
 	c := JobConfig{RunnerImage: value("RUNNER_IMAGE", "panko-runner:dev"), EngineImage: lookup("ENGINE_IMAGE"), EngineBinary: value("ENGINE_BINARY", "/usr/local/bin/tofu"),
 		GitSyncImage: lookup("GIT_SYNC_IMAGE"), ModuleRepo: lookup("MODULE_REPO"), ModuleRevision: lookup("MODULE_REVISION"), ModuleSecret: value("MODULE_SECRET", "panko-module-git"), ModulePath: lookup("MODULE_PATH"),
+		RunnerCommand: lookup("RUNNER_COMMAND"), RunnerPullPolicy: value("RUNNER_IMAGE_PULL_POLICY", "Never"),
 		ProviderMirror: lookup("PROVIDER_MIRROR"), ModuleMirror: lookup("MODULE_MIRROR"), Backends: statebackend.Settings{External: lookup("EXTERNAL_STATE_BACKENDS") == "enabled", Installation: lookup("INSTALLATION_ID")},
 		Rollout: value("MODULE_ROLLOUT", "auto"), DriftInterval: duration(lookup("DRIFT_CHECK_INTERVAL"))}
 	c.Pools, c.poolsErr = pools(lookup("RUNNER_POOLS"))
@@ -148,6 +152,9 @@ func (c JobConfig) Validate() error {
 	if !strings.HasPrefix(c.EngineBinary, "/") {
 		return fmt.Errorf("ENGINE_BINARY must be an absolute path")
 	}
+	if c.RunnerPullPolicy != "Never" && c.RunnerPullPolicy != "IfNotPresent" && c.RunnerPullPolicy != "Always" {
+		return fmt.Errorf("RUNNER_IMAGE_PULL_POLICY must be Never, IfNotPresent or Always")
+	}
 	if c.Rollout != "auto" && c.Rollout != "manual" {
 		return fmt.Errorf("MODULE_ROLLOUT must be auto or manual")
 	}
@@ -158,6 +165,22 @@ func (c JobConfig) Validate() error {
 		return fmt.Errorf("INSTALLATION_ID is required for team-defined state backends")
 	}
 	return nil
+}
+func (c JobConfig) pullPolicy() string {
+	if c.RunnerPullPolicy == "" {
+		return "Never"
+	}
+	return c.RunnerPullPolicy
+}
+func (c JobConfig) runnerArgs(args ...string) []any {
+	result := []any{}
+	for _, field := range strings.Fields(c.RunnerCommand) {
+		result = append(result, field)
+	}
+	for _, arg := range args {
+		result = append(result, arg)
+	}
+	return result
 }
 func CreateJob(parent Object, action, hash, revision string, backend Object, generation, attempt int64, retry string) (Object, error) {
 	return CreateJobWith(LoadJobConfig(), parent, action, hash, revision, backend, generation, attempt, retry)
@@ -195,7 +218,7 @@ func CreateJobWith(config JobConfig, parent Object, action, hash, revision strin
 					"args":            []any{"--repo=" + config.ModuleRepo, "--ref=" + revision, "--root=/module", "--link=current", "--one-time", "--depth=1", "--submodules=off"},
 					"securityContext": gitUser, "resources": small,
 					"volumeMounts": []any{Object{"name": "module", "mountPath": "/module"}, Object{"name": "git-secret", "mountPath": "/etc/git-secret", "readOnly": true}, Object{"name": "git-tmp", "mountPath": "/tmp"}}}},
-			"containers": []any{Object{"name": "tofu", "image": config.RunnerImage, "imagePullPolicy": "Never", "args": []any{action, meta.Namespace, meta.Name},
+			"containers": []any{Object{"name": "tofu", "image": config.RunnerImage, "imagePullPolicy": config.pullPolicy(), "args": config.runnerArgs(action, meta.Namespace, meta.Name),
 				"env":             []any{Object{"name": "PANKO_RESOURCE", "value": string(jsonx.Encode(snapshot))}, Object{"name": "PANKO_HASH", "value": hash}, Object{"name": "PANKO_JOB", "value": name}, Object{"name": "PANKO_ENGINE", "value": engine}, Object{"name": "PANKO_MODULE", "value": "/module/current"}, Object{"name": "PANKO_MODULE_REVISION", "value": revision}, Object{"name": "PANKO_BACKEND", "value": string(jsonx.Encode(backend))}},
 				"securityContext": restricted,
 				"resources":       Object{"requests": Object{"cpu": "100m", "memory": "128Mi"}, "limits": Object{"memory": "512Mi"}},

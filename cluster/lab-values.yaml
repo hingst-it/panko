@@ -1,0 +1,7 @@
+# Lab settings for make deploy: locally built images imported into k3d, the lab endpoint NodePort
+# for agents in the Docker network. The installation itself (teams, s3, egress) comes from panko.json.
+images:
+  server: {repository: panko-server, tag: dev, pullPolicy: IfNotPresent}
+  moduleMirror: {repository: panko-module-mirror, tag: dev, pullPolicy: IfNotPresent}
+endpoint:
+  labNodePort: 30443

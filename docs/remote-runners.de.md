@@ -33,12 +33,13 @@ In `panko.json`:
 "runnerEndpoint": {"names": ["panko.example.com"]}
 ```
 
-- `module` ist optional; ohne verwendet der Pool `MODULE_REPO`. Der Modul-Mirror im Cluster
+- `module` ist optional; ohne verwendet der Pool das Modul der Installation (`module.repository`). Der Modul-Mirror im Cluster
   ist für Agenten nicht erreichbar.
 - `runnerEndpoint.names` sind die Namen oder IPs, unter denen Agenten den Endpunkt erreichen;
   das Zertifikat deckt sie ab. Im Lab ist der Endpunkt als NodePort 30443 erreichbar.
 
-Dann:
+Dieselben Felder stehen in den Chart-Werten unter `installation` (ohne Checkout: `panko install
+--values ...`). Dann:
 
 ```bash
 make deploy
@@ -56,12 +57,13 @@ Je Team ein Profil `profiles/<team>.env` mit Modus 0600 (für Kubernetes-Secret-
 die Provider-Einstellungen des Moduls. Nur diese Werte erreichen OpenTofu; jede Ausführung bekommt
 ein eigenes leeres `HOME`, gemeinsame AWS-Dateien sind abgeschaltet.
 
-- Container: `docker build -t panko-agent:dev -f Dockerfile.agent .`, dann `panko-agent run` mit
+- Container: `docker build -t panko-agent:dev -f Dockerfile.agent .` (enthält `panko-server`
+  mit der Rolle `agent`, OpenTofu und git), dann `panko-server agent run` mit
   `PANKO_ENDPOINT`, `PANKO_ENDPOINT_CA`, `PANKO_AGENT_TOKEN_FILE`, `PANKO_POOL`, `PANKO_PROFILES`.
 - Systemdienst: `deploy/agent/panko-agent.service` mit `deploy/agent/agent.env.example`.
 - Anderer Cluster: `deploy/agent/kubernetes.yaml`.
 
-`panko-agent check` prüft Werkzeuge, Profile, Arbeitsverzeichnis und ob der Endpunkt das Token für
+`panko-server agent check` prüft Werkzeuge, Profile, Arbeitsverzeichnis und ob der Endpunkt das Token für
 diesen Pool annimmt; die systemd-Unit führt es vor dem Start aus. Modul- und Provider-Zugriff
 zeigen sich erst je Run als Fehlercode. Optional hält `--plugin-cache` heruntergeladene Provider
 zwischen Ausführungen; das ist sicher, weil ein Agent eine Ausführung nach der anderen bearbeitet.
@@ -103,8 +105,9 @@ Ein privates Modul-Repository braucht `GIT_SSH_COMMAND` mit Schlüssel und `know
 ## Zertifikate
 
 Der Endpunkt erhält sein Zertifikat von einer eigenen CA wie der Provider-Mirror. Es wird 30 Tage
-vor Ablauf oder bei geänderten Namen neu ausgestellt, mit einer neuen CA; `make deploy` startet
-den Endpunkt neu. Danach brauchen alle Agenten die neue CA (`admin endpoint-ca`) und einen
+vor Ablauf oder bei geänderten Namen neu ausgestellt, mit einer neuen CA, sobald der Setup-Job
+läuft (`make deploy`, `panko install`). Der Endpunkt liest sein Zertifikat nur beim Start:
+`kubectl -n infra-runners rollout restart deploy/runner-endpoint`. Danach brauchen alle Agenten die neue CA (`admin endpoint-ca`) und einen
 Neustart.
 
 ## Grenzen

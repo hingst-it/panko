@@ -397,7 +397,8 @@ func TestDoctor(t *testing.T) {
 						return jsonx.Object{}, nil
 					case strings.HasSuffix(path, "/gateway-auth"):
 						return jsonx.Object{"data": jsonx.Object{"tokens.json": base64.StdEncoding.EncodeToString([]byte(`{"team-a":"` + testToken + `"}`))}}, nil
-					case strings.Contains(path, "statefulsets/metacontroller"):
+					case path == "/api/v1/namespaces/metacontroller":
+						// The controller role embeds Metacontroller; no separate namespace exists.
 						return nil, &kube.Error{Code: 404}
 					case strings.Contains(path, "/deployments/") || strings.Contains(path, "/statefulsets/s3"):
 						return jsonx.Object{"metadata": jsonx.Object{"generation": 1}, "spec": jsonx.Object{"replicas": 1}, "status": jsonx.Object{"observedGeneration": 1, "readyReplicas": 1, "updatedReplicas": 1}}, nil
