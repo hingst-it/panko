@@ -52,7 +52,7 @@ OLD_MODULE, MODULE_REVISION = '23dfa930cd81302a8127cd9afb5b101a4aeb8cb2', '8304f
 ARGOCD = 'v3.5.6'
 FLUX = 'v2.10.0'
 REGISTRY_IMAGE = 'registry:2.8.3'
-CRANE = 'gcr.io/go-containerregistry/crane/debug:v0.20.6'
+CRANE = 'gcr.io/go-containerregistry/crane/debug:v0.22.1'
 POSTGRES_PATCH_KEY = 'password'
 
 
@@ -325,12 +325,14 @@ def phase_mirror(release):
         run(['docker', 'pull', '-q', mirror], quiet=True)
     git_sync = run([tool('helm'), 'show', 'values', release.chart], quiet=True).stdout.split('gitSync: ')[1].split()[0]
     network = 'panko-acc-mirror'
+    # The pod's emptyDir volumes, writable for the mirror's user.
+    volumes = ['--tmpfs', '/repositories:uid=1000,gid=1000', '--tmpfs', '/tmp:uid=1000,gid=1000']
     containers = ('panko-acc-mirror-missing', 'panko-acc-mirror', 'panko-acc-fetch')
     assert not any(container_exists(c) for c in containers), 'acceptance containers from another run exist'
     run(['docker', 'network', 'create', network], quiet=True)
     try:
         missing = '0' * 40
-        run(['docker', 'run', '-d', '--name', 'panko-acc-mirror-missing', '--network', network, '-e', 'MODULE_REPO=' + MODULE,
+        run(['docker', 'run', '-d', '--name', 'panko-acc-mirror-missing', '--network', network, *volumes, '-e', 'MODULE_REPO=' + MODULE,
              '-e', 'MODULE_REVISION=' + missing, mirror], quiet=True)
         time.sleep(25)
         probe = run(['docker', 'exec', 'panko-acc-mirror-missing', 'git', 'ls-remote', 'git://127.0.0.1:9418/module.git', 'HEAD'], check=False, quiet=True)
@@ -344,7 +346,7 @@ def phase_mirror(release):
                                   '--link=current', '--one-time', '--depth=1', '--submodules=off', '--max-failures=18', '--period=5s'],
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(10)
-        run(['docker', 'run', '-d', '--name', 'panko-acc-mirror', '--network', network, '-e', 'MODULE_REPO=' + MODULE,
+        run(['docker', 'run', '-d', '--name', 'panko-acc-mirror', '--network', network, *volumes, '-e', 'MODULE_REPO=' + MODULE,
              '-e', 'MODULE_REVISION=' + MODULE_REVISION, mirror], quiet=True)
         assert fetch.wait(timeout=180) == 0, 'the runner fetch did not survive the mirror start'
         log('ok a runner fetch that started before the mirror was ready succeeded through its retries')

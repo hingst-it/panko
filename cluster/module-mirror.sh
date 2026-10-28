@@ -8,7 +8,9 @@ case "$MODULE_REPO" in
     ;;
 esac
 
-# An emptyDir starts clean with each Pod. Never serve a partially cloned repository.
+# An emptyDir starts clean with each Pod, but survives a container restart (for example after a
+# node restart), possibly with a partial clone. Never serve one: always clone afresh.
+rm -rf /repositories/module.git
 git clone --mirror "$MODULE_REPO" /repositories/module.git
 # git-sync fetches full SHAs, including older commits reachable from mirrored refs.
 git -C /repositories/module.git config uploadpack.allowReachableSHA1InWant true
