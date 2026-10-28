@@ -87,7 +87,7 @@ and `internal/chart/chart_test.go`):
 - **Jobs**: the setup and S3 onboarding Jobs are named by a digest of their inputs (installation
   config, image, arguments; team list). Unchanged values keep the completed Job, so there is no
   perpetual drift; changed values create a new Job, and pruning removes the old one.
-- **Pruning**: namespaces, the provider cache PVC and the lab StatefulSets carry
+- **Pruning**: namespaces, the provider cache PVC, the lab StatefulSets and the CompositeController carry
   `helm.sh/resource-policy: keep`, `argocd.argoproj.io/sync-options: Prune=false,Delete=false`
   and `kustomize.toolkit.fluxcd.io/prune: disabled`. Team resources, state and credentials are
   never part of the render and are never pruned. CRDs are not deleted by Helm; protect them in
@@ -181,4 +181,4 @@ release record, `panko install` later treats the cluster as an existing installa
 | Pre-rendered manifests: `helm show crds` and `helm template` applied with `kubectl apply --server-side`, CRDs first | yes: no Secrets rendered, setup Job and all workloads ready, controller `/readyz`, re-render byte-identical |
 | Switching that installation to a Helm release (`panko install --take-ownership`) | yes, tokens unchanged |
 | `helm uninstall` keeps namespaces, CRDs, StatefulSets, PVCs and Secrets | yes |
-| Deleting the Argo CD `Application` (with `resources-finalizer`) or the Flux `HelmRelease` keeps the same objects and team resources | yes (Flux took over 5 minutes to finish the uninstall) |
+| Deleting the Argo CD `Application` (with `resources-finalizer`) or the Flux `HelmRelease` keeps the same objects and team resources | yes; with Flux also the CompositeController, the Databases' destroy finalizers, and a reinstall afterwards |

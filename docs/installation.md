@@ -131,8 +131,11 @@ objects are never converted or recreated.
 
 Uninstalling the release (`helm uninstall` or deleting the GitOps application) keeps the CRDs,
 every team resource, state, credentials, namespaces and data volumes: namespaces, the lab
-StatefulSets and the provider cache carry `helm.sh/resource-policy: keep` and the matching
-Argo CD and Flux annotations. Removing them is a deliberate manual step.
+StatefulSets, the provider cache and the CompositeController carry `helm.sh/resource-policy: keep`
+and the matching Argo CD and Flux annotations. Removing them is a deliberate manual step. The
+CompositeController must stay: Metacontroller finalizes a deleted CompositeController by removing
+its finalizer from every Database, so deleting it would drop the guarantee that a Database is
+only removed after its destroy.
 
 ## Images for the proof of concept
 
