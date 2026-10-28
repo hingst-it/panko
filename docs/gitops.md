@@ -1,12 +1,10 @@
 # GitOps: `helm template`, Argo CD, and Flux
 
-> Proof of concept on branch `poc/unified-server-dev-install`. The chart and the examples below
-> are validated by rendering (`helm lint`, `helm template`, the chart's Go tests), by
-> `panko install` / `panko dev up` against k3d, by applying pre-rendered manifests with `kubectl`,
-> and by running the Argo CD and Flux examples once each against throwaway k3d clusters (Git over
-> SSH instead of the public repository); see [Validation scope](#validation-scope).
+> Panko v0.0.2, experimental. The examples install the published chart
+> `oci://ghcr.io/hingst-it/charts/panko` version `0.0.2`, pinned; the release acceptance test runs
+> them against Argo CD and Flux ([validation scope](#validation-scope)).
 
-The chart `charts/panko` works without `panko install`. It renders deterministically and never
+The chart works without `panko install`. It renders deterministically and never
 contains a credential, so repeated renders cause no drift and no credential rotation. Missing
 credentials are created inside the cluster by the chart's setup Job, which keeps every existing
 value (see [Secrets](#secrets)).
@@ -15,19 +13,22 @@ Examples:
 
 - [`examples/gitops/values.yaml`](../examples/gitops/values.yaml): commented values for an existing cluster
 - [`examples/gitops/argocd/application.yaml`](../examples/gitops/argocd/application.yaml): Argo CD `Application`
-- [`examples/gitops/flux/panko.yaml`](../examples/gitops/flux/panko.yaml): Flux `GitRepository` and `HelmRelease`
+- [`examples/gitops/flux/panko.yaml`](../examples/gitops/flux/panko.yaml): Flux `OCIRepository` and `HelmRelease`
 - [`examples/gitops/rendered/README.md`](../examples/gitops/rendered/README.md): pre-rendered manifests
 
 ## Render and check
 
 ```sh
-helm lint --strict charts/panko --values examples/gitops/values.yaml
-helm template panko charts/panko \
+helm pull oci://ghcr.io/hingst-it/charts/panko --version 0.0.2 --untar   # writes ./panko
+helm lint --strict ./panko --values values.yaml
+helm template panko ./panko \
   --namespace panko-system \
   --include-crds \
-  --values examples/gitops/values.yaml \
+  --values values.yaml \
   > rendered/panko.yaml
 ```
+
+From a checkout, `charts/panko` and `examples/gitops/values.yaml` render the same chart.
 
 Without a checkout or a `helm` binary, the CLI renders its embedded copy of the same chart
 identically: `panko chart template --include-crds --values values.yaml`, or
@@ -49,14 +50,14 @@ and `internal/chart/chart_test.go`):
   `install.createNamespace`). The chart creates `infra-runners`, `infra-gateway`,
   `infra-backends`, and for every team `<team>` and `panko-state-<team>`; all are kept on
   uninstall and pruning.
-- **Images** reachable by the cluster: the proof of concept publishes none. Push
-  `panko-server` and `panko-module-mirror` built from the branch to your registry and pin their
-  tags in the values ([Images](installation.md#images-for-the-proof-of-concept)). Pull secrets
-  (`images.pullSecrets`) must exist in `infra-runners`, `infra-gateway`, `infra-backends` and every
-  team namespace: runner Jobs pull `panko-server` through the teams' `tofu-runner` ServiceAccounts,
-  which carry the same pull-secret names.
-- **The chart** reachable by the controller: Argo CD and Flux read `charts/panko` from the Git
-  repository (pin a commit); a packaged chart in an OCI registry is future work.
+- **Images** reachable by the cluster: `ghcr.io/hingst-it/panko-server` and
+  `panko-module-mirror` with the chart's version as tag, anonymously pullable. For a private
+  mirror, see [images from a private registry](installation.md#images-from-a-private-registry):
+  pull secrets (`images.pullSecrets`) must exist in `infra-runners`, `infra-gateway`,
+  `infra-backends` and every team namespace, because runner Jobs pull `panko-server` through the
+  teams' `tofu-runner` ServiceAccounts.
+- **The chart** reachable by the controller: `oci://ghcr.io/hingst-it/charts/panko` (public, no
+  credentials). Pin an exact version; there is no floating tag.
 - **No other Metacontroller** reconciling Panko's CompositeController. The embedded controller
   only manages CompositeControllers labelled `platform.example.com/controller=panko`; a
   Metacontroller without a target label selector would manage that one too.
@@ -161,24 +162,27 @@ Team tokens for people: `panko admin --config cluster --kubeconfig ... --tokens-
 
 ## Argo CD
 
-[`application.yaml`](../examples/gitops/argocd/application.yaml) uses two sources: the chart from
-the Panko repository and your values from a GitOps repository (`$values`). Relevant options:
+[`application.yaml`](../examples/gitops/argocd/application.yaml) uses two sources: the OCI chart
+(`repoURL: ghcr.io/hingst-it/charts`, `chart: panko`, `targetRevision: 0.0.2`) and your values
+from a GitOps repository (`$values`). Relevant options:
 `CreateNamespace=true`, `ServerSideApply=true`, `SkipDryRunOnMissingResource=true`, retries, and
 automated sync with pruning. Argo CD renders with `helm template` and applies `crds/`.
 Helm hooks are not used. Argo CD tracks only rendered objects, so the setup Job's Secrets,
-ConfigMaps and NetworkPolicies do not show up as out of sync. Tested with Argo CD v3.5.6: Synced and
-Healthy, no out-of-sync resources after a hard refresh, the setup Job not re-run, a database
-lifecycle, and self-heal. The `ignoreDifferences` entry for `volumeClaimTemplates` status is
+ConfigMaps and NetworkPolicies do not show up as out of sync. The release acceptance test runs it with Argo CD v3.5.6 from the OCI chart (pending for
+v0.0.2: Synced and Healthy, a Database Ready, retention after deleting the Application). Tested
+during the PoC with the chart from Git: no out-of-sync resources after a hard refresh, the setup
+Job not re-run, and self-heal. The `ignoreDifferences` entry for `volumeClaimTemplates` status is
 needed: without it the lab PostgreSQL StatefulSet stays `OutOfSync`.
 
 ## Flux
 
-[`panko.yaml`](../examples/gitops/flux/panko.yaml) defines a `GitRepository` limited to
-`charts/panko` and a `HelmRelease` with `crds: CreateReplace` for install and upgrade, retries
+[`panko.yaml`](../examples/gitops/flux/panko.yaml) defines an `OCIRepository` for the published
+chart (`ref.tag: 0.0.2`) and a `HelmRelease` (`chartRef`) with `crds: CreateReplace` for install and upgrade, retries
 without rollback (Panko's state lives in its own objects), and values from a ConfigMap
-(`valuesFrom`). The release record is stored in `panko-system`. Tested with Flux v2.10.0: Ready
-after about a minute, CRDs created, a database lifecycle, and a changed value rolled out with the
-tokens unchanged. Flux's helm-controller uses its own Helm SDK version and wait logic, which may
+(`valuesFrom`). The release record is stored in `panko-system`. The release acceptance test runs it with Flux v2.10.0 from the OCI chart (pending for v0.0.2:
+Ready, CRDs created, a Database Ready, retention after deleting the HelmRelease). Tested during
+the PoC with the chart from Git: a changed value rolled out through `valuesFrom` with
+the tokens unchanged. Flux's helm-controller uses its own Helm SDK version and wait logic, which may
 differ from `panko install`.
 
 ## Pre-rendered manifests
@@ -188,17 +192,26 @@ and `helm template` once per version, commit both, and apply the CRDs first. Wit
 release record, `panko install` later treats the cluster as an existing installation and needs
 `--take-ownership`.
 
+## Moving an installation
+
+Moving a live installation from `panko install` or Helm to Argo CD or Flux is not validated in
+v0.0.2. Use the same release name (`panko`), release namespace (`panko-system`) and values, suspend
+the previous tool first so that two tools never reconcile the release at the same time, and
+rehearse on a disposable copy. Flux's helm-controller and Argo CD take over fields under their own
+field managers. Plain manifests have no release record; a later `panko install` needs
+`--take-ownership` once. A v0.0.1 installation first follows the
+[migration](upgrading.md#migrating-a-v001-installation).
+
 ## Validation scope
 
-| Path | Validated in this proof of concept |
+| Path | Validated for v0.0.2 |
 |---|---|
 | `helm lint --strict`, `helm template` with defaults and `examples/gitops/values.yaml` | yes (`make lint-chart`, CI unit job) |
-| Reproducible render, no Secrets, RBAC equal to the `panko admin` generators | yes (`internal/chart` tests) |
-| Install and upgrade through the Helm SDK (`panko install`, `panko dev up`) on k3d | yes, including the e2e suites |
-| Argo CD `Application` (v3.5.6, repository URLs replaced, Git over SSH) | yes: Synced/Healthy, credentials generated, lifecycle, no drift, self-heal |
-| Flux `GitRepository`/`HelmRelease` (v2.10.0, URL replaced, SSH deploy key) | yes: Ready, CRDs, lifecycle, upgrade through `valuesFrom` |
-| Pulling the chart from the public GitHub repository or an OCI registry | no (the branch is not pushed; no OCI chart exists) |
-| Pre-rendered manifests: `helm show crds` and `helm template` applied with `kubectl apply --server-side`, CRDs first | yes: no Secrets rendered, setup Job and all workloads ready, controller `/readyz`, re-render byte-identical |
-| Switching that installation to a Helm release (`panko install --take-ownership`) | yes, tokens unchanged |
-| `helm uninstall` keeps namespaces, CRDs, StatefulSets, PVCs and Secrets | yes |
-| Deleting the Argo CD `Application` (with `resources-finalizer`) or the Flux `HelmRelease` keeps the same objects and team resources | yes; with Flux also the CompositeController, the Databases' destroy finalizers, and a reinstall afterwards |
+| Reproducible render, no Secrets, RBAC equal to the `panko admin` generators, image references equal to the published images | yes (`internal/chart` tests, `tools/release.py check`) |
+| Install and upgrade through `panko install` and `panko dev up` on k3d | yes, in the e2e suites; release acceptance test pending |
+| `helm install` / `helm uninstall` of the packaged chart, private registry with pull secrets | pending: release acceptance test |
+| Argo CD `Application` (v3.5.6) from the published OCI chart | pending: release acceptance test (Synced/Healthy, Database Ready, retention after deleting the Application) |
+| Flux `OCIRepository`/`HelmRelease` (v2.10.0) from the published OCI chart | pending: release acceptance test (Ready, Database Ready, retention after deleting the HelmRelease) |
+| Argo CD self-heal, hard refresh without drift; Flux `valuesFrom` upgrade | during the PoC only (chart from Git over SSH) |
+| Pre-rendered manifests applied with `kubectl apply --server-side`, CRDs first; switching to Helm with `--take-ownership` | during the PoC |
+| Moving a live installation between `panko install`, Argo CD and Flux | no |

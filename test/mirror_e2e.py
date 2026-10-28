@@ -14,7 +14,7 @@ def database(name):
 
 
 def runner_log(name):
-    uid = get('db', name)['metadata']['uid']
+    uid = get('databases.platform.example.com', name)['metadata']['uid']
     jobs = json.loads(kube('get', 'jobs', '-n', 'team-a', '-l', 'platform.example.com/uid=' + uid, '-o', 'json').stdout)['items']
     return ''.join(kube('logs', 'job/' + j['metadata']['name'], '-n', 'team-a', '-c', 'tofu', check=False).stdout for j in jobs)
 
@@ -50,9 +50,9 @@ def main():
     finally:
         mirror(1)
         for name in names:
-            kube('delete', 'db', name, '-n', 'team-a', '--ignore-not-found', '--wait=false', check=False)
+            kube('delete', 'databases.platform.example.com', name, '-n', 'team-a', '--ignore-not-found', '--wait=false', check=False)
         for name in names:
-            wait(lambda name=name: get('db', name) is None, f'{name} cleanup', 300)
+            wait(lambda name=name: get('databases.platform.example.com', name) is None, f'{name} cleanup', 300)
         time.sleep(1)
 
 

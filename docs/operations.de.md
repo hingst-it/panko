@@ -79,8 +79,8 @@ Ein Upgrade von Panko selbst: neuen Stand auschecken, dann `make build deploy` (
 an, führt den Setup-Job erneut aus und rollt nur Pods mit geänderter Vorlage aus; `make build`
 vergibt dafür inhaltsabhängige Image-Tags. Bestehende Ressourcen behalten Bindung, State und
 Status und werden nicht erneut angewendet. Nur eine geänderte Modulrevision wendet jede
-Ressource einmal mit dem neuen Modul an. Ein Upgrade von einer Installation ohne Helm
-(`make deploy` vor diesem PoC) beschreibt die [Auswertung](poc-unified-server.de.md#migration).
+Ressource einmal mit dem neuen Modul an. Das verbindliche Verfahren für Upgrades und für die
+Migration einer v0.0.1-Installation beschreibt [upgrading.md](upgrading.md).
 
 ## Egress-Regeln für Runner
 
@@ -140,6 +140,9 @@ gezielt:
 Destroy verwendet weiterhin die zuletzt angewendete Revision.
 
 ## Sicherung und Wiederherstellung
+
+Ohne Checkout mit dem veröffentlichten CLI: siehe [upgrading.md](upgrading.md#backup-and-restore).
+Aus einem Checkout:
 
 ```sh
 make backup BACKUP_DIR=.local/backup-20261024
@@ -373,7 +376,7 @@ kopieren. Sie enthält Zugangsdaten und gehört nicht ins Repository oder in Tic
 Bei `Failed` den Status und die Jobs der Ressourcen-UID prüfen:
 
 ```sh
-kubectl --kubeconfig .local/kubeconfig -n team-a get db orders -o yaml
+kubectl --kubeconfig .local/kubeconfig -n team-a get databases.platform.example.com orders -o yaml
 kubectl --kubeconfig .local/kubeconfig -n team-a get jobs -l platform.example.com/uid=RESSOURCEN_UID
 kubectl --kubeconfig .local/kubeconfig -n team-a logs job/JOB_NAME
 ```
@@ -389,7 +392,7 @@ auch nach Job-TTL und Hook-Neustart gesperrt. Nach Behebung der Ursache fordert
 Administratoren können alternativ explizit einen neuen Token setzen, zum Beispiel:
 
 ```sh
-kubectl --kubeconfig .local/kubeconfig -n team-a annotate db orders \
+kubectl --kubeconfig .local/kubeconfig -n team-a annotate databases.platform.example.com orders \
   platform.example.com/retry-destroy=incident-123-attempt-2 --overwrite
 ```
 

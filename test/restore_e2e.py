@@ -42,9 +42,9 @@ def prepare():
         ready(name)
         creds = credentials(name)
         psql(creds['database'], "CREATE TABLE keep (value text); INSERT INTO keep VALUES ('survives restore');")
-        expected[name] = {'uid': get('db', name)['metadata']['uid'], 'database': creds['database'],
+        expected[name] = {'uid': get('databases.platform.example.com', name)['metadata']['uid'], 'database': creds['database'],
                           'username': creds['username'], 'credentials': fingerprint(creds),
-                          'backend': get('db', name)['status']['stateBackend']['type']}
+                          'backend': get('databases.platform.example.com', name)['status']['stateBackend']['type']}
     EXPECT.write_text(json.dumps(expected))
     EXPECT.chmod(0o600)
     print('Prepared', ', '.join(NAMES), 'with data rows', flush=True)
@@ -63,7 +63,7 @@ def verify():
         assert psql(creds['database'], 'SELECT value FROM keep;') == 'survives restore', 'data lost'
         connect(name)
         generation = db['metadata']['generation'] + 1
-        kube('patch', 'db', name, '-n', 'team-a', '--type=merge', '-p', '{"spec":{"connectionLimit":25}}')
+        kube('patch', 'databases.platform.example.com', name, '-n', 'team-a', '--type=merge', '-p', '{"spec":{"connectionLimit":25}}')
         ready(name, generation=generation)
         assert credentials(name)['database'] == old['database'], 'update after restore recreated the database'
         assert psql(old['database'], 'SELECT value FROM keep;') == 'survives restore'
@@ -72,7 +72,7 @@ def verify():
         creds = credentials(name)
         delete_and_check(name, 'team-a', creds)
     kube('delete', 'statebackend', 'restore-s3', '-n', 'team-a', '--ignore-not-found', check=False)
-    wait(lambda: all(get('db', name) is None for name in expected), 'restored resources deleted', 300)
+    wait(lambda: all(get('databases.platform.example.com', name) is None for name in expected), 'restored resources deleted', 300)
     print('Restore rehearsal passed: data, identity and credentials survived; update and destroy worked', flush=True)
 
 

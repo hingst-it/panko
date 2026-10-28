@@ -1,7 +1,14 @@
 # Auswertung: PoC vereinheitlichter Panko-Server und vereinfachte Installation
 
-Branch `poc/unified-server-dev-install`, Auftrag: `POC.md` (lokale Aufgabenbeschreibung, nicht im Repository).
-Keine Veröffentlichung, kein Merge nach `main`. Stand: 2026-10-28.
+Branch `poc/unified-server-dev-install`, Auftrag: [`POC.md`](../POC.md). Stand der Auswertung:
+2026-10-28. Historisches Dokument: Es beschreibt den PoC zum Zeitpunkt seiner Prüfung.
+
+> **Nachtrag (v0.0.2, 2026-10-29).** Der PoC-Auftrag schloss Veröffentlichung und Merge aus; der
+> Branch wurde dennoch für Review und CI gepusht (PR #70). Der Release-Auftrag für v0.0.2 hat diese
+> Einschränkung aufgehoben: PR #70 wurde nach Review und CI nach `main` übernommen und als v0.0.2
+> veröffentlicht. Aussagen unten wie „kein Push“, „nicht veröffentlicht“ oder „Argo CD/Flux nicht
+> angewendet“ gelten für den damaligen Stand und sind jeweils markiert. Was v0.0.2 von den
+> offenen Punkten erledigt, steht in [Verbleibende Arbeit](#verbleibende-arbeit-bis-zu-einer-veröffentlichbaren-version).
 
 ## Ergebnis
 
@@ -16,11 +23,11 @@ zu verändern. Die bestehenden E2E-Suiten bestehen unverändert in ihrem fachlic
 
 ## Akzeptanzkriterien des Auftrags
 
-Die Kriterien stammen wörtlich aus der lokalen Aufgabenbeschreibung `POC.md`.
+Die Kriterien stammen wörtlich aus der Aufgabenbeschreibung [`POC.md`](../POC.md).
 
 | Kriterium | Stand | Beleg |
 | --- | --- | --- |
-| Umsetzung vollständig auf dem separaten PoC-Branch | erfüllt | Branch `poc/unified-server-dev-install`, kein Merge, kein Push |
+| Umsetzung vollständig auf dem separaten PoC-Branch | erfüllt | Branch `poc/unified-server-dev-install`, kein Merge während des PoC; gepusht für Review und CI (PR #70) |
 | Gemeinsame Server-Binary startet alle vorgesehenen Rollen | erfüllt | `panko-server gateway/controller/endpoint/mirror/runner/agent/setup`; alle laufen in Lab, E2E und GitOps-Läufen |
 | Metacontroller läuft integriert in der Controller-Rolle | erfüllt | kein Namespace `metacontroller`; CompositeController über Loopback, Metriken auf `:9999` |
 | Rollen behalten getrennte ServiceAccounts und Berechtigungen | erfüllt | Chart-Tests, `kubectl auth can-i`, `rbac_e2e` |
@@ -44,7 +51,7 @@ Die Kriterien stammen wörtlich aus der lokalen Aufgabenbeschreibung `POC.md`.
 | Helm-Chart | `charts/panko` (Version `0.1.0-poc.1`): CRDs, RBAC, Rollen, Setup-Job, Lab-PostgreSQL/S3 | `make lint-chart`, `internal/chart`-Tests |
 | `panko install` | `internal/install`: Ziel ausweisen, Rechte und Konflikte prüfen, CRDs anwenden, Helm-SDK-Install/Upgrade, Readiness | Lab über `make deploy` (CI-Weg) und `panko dev up` |
 | `panko dev up/status/down` | `internal/devlab`: Docker, k3d (privat mit Prüfsumme), eigener Cluster und Kubeconfig, Port-Mapping statt Port-Forward | manueller Lauf ohne Checkout, Unit-Tests mit gefälschtem `docker`/`k3d` |
-| GitOps | `examples/gitops`: Werte, Argo CD, Flux, vorgerenderte Manifeste; [gitops.md](gitops.md) | Rendering reproduzierbar, keine Secrets; Argo CD/Flux nicht angewendet |
+| GitOps | `examples/gitops`: Werte, Argo CD, Flux, vorgerenderte Manifeste; [gitops.md](gitops.md) | Rendering reproduzierbar, keine Secrets; Argo CD und Flux in Wegwerf-Clustern angewendet (siehe [Prüfung der Dokumentation](#prüfung-der-dokumentation)). Die frühere Angabe „nicht angewendet“ in dieser Zeile war überholt |
 | `panko admin` | bisherige `panko-admin`-Befehle, zusätzlich `--config cluster` | `test/admin_e2e.py` u. a. über den Kompatibilitäts-Wrapper `admin` |
 
 Reproduktion:
@@ -209,9 +216,8 @@ Live geprüft in Wegwerf-Clustern (k3d, Build mit allen Korrekturen):
 
 ## Bekannte Einschränkungen und offene Entscheidungen
 
-- **Images und Chart sind nicht veröffentlicht.** Der Release-Workflow baut `panko-server`
-  und `panko-module-mirror`, wurde aber nicht ausgeführt; ein OCI-Chart fehlt. Für GitOps
-  müssen Images in eine eigene Registry geschoben werden.
+- **Images und Chart waren nicht veröffentlicht** (Stand PoC). Seit v0.0.2 veröffentlicht der
+  Release-Workflow `panko-server`, `panko-module-mirror`, `panko-agent` und das OCI-Chart.
 - **Namen.** Die Controller-Rolle läuft weiterhin im Deployment `infra-runners/database-hook`,
   weil Pause/Resume, Sicherung, Migrationen und Tests diesen Namen verwenden. Eine
   Umbenennung (z. B. `panko-controller`) ist offen.
@@ -231,14 +237,16 @@ Live geprüft in Wegwerf-Clustern (k3d, Build mit allen Korrekturen):
   Setup-Job warnt ein Jahr vor Ablauf; Agenten brauchen dann die neue CA.
 - **Gateway-RBAC** wird aus `gateway.exposedResources` gerendert. Zur Laufzeit ergänzte CRDs
   brauchen weiterhin `panko admin gateway-rbac`; ein Upgrade setzt diese Ergänzungen zurück.
-- **Modul-Rollout.** Controller und Modul-Mirror rollen im selben Upgrade aus; ein weniger als
+- **Modul-Rollout** (Stand PoC). Controller und Modul-Mirror rollen im selben Upgrade aus; ein weniger als
   eine Minute alter Commit kann für die ersten Jobs fehlen (`module_fetch`, dann `retry`).
-  Das alte Skript startete erst den Mirror und dann den Hook.
+  Das alte Skript startete erst den Mirror und dann den Hook. In v0.0.2 behoben: Der Mirror
+  ist erst mit der festgelegten Revision bereit, Runner-Jobs wiederholen den Abruf bis zu 90 s.
 - **Plattformen.** `panko dev` unterstützt macOS und Linux mit Docker; Podman, Windows und
   VM-Verwaltung sind ausgeschlossen. k3d wird bei Bedarf in v5.9.0 installiert; die
   Prüfsummen sind im CLI festgelegt und müssen bei einem k3d-Update angepasst werden.
-- **Argo CD und Flux** wurden je einmal in einem Wegwerf-Cluster mit Git über SSH geprüft, nicht
-  mit dem öffentlichen Repository, einer Registry oder in CI.
+- **Argo CD und Flux** wurden im PoC je einmal in einem Wegwerf-Cluster mit Git über SSH geprüft,
+  nicht mit dem öffentlichen Repository, einer Registry oder in CI. Für v0.0.2 prüft der
+  Release-Abnahmetest beide gegen das veröffentlichte OCI-Chart (nicht in CI).
 - **Binary-Größe.** `panko` wächst durch das Helm-SDK auf rund 98 MB, `panko-admin` auf
   68 MB, `panko-server` auf 49 MB (Image 58 MB).
 - **`test/portability_e2e.py`** (Python/Go-Übergänge mit gesicherten Images) ist nicht Teil der
@@ -307,16 +315,29 @@ Installationen aus der Zeit vor der State-Isolation (zuerst mit v0.0.1 migrieren
 
 ## Verbleibende Arbeit bis zu einer veröffentlichbaren Version
 
+Liste vom Stand des PoC; der Status in Klammern ist der Stand von v0.0.2.
+
 1. Release-Workflow: `panko-server`, `panko-module-mirror` und Agent-Image mit festen Tags,
    Chart als OCI-Artefakt mit passender `appVersion`, CLI-Archive mit eingebettetem Chart.
-2. Die Argo-CD- und Flux-Prüfungen in CI übernehmen (heute manuelle Skripte).
+   (Erledigt; siehe [releases.md](releases.md).)
+2. Die Argo-CD- und Flux-Prüfungen in CI übernehmen (heute manuelle Skripte). (Teilweise: als
+   Phase `gitops` des Release-Abnahmetests gegen das veröffentlichte Chart, nicht in CI.)
 3. Entscheidung zum Hook-Prozess (eigener Container) und zur Umbenennung von `database-hook`.
+   (Offen; v0.0.2 behält beides bewusst bei.)
 4. Konfigurierbare Namen vorhandener Secrets oder eine dokumentierte External-Secrets-Vorlage.
-5. Automatischer CA-Austausch mit Vertrauensübergang (heute manuell, mit Warnung).
-6. Modul-Rollout: Controller erst nach Bereitschaft des Mirrors mit der neuen Revision.
+   (Offen.)
+5. Automatischer CA-Austausch mit Vertrauensübergang (heute manuell, mit Warnung). (Offen; der
+   manuelle zweistufige Ablauf ist in [operations.md](operations.md#replacing-a-ca-manual-trust-rollover)
+   beschrieben und im Abnahmetest geprobt.)
+6. Modul-Rollout: Controller erst nach Bereitschaft des Mirrors mit der neuen Revision. (Erledigt
+   anders: Mirror-Bereitschaft an die Revision gebunden, begrenzte Wiederholung in Runner-Jobs.)
 7. Automatische Prüfung der Metacontroller-Version (Renovate-Regel oder CI-Check für
-   `replace` und `crds/metacontroller.yaml`).
+   `replace` und `crds/metacontroller.yaml`). (Offen.)
 8. Migration als ein Befehl (Pause, Entfernen des separaten Metacontrollers, Aufräumen der
-   Altobjekte, Resume) und als CI-Test mit einem v0.0.1-Lab.
+   Altobjekte, Resume) und als CI-Test mit einem v0.0.1-Lab. (Teilweise: ein dokumentierter Ablauf
+   in [upgrading.md](upgrading.md), geprobt durch die Phase `migrate` des Abnahmetests; kein
+   einzelner Befehl, nicht in CI.)
 9. Leader-Election und mehrere Controller-Replikate im Lab prüfen (vorhanden, nicht getestet).
+   (v0.0.2 beschränkt `controller.replicas` auf 1.)
 10. Dokumentation der Release-Version aktualisieren (Quickstart verweist für 0.0.1 auf den Tag).
+    (Erledigt.)

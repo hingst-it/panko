@@ -248,6 +248,9 @@ func CreateJobWith(config JobConfig, parent Object, action, hash, revision strin
 					args[i] = "--repo=" + config.ModuleMirror
 				}
 			}
+			// During an upgrade the mirror may still be fetching a just-pinned revision; retry for
+			// up to 90 s (18 attempts) before reporting module_fetch.
+			c["args"] = append(args, "--max-failures=18", "--period=5s")
 			c["volumeMounts"] = withoutSecret(jsonx.Array(c["volumeMounts"]))
 		}
 		pod["volumes"] = withoutSecret(jsonx.Array(pod["volumes"]))

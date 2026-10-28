@@ -127,3 +127,53 @@ func TestInvalidInstallationIsRefusedUpFront(t *testing.T) {
 		t.Fatalf("Run did not refuse the invalid values first: %v", err)
 	}
 }
+
+// A CRD that kubectl apply of v0.0.1 created keeps its short names after server-side apply; they
+// are removed from Panko's CRDs only, never from Metacontroller's.
+func TestApplyCRDsRemovesLegacyShortNames(t *testing.T) {
+	removed := []string{}
+	api := fakeAPI(func(method, path string) (jsonx.Object, error) {
+		switch {
+		case method == "GET":
+			return nil, &kube.Error{Code: 404}
+		case method == "PATCH" && strings.Contains(path, "force=true"):
+			names := jsonx.Object{"plural": "x"}
+			if strings.Contains(path, "/databases.platform.example.com?") || strings.Contains(path, ".metacontroller.k8s.io?") {
+				names["shortNames"] = []any{"db"}
+			}
+			return jsonx.Object{"spec": jsonx.Object{"names": names}}, nil
+		case method == "PATCH":
+			removed = append(removed, path)
+			return jsonx.Object{}, nil
+		}
+		return nil, &kube.Error{Code: 500}
+	})
+	if err := ApplyCRDs(context.Background(), api, false, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if len(removed) != 1 || !strings.Contains(removed[0], "/databases.platform.example.com?") {
+		t.Fatalf("short names removed from %v", removed)
+	}
+}
+
+// A pod that cannot pull its image is named with the image and a hint.
+func TestDiagnoseNamesUnavailableImages(t *testing.T) {
+	api := fakeAPI(func(method, path string) (jsonx.Object, error) {
+		if path != "/api/v1/namespaces/infra-runners/pods" {
+			return jsonx.Object{}, nil
+		}
+		waiting := func(reason string) jsonx.Object {
+			return jsonx.Object{"name": "controller", "image": "ghcr.io/hingst-it/panko-server:0.0.0", "state": jsonx.Object{"waiting": jsonx.Object{"reason": reason}}}
+		}
+		return jsonx.Object{"items": []any{
+			jsonx.Object{"metadata": jsonx.Object{"name": "database-hook-1"}, "status": jsonx.Object{"containerStatuses": []any{waiting("ImagePullBackOff")}}},
+			jsonx.Object{"metadata": jsonx.Object{"name": "module-mirror-1"}, "status": jsonx.Object{"containerStatuses": []any{waiting("ContainerCreating")}}},
+		}}, nil
+	})
+	var out strings.Builder
+	Diagnose(context.Background(), api, &out)
+	if !strings.Contains(out.String(), "infra-runners/database-hook-1 container controller (image ghcr.io/hingst-it/panko-server:0.0.0): ImagePullBackOff") ||
+		strings.Contains(out.String(), "module-mirror") {
+		t.Fatal(out.String())
+	}
+}

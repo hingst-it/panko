@@ -18,8 +18,13 @@ SUFFIX = RUN[-6:]
 NETWORK = 'panko-cloud-' + SUFFIX
 NAMES = {'moto': 'moto-' + SUFFIX, 'git': 'git-' + SUFFIX, 'agent': 'agent-' + SUFFIX, 'second': 'agent2-' + SUFFIX}
 URL = 'http://127.0.0.1:18085'
-TOKENS = json.loads(Path('.local/team-tokens.json').read_text())
+TOKENS = json.loads(Path(os.environ.get('PANKO_TOKENS_FILE', '.local/team-tokens.json')).read_text())
 PLUGIN_CACHE = Path('.local/agent-plugin-cache').resolve()
+# The release acceptance test (test/release_acceptance.py) runs this suite against published or
+# candidate artifacts: the packaged CLI, agent image and module mirror image, without builds.
+ADMIN = os.environ.get('PANKO_ADMIN', '.local/bin/admin').split()
+AGENT_IMAGE = os.environ.get('PANKO_AGENT_IMAGE', '')
+MIRROR_IMAGE = os.environ.get('PANKO_MODULE_MIRROR_IMAGE', 'panko-module-mirror:dev')
 
 
 LOCK_PROBE = '''
@@ -43,7 +48,7 @@ def docker(*args, check=True, timeout=600):
 
 def admin(*args, config=None):
     flags = ['--config', config] if config else []
-    result = subprocess.run(['.local/bin/admin', '--kubeconfig', CONFIG, *flags, *args], capture_output=True, text=True)
+    result = subprocess.run([*ADMIN, '--kubeconfig', CONFIG, *flags, *args], capture_output=True, text=True)
     assert result.returncode == 0, (args, result.stderr)
     return result.stdout
 
@@ -155,7 +160,7 @@ def start_agent(container, directory):
            '--user', f'{os.getuid()}:{os.getgid()}', '-v', f'{directory}:/etc/panko-agent:ro', '-v', f'{PLUGIN_CACHE}:/var/cache/panko-plugins',
            '-e', 'PANKO_ENDPOINT=https://runner-endpoint.infra-runners.svc:30443', '-e', 'PANKO_ENDPOINT_CA=/etc/panko-agent/ca.crt',
            '-e', 'PANKO_AGENT_TOKEN_FILE=/etc/panko-agent/token', '-e', 'PANKO_POOL=cloud', '-e', 'PANKO_PROFILES=/etc/panko-agent/profiles',
-           '-e', 'PANKO_WORK=/tmp', '-e', 'PANKO_PLUGIN_CACHE=/var/cache/panko-plugins', 'panko-agent:dev', 'run')
+           '-e', 'PANKO_WORK=/tmp', '-e', 'PANKO_PLUGIN_CACHE=/var/cache/panko-plugins', AGENT_IMAGE or 'panko-agent:dev', 'run')
     docker('network', 'connect', '--alias', container, NETWORK, container)
     check = docker('exec', container, 'panko-server', 'agent', 'check', check=False)
     assert check.returncode == 0, check.stdout + check.stderr
@@ -183,11 +188,12 @@ def setup(root):
     moto("s3.create_bucket(Bucket='panko-state')")
     # The S3 state lock relies on conditional writes; a second one must be refused.
     assert moto(LOCK_PROBE) == 'PreconditionFailed', 'Moto does not refuse a competing conditional write, so state locking is untested'
-    docker('build', '-q', '-t', 'panko-agent:dev', '-f', 'Dockerfile.agent', '.')
+    if not AGENT_IMAGE:
+        docker('build', '-q', '-t', 'panko-agent:dev', '-f', 'Dockerfile.agent', '.')
     revision = fixture_repository(root)
     # The module mirror image carries git-daemon; the agent image only has the git client.
     docker('run', '-d', '--name', NAMES['git'], '--network', NETWORK, '--network-alias', 'git', '-v', f'{root / "repos"}:/repos:ro',
-           '--entrypoint', 'git', 'panko-module-mirror:dev', '-c', 'safe.directory=*', 'daemon', '--base-path=/repos', '--export-all', '--reuseaddr', '/repos')
+           '--entrypoint', 'git', MIRROR_IMAGE, '-c', 'safe.directory=*', 'daemon', '--base-path=/repos', '--export-all', '--reuseaddr', '/repos')
     # The pool, its module and its agents, configured exactly as an operator would.
     config = json.loads(Path(os.environ.get('PANKO_CONFIG', 'panko.json')).read_text())
     # A short lease lets the killed agent's Run become interrupted after ~25s instead of the default 60s.
@@ -243,7 +249,7 @@ def main():
         created = ready(name)
         uid = get('bucket', name, TEAM)['metadata']['uid']
         assert created['runnerPool'] == 'cloud', created
-        runs = json.loads(kube('get', 'runs', '-n', TEAM, '-l', 'platform.example.com/uid=' + uid, '-o', 'json').stdout)['items']
+        runs = json.loads(kube('get', 'runs.platform.example.com', '-n', TEAM, '-l', 'platform.example.com/uid=' + uid, '-o', 'json').stdout)['items']
         jobs = json.loads(kube('get', 'jobs', '-n', TEAM, '-l', 'platform.example.com/uid=' + uid, '-o', 'json').stdout)['items']
         assert runs and not jobs, 'the bucket did not run on the remote pool'
         assert all(r['spec']['leaseSeconds'] == 25 and r['spec']['heartbeatSeconds'] == 3 for r in runs), 'pool lease not applied'
@@ -289,7 +295,7 @@ def main():
         # Kill the agent while OpenTofu holds the state lock in the middle of this paused apply, not
         # while some other execution happens to hold it.
         def apply_holds_lock():
-            items = json.loads(kube('get', 'runs', '-n', TEAM, '-l', 'platform.example.com/uid=' + uid, '-o', 'json').stdout)['items']
+            items = json.loads(kube('get', 'runs.platform.example.com', '-n', TEAM, '-l', 'platform.example.com/uid=' + uid, '-o', 'json').stdout)['items']
             generation = get('bucket', name, TEAM)['metadata']['generation']
             claimed = [r for r in items if r['spec']['action'] == 'apply' and r['spec']['generation'] == generation
                        and (r.get('status') or {}).get('lease') and not (r.get('status') or {}).get('conditions')]
@@ -330,7 +336,7 @@ def diagnostics(name):
     for container in (NAMES['agent'], NAMES['second']):
         show(container, lambda container=container: (lambda r: r.stdout + r.stderr)(docker('logs', '--tail', '60', container, check=False, timeout=30)))
     show('bucket status', lambda: json.dumps(status(name), indent=1))
-    show('runs', lambda: kube('get', 'runs', '-n', TEAM, '-o', 'wide', check=False).stdout)
+    show('runs', lambda: kube('get', 'runs.platform.example.com', '-n', TEAM, '-o', 'wide', check=False).stdout)
     show('endpoint', lambda: kube('-n', 'infra-runners', 'logs', 'deploy/runner-endpoint', '--tail=40', check=False).stdout)
 
 

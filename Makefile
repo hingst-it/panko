@@ -51,7 +51,7 @@ build-go:
 	mkdir -p .local/bin
 	mise exec -- go build -o .local/bin/ ./cmd/...
 
-## Lint and render the Helm chart; the rendering must be reproducible and free of Secrets.
+## Lint and render the Helm chart; the rendering must be reproducible, free of Secrets and match the release's images.
 lint-chart:
 	mise exec -- helm lint --strict charts/panko
 	mise exec -- helm lint --strict charts/panko --values examples/gitops/values.yaml
@@ -59,6 +59,9 @@ lint-chart:
 	mise exec -- helm template panko charts/panko --namespace panko-system --include-crds --values examples/gitops/values.yaml > .local/rendered-2.yaml
 	cmp .local/rendered-1.yaml .local/rendered-2.yaml
 	! grep -q '^kind: Secret$$' .local/rendered-1.yaml
+	# The default rendering references exactly the images a release of this version publishes.
+	mise exec -- helm template panko charts/panko --namespace panko-system --set installation.s3=true > .local/rendered-defaults.yaml
+	python3 tools/release.py check "$$(sed -n 's/^version: //p' charts/panko/Chart.yaml)" .local/rendered-defaults.yaml
 
 ## Run all local unit checks (Go tests with the race detector, chart lint and rendering).
 test-unit: test-go lint-chart

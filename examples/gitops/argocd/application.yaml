@@ -1,17 +1,21 @@
-# Argo CD Application installing Panko from the chart in the Panko repository, with values from
-# your own GitOps repository (multiple sources). Validated with helm template only; see docs/gitops.md.
+# Argo CD Application installing Panko from the published OCI chart, with values from your own
+# GitOps repository (multiple sources). Validated against Argo CD v3.5.6 by
+# test/release_acceptance.py (gitops phase); see docs/gitops.md.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: panko
   namespace: argocd
+  # Deleting the Application removes the stateless workloads; data, CRDs and Databases are kept.
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   sources:
-    - repoURL: https://github.com/hingst-it/panko.git
-      # Pin a commit or tag; a branch is only acceptable for the proof of concept.
-      targetRevision: poc/unified-server-dev-install
-      path: charts/panko
+    # OCI Helm chart; the version also pins the images (their tags default to appVersion).
+    - repoURL: ghcr.io/hingst-it/charts
+      chart: panko
+      targetRevision: 0.0.2
       helm:
         releaseName: panko
         valueFiles:

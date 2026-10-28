@@ -22,7 +22,7 @@ metadata:
 spec:
   replicas: 1
   # A new pod clones before the old one stops, so runner Jobs always find a ready mirror; a new
-  # module revision restarts the mirror with a fresh clone that contains it.
+  # module revision restarts the mirror, and the new pod is ready only once its clone contains it.
   strategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 0, maxSurge: 1}}
   selector:
     matchLabels: {app: module-mirror}
@@ -44,6 +44,8 @@ spec:
           imagePullPolicy: {{ .Values.images.moduleMirror.pullPolicy }}
           env:
             - {name: MODULE_REPO, value: {{ $repo | quote }}}
+            # The pod becomes ready only after its clone contains this commit.
+            - {name: MODULE_REVISION, value: {{ .Values.module.revision | quote }}}
           ports: [{name: git, containerPort: 9418}]
           readinessProbe:
             exec:

@@ -35,7 +35,8 @@ images:
     repository: ghcr.io/hingst-it/panko-module-mirror
     tag: ""
     pullPolicy: IfNotPresent
-  # Runner Jobs copy OpenTofu from this image and fetch the module with git-sync.
+  # Runner Jobs copy OpenTofu from this image and fetch the module with git-sync. Keep it equal to
+  # the OpenTofu build in Dockerfile.agent, so remote agents and Jobs run the same version.
   engine: ghcr.io/opentofu/opentofu:1.11.7@sha256:6166f12d09520dbbb431a13951973c5b1046c01f801fa8c7b73e89511a0fff34
   engineBinary: /usr/local/bin/tofu
   gitSync: registry.k8s.io/git-sync/git-sync:v4.5.1@sha256:1df295fdab03031f932f2b7dae82fa19bd77334e2510c311bbdfc7e09ef49ece
@@ -59,8 +60,9 @@ module:
   sshSecret: ""
 
 controller:
-  # More than one replica requires leaderElection.
+  # Exactly one replica is supported; failover between several replicas is not validated.
   replicas: 1
+  # Leader election via a Lease in infra-runners. Not validated for this release; keep false.
   leaderElection: false
   workers: 5
   # Only CompositeControllers with this label are managed, so a Metacontroller of another

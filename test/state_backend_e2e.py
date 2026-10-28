@@ -27,7 +27,7 @@ def state_backend(name):
 
 
 def binding(name):
-    return get('db', name)['status']['stateBackend']
+    return get('databases.platform.example.com', name)['status']['stateBackend']
 
 
 def s3(team, *args):
@@ -49,11 +49,11 @@ def s3(team, *args):
 
 def failed_with(name, generation, text):
     def check():
-        status = get('db', name).get('status', {})
+        status = get('databases.platform.example.com', name).get('status', {})
         return status.get('phase') == 'Failed' and status.get('observedGeneration') == generation
     wait(check, f'{name} Failed at generation {generation}')
-    assert get('db', name)['status']['lastExecution']['code'] == 'checkpoint', get('db', name)['status']
-    jobs = json.loads(kube('get', 'jobs', '-n', 'team-a', '-l', 'platform.example.com/uid=' + get('db', name)['metadata']['uid'],
+    assert get('databases.platform.example.com', name)['status']['lastExecution']['code'] == 'checkpoint', get('databases.platform.example.com', name)['status']
+    jobs = json.loads(kube('get', 'jobs', '-n', 'team-a', '-l', 'platform.example.com/uid=' + get('databases.platform.example.com', name)['metadata']['uid'],
                            '-o', 'json').stdout)['items']
     logs = ''.join(kube('logs', 'job/' + j['metadata']['name'], '-n', 'team-a', '-c', 'tofu', check=False).stdout for j in jobs)
     assert text in logs, logs[-2000:]
@@ -67,12 +67,12 @@ def main():
         # 1: without any StateBackend the built-in Kubernetes backend is bound, now with a checkpoint.
         database(fallback)
         # The binding is fixed on the first reconcile, before any Job, so step 2's Job can run alongside step 1's.
-        wait(lambda: (get('db', fallback).get('status') or {}).get('stateBackend'), f'{fallback} bound')
+        wait(lambda: (get('databases.platform.example.com', fallback).get('status') or {}).get('stateBackend'), f'{fallback} bound')
         state_backend(target)
         database(remote, ref=target)
         ready(fallback)
         assert binding(fallback)['type'] == 'kubernetes'
-        uid = get('db', fallback)['metadata']['uid']
+        uid = get('databases.platform.example.com', fallback)['metadata']['uid']
         assert get('secret', f'tfstate-default-team-a-{fallback}', 'panko-state-team-a') is not None
         assert get('secret', 'panko-checkpoint-' + uid, 'panko-state-team-a') is not None
         print('1: fallback binding, Kubernetes state and checkpoint created', flush=True)
@@ -80,7 +80,7 @@ def main():
         # 2: an explicit StateBackend binds the operator-approved bucket; the key carries installation and UID.
         ready(remote)
         bound = binding(remote)
-        remote_uid = get('db', remote)['metadata']['uid']
+        remote_uid = get('databases.platform.example.com', remote)['metadata']['uid']
         key = bound['config']['key']
         assert bound['type'] == 's3' and key.endswith(f'/{remote_uid}/terraform.tfstate'), bound
         assert get('secret', f'tfstate-default-team-a-{remote}', 'panko-state-team-a') is None
@@ -97,7 +97,7 @@ def main():
 
         # 4: a later namespace default never moves an existing resource, but binds new ones.
         state_backend('default')
-        kube('patch', 'db', fallback, '-n', 'team-a', '--type=merge', '-p', '{"spec":{"connectionLimit":21}}')
+        kube('patch', 'databases.platform.example.com', fallback, '-n', 'team-a', '--type=merge', '-p', '{"spec":{"connectionLimit":21}}')
         ready(fallback, generation=2)
         assert binding(fallback)['type'] == 'kubernetes'
         database(by_default)
@@ -106,33 +106,33 @@ def main():
         print('4: default StateBackend binds new resources only; existing binding unchanged', flush=True)
 
         # 5: the reference is immutable once created.
-        result = kube('patch', 'db', remote, '-n', 'team-a', '--type=merge', '-p', '{"spec":{"stateBackendRef":{"name":"default"}}}', check=False)
+        result = kube('patch', 'databases.platform.example.com', remote, '-n', 'team-a', '--type=merge', '-p', '{"spec":{"stateBackendRef":{"name":"default"}}}', check=False)
         assert result.returncode and 'immutable' in result.stderr, result.stderr
         print('5: stateBackendRef change rejected by the API server', flush=True)
 
         # 6: a missing explicit backend fails without falling back, and without a job.
         database(missing, ref='does-not-exist')
-        wait(lambda: get('db', missing).get('status', {}).get('phase') == 'Failed', 'missing backend reported')
-        status = get('db', missing)['status']
+        wait(lambda: get('databases.platform.example.com', missing).get('status', {}).get('phase') == 'Failed', 'missing backend reported')
+        status = get('databases.platform.example.com', missing)['status']
         assert 'stateBackend' not in status and 'not found' in status['stateBackendError'], status
-        assert not json.loads(kube('get', 'jobs', '-n', 'team-a', '-l', 'platform.example.com/uid=' + get('db', missing)['metadata']['uid'],
+        assert not json.loads(kube('get', 'jobs', '-n', 'team-a', '-l', 'platform.example.com/uid=' + get('databases.platform.example.com', missing)['metadata']['uid'],
                                    '-o', 'json').stdout)['items']
-        kube('delete', 'db', missing, '-n', 'team-a', '--wait=false')
-        wait(lambda: get('db', missing) is None, 'never-provisioned resource finalized', 60)
+        kube('delete', 'databases.platform.example.com', missing, '-n', 'team-a', '--wait=false')
+        wait(lambda: get('databases.platform.example.com', missing) is None, 'never-provisioned resource finalized', 60)
         print('6: missing StateBackend fails without fallback; deletion needs no teardown', flush=True)
 
         # 7: lost state is detected and blocks the next apply until the state is restored.
         state_name = f'tfstate-default-team-a-{fallback}'
         saved = get('secret', state_name, 'panko-state-team-a')
         kube('delete', 'secret', state_name, '-n', 'panko-state-team-a')
-        kube('patch', 'db', fallback, '-n', 'team-a', '--type=merge', '-p', '{"spec":{"connectionLimit":22}}')
+        kube('patch', 'databases.platform.example.com', fallback, '-n', 'team-a', '--type=merge', '-p', '{"spec":{"connectionLimit":22}}')
         # The Kubernetes backend recreates an empty state with a new lineage on init; either way the apply is blocked.
         failed_with(fallback, 3, 'state safety check failed')
         restored = {k: saved[k] for k in ('apiVersion', 'kind', 'type', 'data')}
         restored['metadata'] = {k: saved['metadata'][k] for k in ('name', 'namespace', 'labels', 'annotations') if k in saved['metadata']}
         kube('delete', 'secret', state_name, '-n', 'panko-state-team-a', '--ignore-not-found')
         kube('create', '-f', '-', obj=restored)
-        kube('patch', 'db', fallback, '-n', 'team-a', '--type=merge', '-p', '{"spec":{"connectionLimit":23}}')
+        kube('patch', 'databases.platform.example.com', fallback, '-n', 'team-a', '--type=merge', '-p', '{"spec":{"connectionLimit":23}}')
         ready(fallback, generation=4)
         print('7: missing state blocked the apply; restored state applied normally', flush=True)
 
@@ -142,10 +142,10 @@ def main():
                         '--state-backend', target, '--migration-id', migration], check=True, capture_output=True, text=True)
         moved = binding(fallback)
         assert moved['type'] == 's3' and moved['stateBackend'] == target, moved
-        assert 'platform.example.com/state-maintenance' not in get('db', fallback)['metadata'].get('annotations', {})
+        assert 'platform.example.com/state-maintenance' not in get('databases.platform.example.com', fallback)['metadata'].get('annotations', {})
         assert get('secret', f'panko-backup-{uid}-{migration}', 'panko-state-team-a') is not None
         before = credentials(fallback)
-        kube('patch', 'db', fallback, '-n', 'team-a', '--type=merge', '-p', '{"spec":{"connectionLimit":24}}')
+        kube('patch', 'databases.platform.example.com', fallback, '-n', 'team-a', '--type=merge', '-p', '{"spec":{"connectionLimit":24}}')
         ready(fallback, generation=5)
         assert credentials(fallback) == before, 'migration recreated the database instead of keeping it'
         rerun = subprocess.run(['.local/bin/admin', '--kubeconfig', CONFIG, 'migrate-backend', '--namespace', 'team-a', '--name', fallback,
@@ -164,9 +164,9 @@ def main():
         print('All state backend end-to-end tests passed', flush=True)
     finally:
         for name in names:
-            kube('delete', 'db', name, '-n', 'team-a', '--ignore-not-found', '--wait=false', check=False)
+            kube('delete', 'databases.platform.example.com', name, '-n', 'team-a', '--ignore-not-found', '--wait=false', check=False)
         for name in names:
-            wait(lambda name=name: get('db', name) is None, f'{name} cleanup', 300)
+            wait(lambda name=name: get('databases.platform.example.com', name) is None, f'{name} cleanup', 300)
         kube('delete', 'statebackend', target, 'default', '-n', 'team-a', '--ignore-not-found', check=False)
         # The migrated source state and its backup are retained by design; remove the test copies.
         kube('delete', 'secret', '-n', 'panko-state-team-a', f'tfstate-default-team-a-{fallback}', '--ignore-not-found', check=False)

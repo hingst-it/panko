@@ -1,28 +1,53 @@
-# Installation: `panko install`, `panko dev`, and the Helm chart
+# Installation: `panko install`, `panko dev`, Helm and GitOps
 
-> Proof of concept on branch `poc/unified-server-dev-install`. Nothing here is released; the
-> images are built locally (see [Images](#images-for-the-proof-of-concept)).
-
-Panko ships as two programs and one Helm chart:
+Panko v0.0.2 is an experimental release for local evaluation and personal installations. It
+ships as two programs, three images and one Helm chart:
 
 - `panko` manages resources (`create`, `get`, `retry`, ...), administers an installation
-  (`panko admin ...`), installs it (`panko install`) and runs a local lab (`panko dev`).
-  It embeds the Helm chart, so none of these commands needs a repository checkout or `make`.
-- `panko-server` is the single runtime binary. Each pod or Job selects one role:
-  `gateway`, `controller` (with the embedded Metacontroller), `endpoint`, `mirror`, `runner`,
-  `agent` and `setup`. All in-cluster roles use the image `panko-server`; the module mirror
-  (`panko-module-mirror`, git daemon) and the remote agent (`Dockerfile.agent`, with OpenTofu
-  and git) are separate images.
-- `charts/panko` is the chart that `panko install`, `panko dev up` and GitOps all use.
-  See [GitOps](gitops.md) for `helm template`, Argo CD, and Flux.
+  (`panko admin ...`), installs it (`panko install`) and runs a local lab (`panko dev`). It embeds
+  the Helm chart of its own release, so none of these commands needs a checkout, Go, `make` or an
+  image build. `panko-admin` remains in the archives as a compatibility wrapper for
+  `panko admin`.
+- `panko-server` is the runtime binary. Each pod or Job selects one role: `gateway`,
+  `controller` (with the embedded Metacontroller), `endpoint`, `mirror`, `runner`, `agent` and
+  `setup`.
+- Images, for Linux AMD64 and ARM64, anonymously pullable:
+  `ghcr.io/hingst-it/panko-server:0.0.2` (every in-cluster role), `ghcr.io/hingst-it/panko-module-mirror:0.0.2`
+  (git daemon serving the pinned module) and `ghcr.io/hingst-it/panko-agent:0.0.2` (remote agent:
+  `panko-server` with OpenTofu 1.11.7 and git).
+- The chart `oci://ghcr.io/hingst-it/charts/panko`, version `0.0.2`. Its `appVersion` is the
+  default image tag, so pinning the chart version pins the images. Every installation path uses
+  this chart: `panko install`, `panko dev up`, Helm, Argo CD, Flux and rendered manifests.
+
+## Supported platforms and prerequisites
+
+| Component | Supported |
+| --- | --- |
+| `panko` CLI | macOS and Linux on AMD64 and ARM64; Windows AMD64 and ARM64 for resource and admin commands (`panko dev` needs macOS or Linux) |
+| `panko-server` binary (remote agents, systemd) | Linux AMD64 and ARM64 |
+| Images | Linux AMD64 and ARM64 |
+| Cluster | Kubernetes 1.29 or newer with a default StorageClass; validated on k3s v1.35 (k3d 5.9) |
+| `panko dev` | macOS or Linux with a running Docker engine; k3d 5.6 or newer, or the pinned k3d v5.9.0 installed privately |
+
+Not supported: Podman or other container runtimes for `panko dev`, more than one controller
+replica (see [operations](operations.md#supported-configuration)), OIDC, and Terraform CLI
+execution (OpenTofu only). Installing into a cluster needs cluster-administrator rights.
+
+## Get the CLI
+
+```sh
+brew install hingst-it/tap/panko          # Homebrew (macOS, Linux)
+mise use -g github:hingst-it/panko@0.0.2  # mise, GitHub backend, no plugin
+asdf plugin add panko https://github.com/hingst-it/asdf-panko.git && asdf install panko 0.0.2
+```
+
+Or download `panko_0.0.2_<os>_<arch>.tar.gz` (`.zip` for Windows) and `SHA256SUMS` from the
+[release](https://github.com/hingst-it/panko/releases/tag/v0.0.2), check it with
+`sha256sum --check --ignore-missing SHA256SUMS` (macOS: `shasum -a 256 -c --ignore-missing SHA256SUMS`)
+and put `panko` on your `PATH`. `panko --version` prints `panko v0.0.2`. The checksums are not
+publisher signatures. Installing the CLI does not deploy anything into a cluster.
 
 ## Local lab: `panko dev`
-
-Requirements: macOS or Linux, a running Docker engine, and internet access for images, the
-module and providers. k3d 5.6 or newer is used if it is on `PATH`; otherwise `panko dev up`
-offers to install k3d v5.9.0 privately (into the state directory, never on `PATH`) and verifies
-its SHA-256 against the checksum pinned in the CLI. Podman, bundled runtimes and VM management
-are not supported.
 
 ```sh
 panko dev up                 # create or resume the lab, install the chart, wait for readiness
@@ -32,141 +57,127 @@ panko dev down               # delete this lab only, after typing its name
 
 `dev up`:
 
-1. checks that Docker runs and finds a supported k3d (or installs it after you agree, or with
-   `--install-k3d`);
-2. creates a dedicated k3d cluster `k3d-<name>` (default name `panko-dev`) with one agent node,
-   labels its server container with the lab's ID, and writes its kubeconfig to the lab's state
-   directory. Your `~/.kube/config` and its current context are not changed; k3d itself runs
-   with a lab-private `KUBECONFIG`;
-3. imports images that exist in the local Docker daemon (`--server-image`,
-   `--module-mirror-image`), otherwise the cluster pulls them;
-4. runs the same steps as `panko install` with lab values: local S3, PostgreSQL, the gateway
-   on NodePort 30081 and the runner endpoint on NodePort 30443;
-5. maps the gateway to `127.0.0.1:<port>` (default 8081) through k3d's Docker port mapping.
-   **No background process is started**, so there is nothing to stop besides the cluster;
-6. waits for the release, the setup Job, the controller's `/readyz` and the gateway, writes a
-   private copy of the team tokens, and prints the next steps.
+1. checks that Docker runs and finds a supported k3d on `PATH`, or offers to install k3d v5.9.0
+   privately into the state directory with its SHA-256 verified against the checksum pinned in the
+   CLI (`--install-k3d` agrees in advance; `PATH` is not changed);
+2. creates a dedicated k3d cluster `k3d-<name>` (default name `panko-dev`) with its own
+   kubeconfig. Your `~/.kube/config` and its current context are not changed;
+3. installs the chart embedded in the CLI with lab values (PostgreSQL, a local S3 service, the
+   gateway on NodePort 30081, the runner endpoint on NodePort 30443). The cluster pulls the
+   release images; `--server-image` and `--module-mirror-image` select other images, which are
+   imported from the local Docker daemon when present there;
+4. maps the API to `127.0.0.1:<port>` (default 8081) through k3d's Docker port mapping. **No
+   background process is started**;
+5. waits for the release, the setup Job, the controller and the gateway, writes a private copy of
+   the team tokens, and prints the next steps.
 
 State lives in `$PANKO_HOME`, else `$XDG_STATE_HOME/panko`, else `~/.local/state/panko`:
-`dev/<name>/lab.json` (no secrets), `kubeconfig` and `team-tokens.json` (both mode 0600),
-and `bin/k3d-5.9.0` if it was installed. Use the lab from any directory:
-
-```sh
-export PANKO_URL=http://127.0.0.1:8081
-export PANKO_TOKENS_FILE=~/.local/state/panko/dev/panko-dev/team-tokens.json
-export PANKO_KUBECONFIG=~/.local/state/panko/dev/panko-dev/kubeconfig
-panko --team team-a create orders --extensions pgcrypto
-panko --team team-a wait orders --timeout 5m
-```
+`dev/<name>/lab.json` (no secrets), `kubeconfig` and `team-tokens.json` (both mode 0600), and
+`bin/k3d-5.9.0` if it was installed.
 
 Repeating `dev up` keeps a compatible lab: it starts a stopped cluster, upgrades the release in
-place, and keeps resources, state and tokens. An interrupted `dev up` resumes from where it
-stopped. A k3d cluster with the same name that this lab did not create (no state, or a different
-owner label) is refused and left unchanged; choose another `--name`. A port in use is refused
-before anything is created; pass `--port`. `dev down` deletes only the cluster carrying this
-lab's owner label and its state directory, after you type the lab name (or `--yes`).
+place (also to the chart of a newer CLI) and keeps resources, state and tokens. An interrupted
+`dev up` resumes. A k3d cluster with the same name that this lab did not create is refused and left
+unchanged; choose another `--name`. A port in use is refused before anything is created; pass
+`--port`. `dev down` deletes only the cluster carrying this lab's owner label and its state
+directory, after you type the lab name (or `--yes`).
 
 ## Existing cluster: `panko install`
 
 ```sh
-panko install --kubeconfig ./config --context mein-cluster [--values values.yaml] [--set key=value] \
+panko install --kubeconfig ./config --context my-cluster [--values values.yaml] [--set key=value] \
   [--config panko.json] [--tokens-file ./team-tokens.json] [--yes]
 ```
 
-The command never edits the kubeconfig and always prints the cluster it targets (API server,
-context, kubeconfig, release) before asking for confirmation. It then:
+Use a dedicated cluster. The command never edits the kubeconfig and prints the cluster it targets
+(API server, context, kubeconfig, release and chart version) before asking for confirmation. It
+then:
 
-1. renders the chart with your values, so a configuration error stops before any change;
+1. renders the chart with your values, so a configuration error stops before any cluster access;
 2. checks the API server (Kubernetes 1.29 or newer) and, with `SelfSubjectAccessReview`, the
-   permissions it needs: CRDs, namespaces, cluster roles and bindings, roles, workloads, Jobs,
-   Secrets and CompositeControllers;
-3. refuses an installation made without Helm (`make deploy` before this proof of concept, or
-   pre-rendered manifests) unless `--take-ownership` is given, and refuses a separately running
-   Metacontroller in namespace `metacontroller` unless `--allow-foreign-metacontroller` is given,
-   because both would reconcile the same CompositeController. `--take-ownership` adopts the
-   existing objects into the release (forcing conflicts with `kubectl apply`'s field manager)
-   and replaces the stateless Deployments that `kubectl apply` created; Secrets, StatefulSets
-   and volumes are kept. See the [migration](poc-unified-server.de.md#migration);
-4. for an existing installation, refuses unsafe changes: legacy state secrets that still need
-   `panko admin migrate-state`, and runner pools that resources are bound to but the new values
-   no longer declare;
-5. applies the CRDs (see below), installs or upgrades the Helm release `panko-system/panko`,
-   and waits for Deployments, StatefulSets and Jobs;
-6. verifies the controller's `/readyz` (embedded Metacontroller synced) and the gateway through
-   its Service, and with `--tokens-file` writes a private copy of the team tokens.
+   permissions it needs, listing every missing one;
+3. refuses an installation made without Helm (v0.0.1, or rendered manifests) unless
+   `--take-ownership` is given, and a separately running Metacontroller in namespace
+   `metacontroller` ([migration](upgrading.md#migrating-a-v001-installation));
+4. for an existing installation, refuses unsafe changes: removing a team that still has
+   resources, legacy state that needs `panko admin migrate-state`, and removing runner pools that
+   resources are bound to;
+5. applies the CRDs, reruns the setup Job, installs or upgrades the Helm release
+   `panko-system/panko`, and waits for Deployments, StatefulSets and Jobs. If that fails, it lists
+   pods that cannot start, with their image and a hint ([troubleshooting](operations.md#troubleshooting));
+6. verifies the controller's `/readyz` (embedded Metacontroller synced) and the gateway, and with
+   `--tokens-file` writes a private copy of the team tokens.
 
-The release is applied with the field manager `helm`, like the helm CLI, so an installation can
-alternate between `panko install` and `helm upgrade`; GitOps controllers use their own managers
-(Flux: `helm-controller`) and may need to take over fields once when an installation moves to them.
-A failed upgrade is not rolled back. Panko's state lives in its own objects, so rerunning the
-same command resumes. Runs are serialized by the Lease `panko-system/panko-install`: a second
-`panko install` waits up to 45 seconds and then refuses while the first is active. A run that can
-no longer be sure it holds the Lease cancels all its changes, including the Helm operation: when
-another holder appears, and in any case 20 seconds after the last successful renewal, even while a
-renewal request still hangs; the Lease lasts 30 seconds. Directly after
-acquiring the Lease and before any change, a pending Helm revision is checked: it is recovered
-(marked failed, then installed again) only when the previous `panko install` holding the Lease
-stopped without releasing it. A pending revision from Helm, Flux or another tool may still be in
-progress, so `panko install` refuses it and changes nothing unless `--recover-pending` is given. Every run also starts the setup Job again, so a deleted credential is recreated, and
-it refuses to remove a team that still has resources.
+The release is applied with the field manager `helm`, so an installation can alternate between
+`panko install` and `helm upgrade`. A failed upgrade is not rolled back; rerunning the same
+command resumes. Runs are serialized by the Lease `panko-system/panko-install`; a run interrupted
+while it held the Lease is resumed by the next one, while a pending Helm revision of another tool
+is refused unless `--recover-pending` is given.
 
 `panko.json` (`--config`) is the same document as the chart's `installation` values: teams,
 `s3`, `egress`, `egressTargets`, `runnerPools` and `runnerEndpoint`. Value layers, lowest
 first: chart defaults, `panko dev` lab settings, `--config`, `--values` files, `--set`.
 
-### Responsibilities of Helm and the CLI
+## Helm directly
+
+```sh
+helm install panko oci://ghcr.io/hingst-it/charts/panko --version 0.0.2 \
+  --namespace panko-system --create-namespace --values values.yaml --wait --timeout 15m
+```
+
+Helm installs `crds/` on the first install only. Before every `helm upgrade`, apply the new
+chart's CRDs: `helm show crds oci://ghcr.io/hingst-it/charts/panko --version NEW | kubectl apply --server-side -f -`.
+Without `panko install` there are no pre-checks; read the list above before removing teams or
+pools. Retrieve the team tokens with
+`panko admin --kubeconfig ./config --config cluster --tokens-file ./team-tokens.json ensure-gateway-auth`.
+The chart's values are documented in [values.yaml](../charts/panko/values.yaml) and summarized in
+the [chart README](../charts/panko/README.md). For Argo CD, Flux and rendered manifests see
+[GitOps](gitops.md).
+
+### Images from a private registry
+
+To pull from your own registry, copy the three images with their tags, set
+`images.server.repository`, `images.moduleMirror.repository` (and `tag` if it differs from the
+chart version) and name a pull Secret in `images.pullSecrets`. The Secret must exist in
+`infra-runners`, `infra-gateway`, `infra-backends` and every team namespace: runner Jobs pull
+`panko-server` through the teams' `tofu-runner` ServiceAccounts. The chart creates these
+namespaces; to create the Secrets before the first install, create the namespaces yourself and let
+Helm adopt them (`helm install --take-ownership ...`), or create the Secrets right after the
+install starts — pods retry the pull. The release acceptance test covers this with a
+password-protected registry that refuses anonymous pulls.
+
+## Responsibilities of Helm and the CLI
 
 | Concern | Helm chart | Setup Job (`panko-server setup`) | `panko install` |
 |---|---|---|---|
-| CRDs | `crds/`, created on first install only | — | applied before every upgrade |
+| CRDs | `crds/`, created on first install only | — | applied before every upgrade; obsolete short names removed |
 | Namespaces, RBAC, workloads, Services, CompositeController, config | rendered, deterministic | — | — |
 | Credentials (Postgres admin, gateway tokens, mirror and endpoint TLS, agent registry, S3 keys) | never rendered | created if missing, never replaced (`secrets.generate=true`), or only verified (`false`) | — |
-| Installation ID | — | created once | — |
+| Certificate renewal | daily CronJob | renews 30 days before expiry from stable CAs | reruns setup |
 | Mirror CA copies (`panko-mirror-ca`) and egress NetworkPolicies | — | derived from the live cluster | — |
-| Pre-checks (permissions, legacy installs, pools, legacy state) | — | — | yes |
+| Pre-checks (permissions, legacy installs, teams, pools, legacy state) | — | — | yes |
 | Local copy of team tokens | — | — | `--tokens-file` |
 
 Nothing that `panko install` does is required for a working installation: the checks prevent
 mistakes, the CRD step corresponds to `kubectl apply --server-side` of `crds/` (or Flux's
-`crds: CreateReplace`), and the token file is a convenience. GitOps installations get everything else from the chart and
-its setup Job.
+`crds: CreateReplace`), and the token file is a convenience.
 
-### CRDs and existing resources
+## CRDs and existing resources
 
-Helm installs `crds/` on the first install and never upgrades or deletes them. `panko install`
-therefore server-side applies Panko's CRDs (field manager `panko`) before each upgrade.
-Metacontroller's CRDs are created when missing and upgraded only if Panko applied them before;
-CRDs of another Metacontroller installation keep their version. CRD changes must stay backward
-compatible (new optional fields, new versions), because existing Database, StateBackend and Run
-objects are never converted or recreated.
+Helm never upgrades or deletes `crds/`. `panko install` server-side applies Panko's CRDs before
+each upgrade. Metacontroller's CRDs are created when missing and upgraded only if Panko applied
+them before; CRDs of another Metacontroller installation keep their version. CRD changes stay
+backward compatible: existing Database, StateBackend, BackendProfile and Run objects are never
+converted or recreated. v0.0.2 removes the short name `db` and adds the category `panko`
+([naming](naming.md)).
 
-Uninstalling the release (`helm uninstall` or deleting the GitOps application) keeps the CRDs,
-every team resource, state, credentials, namespaces and data volumes: namespaces, the lab
-StatefulSets, the provider cache and the CompositeController carry `helm.sh/resource-policy: keep`
-and the matching Argo CD and Flux annotations. Removing them is a deliberate manual step. The
-CompositeController must stay: Metacontroller finalizes a deleted CompositeController by removing
-its finalizer from every Database, so deleting it would drop the guarantee that a Database is
-only removed after its destroy.
+Uninstalling the release keeps the CRDs, every team resource, state, credentials, namespaces and
+data volumes; see [uninstalling and cleanup](operations.md#uninstalling-and-cleaning-up-retained-objects).
 
-## Images for the proof of concept
+## Building from source (contributors)
 
-The images are not published. Build them from the branch and make them available to the cluster:
-
-```sh
-docker build -t panko-server:dev -f Dockerfile.server .
-docker build -t panko-module-mirror:dev -f cluster/Dockerfile.module-mirror .
-```
-
-- `panko dev up --server-image panko-server:dev --module-mirror-image panko-module-mirror:dev`
-  imports local images into the lab.
-- Another machine needs no checkout: `docker save panko-server:dev panko-module-mirror:dev -o panko-poc-images.tar`,
-  then `docker load -i panko-poc-images.tar` there before `panko dev up ...` with the same flags.
-- An existing cluster pulls from a registry you control: tag and push both images, then set
-  `images.server.repository`/`tag` and `images.moduleMirror.repository`/`tag` (and
-  `images.pullSecrets` if needed). k3d and kind clusters can also import them
-  (`k3d image import`, `kind load docker-image`).
-- In a checkout, `make cluster-up build deploy` builds, imports and installs them through
-  `panko install` with [`cluster/lab-values.yaml`](../cluster/lab-values.yaml).
-
-The CLI itself comes from `go build ./cmd/panko` on the branch; release archives with the
-embedded chart are future work.
+The user installation above needs no checkout. Contributors use the pinned tools in
+[mise.toml](../mise.toml): `make cluster-up build deploy` builds `panko-server` and the module
+mirror image, imports them into a k3d lab and runs `panko install` with
+[cluster/lab-values.yaml](../cluster/lab-values.yaml). `tools/release-build.sh` builds the release
+archives and chart exactly as the Release workflow does ([releases](releases.md)).

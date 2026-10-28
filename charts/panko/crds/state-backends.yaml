@@ -15,6 +15,7 @@ spec:
     plural: backendprofiles
     singular: backendprofile
     kind: BackendProfile
+    categories: [panko]
   versions:
     - name: v1
       served: true
@@ -90,6 +91,7 @@ spec:
     plural: statebackends
     singular: statebackend
     kind: StateBackend
+    categories: [panko]
   versions:
     - name: v1
       served: true

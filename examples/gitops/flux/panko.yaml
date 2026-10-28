@@ -1,19 +1,19 @@
-# Flux source and HelmRelease installing Panko from the chart in the Panko repository.
-# Validated with helm template only; see docs/gitops.md.
+# Flux OCIRepository and HelmRelease installing Panko from the published OCI chart. Validated
+# against Flux v2.10.0 by test/release_acceptance.py (gitops phase); see docs/gitops.md.
 apiVersion: source.toolkit.fluxcd.io/v1
-kind: GitRepository
+kind: OCIRepository
 metadata:
   name: panko
   namespace: flux-system
 spec:
   interval: 10m
-  url: https://github.com/hingst-it/panko.git
+  url: oci://ghcr.io/hingst-it/charts/panko
+  # The chart version also pins the images (their tags default to appVersion).
   ref:
-    # Pin a commit or tag; a branch is only acceptable for the proof of concept.
-    branch: poc/unified-server-dev-install
-  ignore: |
-    /*
-    !/charts/panko/
+    tag: 0.0.2
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -26,11 +26,9 @@ spec:
   # The release record lives in panko-system; the objects carry their own namespaces.
   targetNamespace: panko-system
   storageNamespace: panko-system
-  chart:
-    spec:
-      chart: ./charts/panko
-      sourceRef: {kind: GitRepository, name: panko}
-      reconcileStrategy: Revision
+  chartRef:
+    kind: OCIRepository
+    name: panko
   install:
     createNamespace: true
     # Helm itself never upgrades crds/; Flux creates and replaces them explicitly.

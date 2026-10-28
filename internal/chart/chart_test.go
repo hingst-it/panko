@@ -216,8 +216,10 @@ func TestEmbeddedControllerCallsTheHookOverLoopback(t *testing.T) {
 	if spec["serviceAccountName"] != "panko-controller" {
 		t.Fatal("the controller does not use its own ServiceAccount")
 	}
-	if _, err := Render(values(t, "controller: {replicas: 2}"), false); err == nil {
-		t.Fatal("two controllers without leader election rendered")
+	for _, v := range []string{"controller: {replicas: 2}", "controller: {replicas: 2, leaderElection: true}", "controller: {replicas: 0}"} {
+		if _, err := Render(values(t, v), false); err == nil || !strings.Contains(err.Error(), "controller.replicas must be 1") {
+			t.Fatalf("%s rendered: %v", v, err)
+		}
 	}
 }
 
@@ -351,5 +353,36 @@ func TestCRDsAreProtectedFromPruning(t *testing.T) {
 		if !strings.Contains(jsonx.Str(annotations["argocd.argoproj.io/sync-options"]), "Prune=false") || annotations["kustomize.toolkit.fluxcd.io/prune"] != "disabled" {
 			t.Errorf("CRD %s can be pruned, which deletes every resource of its kind", jsonx.Obj(crd["metadata"])["name"])
 		}
+	}
+}
+
+// Panko's own CRDs are discoverable with `kubectl get panko` and have no short names, which can
+// collide across API groups (docs/naming.md). Metacontroller's CRDs stay as upstream ships them.
+func TestPankoCRDNames(t *testing.T) {
+	docs, err := CRDs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for _, doc := range docs {
+		var crd jsonx.Object
+		if err := yaml.Unmarshal(doc, &crd); err != nil {
+			t.Fatal(err)
+		}
+		spec := jsonx.Obj(crd["spec"])
+		if spec["group"] != "platform.example.com" {
+			continue
+		}
+		seen++
+		names := jsonx.Obj(spec["names"])
+		if names["shortNames"] != nil {
+			t.Errorf("%s has short names", jsonx.Obj(crd["metadata"])["name"])
+		}
+		if categories := jsonx.Array(names["categories"]); len(categories) != 1 || categories[0] != "panko" {
+			t.Errorf("%s has categories %v, want [panko]", jsonx.Obj(crd["metadata"])["name"], categories)
+		}
+	}
+	if seen != 4 {
+		t.Fatalf("found %d Panko CRDs, want 4", seen)
 	}
 }

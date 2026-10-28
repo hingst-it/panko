@@ -1,7 +1,7 @@
 # Go-Portierung: Aufbau, Upgrade und Rückwechsel
 
 Die Laufzeitkomponenten verwenden Go 1.27.3 und client-go v0.37.1. Metacontroller,
-CRDs und HCL behalten ihre bisherigen Aufgaben; auf dem PoC-Branch ist Metacontroller als
+CRDs und HCL behalten ihre bisherigen Aufgaben; seit v0.0.2 ist Metacontroller als
 Go-Abhängigkeit in die Controller-Rolle eingebettet ([Auswertung](poc-unified-server.de.md)). Python bleibt für die externen
 E2E-Tests und optionale Werkzeuge wie die Logo-Erzeugung verfügbar.
 

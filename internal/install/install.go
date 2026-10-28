@@ -198,10 +198,12 @@ func Run(ctx context.Context, o Options) (err error) {
 	fmt.Fprintf(o.Out, "Applying the Helm release and waiting up to %s for workloads and Jobs...\n", o.Timeout)
 	rel, err := chart.Target{Kubeconfig: target.Kubeconfig, Context: target.Context}.Apply(ctx, values, chart.ApplyOptions{Timeout: o.Timeout, TakeOwnership: o.TakeOwnership, RecoverPending: recoverPending}, o.Out)
 	if err != nil {
-		return fmt.Errorf("helm release failed (rerun to resume; existing resources and state are kept): %w", err)
+		Diagnose(context.WithoutCancel(ctx), api, o.Out)
+		return fmt.Errorf("helm release failed (fix the cause above and rerun panko install to resume; existing resources and state are kept): %w", err)
 	}
 	fmt.Fprintf(o.Out, "Release %s revision %d: %s\n", rel.Name, rel.Version, rel.Info.Status)
 	if err := Ready(ctx, api, o.Out); err != nil {
+		Diagnose(context.WithoutCancel(ctx), api, o.Out)
 		return err
 	}
 	if o.TokensFile != "" {
@@ -299,7 +301,7 @@ func Preflight(ctx context.Context, api kube.API, target Target, o Options) erro
 			return err
 		}
 		if hook != nil {
-			return fmt.Errorf("Panko is already deployed without Helm (make deploy); follow the migration in docs/poc-unified-server.de.md and rerun with --take-ownership")
+			return fmt.Errorf("Panko is already deployed without Helm (make deploy); follow docs/upgrading.md (migrating a v0.0.1 installation) and rerun with --take-ownership")
 		}
 	}
 	for _, kind := range []string{"statefulsets", "deployments"} {
@@ -385,10 +387,20 @@ func ApplyCRDs(ctx context.Context, api kube.API, adopt bool, out io.Writer) err
 				return err
 			}
 		}
-		if _, err := api.Request(ctx, "PATCH", path+"?fieldManager=panko&force=true", crd, "application/apply-patch+yaml"); err != nil {
+		applied, err := api.Request(ctx, "PATCH", path+"?fieldManager=panko&force=true", crd, "application/apply-patch+yaml")
+		if err != nil {
 			return fmt.Errorf("cannot apply CRD %s: %w", name, err)
 		}
 		fmt.Fprintf(out, "ok CRD %s applied\n", name)
+		// Panko's CRDs have no short names since v0.0.2 (docs/naming.md). Server-side apply keeps
+		// fields that kubectl apply of an older release still co-owns, so they are removed explicitly.
+		if !strings.HasSuffix(name, ".metacontroller.k8s.io") && jsonx.Obj(jsonx.Obj(applied["spec"])["names"])["shortNames"] != nil {
+			remove := []any{jsonx.Object{"op": "remove", "path": "/spec/names/shortNames"}}
+			if _, err := api.Request(ctx, "PATCH", path+"?fieldManager=panko", remove, "application/json-patch+json"); err != nil {
+				return fmt.Errorf("cannot remove the short names of CRD %s: %w", name, err)
+			}
+			fmt.Fprintf(out, "ok short names of %s removed\n", name)
+		}
 	}
 	return nil
 }
@@ -492,6 +504,41 @@ func Ready(ctx context.Context, api kube.API, out io.Writer) error {
 		}
 	}
 	return nil
+}
+
+// podProblems are container states that a Helm wait only reports as a timeout.
+var podProblems = map[string]string{
+	"ErrImagePull":               "the image cannot be pulled: check images.*.repository and tag, registry access and images.pullSecrets",
+	"ImagePullBackOff":           "the image cannot be pulled: check images.*.repository and tag, registry access and images.pullSecrets",
+	"InvalidImageName":           "the image reference is invalid: check images.*",
+	"CrashLoopBackOff":           "the container keeps exiting: read its logs with kubectl logs --previous",
+	"CreateContainerConfigError": "a referenced Secret or ConfigMap is missing: with secrets.generate=false, create it first",
+}
+
+// Diagnose prints the pods of Panko's namespaces that cannot start, with the image or reason and a
+// hint, so a failed install names its cause. It never prints Secret contents.
+func Diagnose(ctx context.Context, api kube.API, out io.Writer) {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	for _, namespace := range []string{"infra-runners", "infra-gateway", "infra-backends"} {
+		pods, err := api.Request(ctx, "GET", "/api/v1/namespaces/"+namespace+"/pods", nil, "")
+		if err != nil {
+			continue
+		}
+		for _, item := range jsonx.Array(pods["items"]) {
+			pod := jsonx.Obj(item)
+			name := jsonx.Str(jsonx.Obj(pod["metadata"])["name"])
+			status := jsonx.Obj(pod["status"])
+			statuses := append(jsonx.Array(status["initContainerStatuses"]), jsonx.Array(status["containerStatuses"])...)
+			for _, entry := range statuses {
+				c := jsonx.Obj(entry)
+				reason := jsonx.Str(jsonx.Obj(jsonx.Obj(c["state"])["waiting"])["reason"])
+				if hint, ok := podProblems[reason]; ok {
+					fmt.Fprintf(out, "problem %s/%s container %s (image %s): %s; %s\n", namespace, name, jsonx.Str(c["name"]), jsonx.Str(c["image"]), reason, hint)
+				}
+			}
+		}
+	}
 }
 
 // clusterTeams reads the teams from the rendered installation configuration in the cluster.

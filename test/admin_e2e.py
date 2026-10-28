@@ -31,7 +31,7 @@ def secret(name, namespace, value):
 
 def main():
     for team in ('team-a', 'team-b'):
-        assert not json.loads(kube('get', 'databases', '-n', team, '-o', 'json').stdout)['items'], 'Use a quiescent lab'
+        assert not json.loads(kube('get', 'databases.platform.example.com', '-n', team, '-o', 'json').stdout)['items'], 'Use a quiescent lab'
     legacy = json.loads(kube('get', 'secrets', '-n', 'infra-runners', '-o', 'json').stdout)['items']
     assert not any(s['metadata']['name'].startswith('tfstate-') for s in legacy), 'Legacy state must not be a test fixture'
     assert get('secret', 'gateway-auth', 'infra-runners') is None, 'Legacy auth must not be a test fixture'

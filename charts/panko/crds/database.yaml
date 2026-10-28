@@ -15,7 +15,7 @@ spec:
     plural: databases
     singular: database
     kind: Database
-    shortNames: [db]
+    categories: [panko]
   versions:
     - name: v1
       served: true

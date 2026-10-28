@@ -91,8 +91,9 @@ metadata:
     {{- include "panko.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.controller.replicas }}
-  {{- if and (gt (int .Values.controller.replicas) 1) (not .Values.controller.leaderElection) }}
-  {{- fail "controller.replicas above 1 requires controller.leaderElection" }}
+  {{- /* Leader election is wired, but failover between replicas is not validated for this release. */}}
+  {{- if ne (int .Values.controller.replicas) 1 }}
+  {{- fail "controller.replicas must be 1: several controller replicas (leader election, failover) are not supported in this release" }}
   {{- end }}
   # One active Metacontroller at a time: without leader election the old pod stops before the new
   # one starts (maxSurge 0, like Recreate, but also valid for Deployments adopted from make deploy).

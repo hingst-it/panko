@@ -58,14 +58,14 @@ try:
         assert any(marker in cause['field'] for cause in failed['errors']), failed
     curl('PATCH', path + '/' + name, {'metadata': {'namespace': 'team-b'}}, expected=422)
     curl('DELETE', path + '/' + name, expected=202)
-    wait(lambda: get('db', name) is None, 'gateway database deleted')
+    wait(lambda: get('databases.platform.example.com', name) is None, 'gateway database deleted')
     assert get('secret', 'tfstate-default-team-a-' + name, 'panko-state-team-a') is None
     assert sql(f"SELECT count(*) FROM pg_database WHERE datname='{creds['database']}';") == '0'
     assert sql(f"SELECT count(*) FROM pg_roles WHERE rolname='{creds['username']}';") == '0'
     print('Gateway curl CRUD, Ready, real login, validation paths, isolation and deletion passed', flush=True)
 finally:
     if created:
-        kube('delete', 'db', name, '-n', 'team-a', '--ignore-not-found', '--wait=false', check=False)
+        kube('delete', 'databases.platform.example.com', name, '-n', 'team-a', '--ignore-not-found', '--wait=false', check=False)
 
 # Add a new resource after the gateway is running: no image rebuild or restart.
 initial = curl('GET', '/openapi.json', token=False)

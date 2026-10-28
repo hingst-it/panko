@@ -324,7 +324,7 @@ Status: panko dev status --name %[1]s    Remove the lab and its data: panko dev 
 }
 
 // importImages loads the requested images from the local Docker daemon into the lab, so images
-// built for the proof of concept need no registry. Missing images are left for the cluster to pull.
+// built locally (candidates, contributors) need no registry. Missing images are left for the cluster to pull.
 func (o Options) importImages(ctx context.Context, k3d string) (map[string]any, error) {
 	_, appVersion, err := chart.Version()
 	if err != nil {

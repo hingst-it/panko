@@ -23,6 +23,7 @@ jobs:
       tag: ${{ steps.checks.outputs.tag }}
       sha: ${{ steps.checks.outputs.sha }}
       prerelease: ${{ steps.checks.outputs.prerelease }}
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -42,6 +43,19 @@ jobs:
           script: |
             const gate = require('./.github/scripts/release-gate.cjs');
             await gate({ github, context, core, sha: process.env.RELEASE_SHA });
+      # Archives, chart and image tags use the version without the v prefix; the committed chart
+      # must carry the tag's core version (tools/release.py).
+      - name: Artifact version
+        id: version
+        env:
+          RELEASE_TAG: ${{ steps.checks.outputs.tag }}
+        run: |
+          version=$(python3 tools/release.py version "$RELEASE_TAG")
+          python3 tools/release.py stamp "$RELEASE_TAG" > /dev/null
+          if ! grep -q "^## ${version%%-*} " CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no section for ${version%%-*}"; exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
   binaries:
     needs: verify
@@ -61,28 +75,39 @@ jobs:
         with:
           # Keep aligned with mise.toml and Dockerfile.server.
           go-version: '1.27.3'
-      - name: Build and package CLI and administrator commands
+      # The CLI embeds the chart, so it is stamped with the release version before the build.
+      - name: Build release archives
         env:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
-          CGO_ENABLED: '0'
           RELEASE_TAG: ${{ needs.verify.outputs.tag }}
-        run: |
-          mkdir -p staging dist
-          suffix=''
-          if [ "$GOOS" = windows ]; then suffix='.exe'; fi
-          go build -trimpath -ldflags="-s -w -X main.version=$RELEASE_TAG" -o "staging/panko$suffix" ./cmd/panko
-          go build -trimpath -ldflags="-s -w -X main.version=$RELEASE_TAG" -o "staging/panko-admin$suffix" ./cmd/admin
-          cp LICENSE README.md CHANGELOG.md staging/
-          archive="panko_${RELEASE_TAG#v}_${GOOS}_${GOARCH}"
-          if [ "$GOOS" = windows ]; then
-            (cd staging && zip -q "../dist/$archive.zip" ./*)
-          else
-            tar -czf "dist/$archive.tar.gz" -C staging .
-          fi
+        run: tools/release-build.sh binaries "$RELEASE_TAG" dist
       - uses: actions/upload-artifact@v7
         with:
           name: binaries-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  chart:
+    needs: verify
+    runs-on: ${{ vars.PANKO_CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.verify.outputs.sha }}
+          persist-credentials: false
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: helm
+      - name: Package the chart and check its image references
+        env:
+          RELEASE_TAG: ${{ needs.verify.outputs.tag }}
+        run: tools/release-build.sh chart "$RELEASE_TAG" dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: chart
           path: dist/*
           if-no-files-found: error
           retention-days: 7
@@ -103,6 +128,9 @@ jobs:
             file: Dockerfile.server
           - component: module-mirror
             file: cluster/Dockerfile.module-mirror
+          # Remote runner agent: panko-server with OpenTofu and git.
+          - component: agent
+            file: Dockerfile.agent
     steps:
       - uses: actions/checkout@v7
         with:
@@ -128,42 +156,115 @@ jobs:
           build-args: VERSION=${{ needs.verify.outputs.tag }}
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.image.outputs.name }}:${{ needs.verify.outputs.tag }}
+          tags: ${{ steps.image.outputs.name }}:${{ needs.verify.outputs.version }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ needs.verify.outputs.sha }}
-            org.opencontainers.image.version=${{ needs.verify.outputs.tag }}
+            org.opencontainers.image.version=${{ needs.verify.outputs.version }}
             org.opencontainers.image.licenses=Apache-2.0
 
   publish:
-    name: Publish GitHub release
-    needs: [verify, binaries, images]
+    name: Publish chart and GitHub release
+    needs: [verify, binaries, chart, images]
     runs-on: ${{ vars.PANKO_CI_RUNNER || 'ubuntu-latest' }}
-    timeout-minutes: 5
+    timeout-minutes: 15
     permissions:
       contents: write
+      packages: write
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.verify.outputs.sha }}
           persist-credentials: false
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: helm
       - uses: actions/download-artifact@v8
         with:
           pattern: binaries-*
           merge-multiple: true
           path: dist
-      - name: Publish archives and checksums
+      - uses: actions/download-artifact@v8
+        with:
+          name: chart
+          path: dist
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Require every published image for both platforms
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          for image in $(python3 tools/release.py images "$VERSION"); do
+            platforms=$(docker buildx imagetools inspect --format '{{range .Manifest.Manifests}}{{.Platform.OS}}/{{.Platform.Architecture}} {{end}}' "$image")
+            for platform in linux/amd64 linux/arm64; do
+              case " $platforms " in *" $platform "*) ;; *) echo "$image lacks $platform" >&2; exit 1 ;; esac
+            done
+            echo "ok $image ($platforms)"
+          done
+      # A rerun pushes nothing new: an existing chart version must have the same content, so a
+      # published version never changes.
+      - name: Push the chart to the OCI registry
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GH_TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          package="dist/panko-$VERSION.tgz"
+          existing=$(mktemp -d)
+          if helm pull oci://ghcr.io/hingst-it/charts/panko --version "$VERSION" --destination "$existing" 2> "$existing/error"; then
+            # Compare the files, not the archive bytes, which also carry packaging metadata.
+            mkdir "$existing/published" "$existing/built"
+            tar -xzf "$existing/panko-$VERSION.tgz" -C "$existing/published"
+            tar -xzf "$package" -C "$existing/built"
+            diff -r "$existing/published" "$existing/built"
+            echo "ok chart $VERSION already published with the same content"
+          elif grep -qi 'not found' "$existing/error"; then
+            helm push "$package" oci://ghcr.io/hingst-it/charts
+          else
+            cat "$existing/error" >&2; exit 1
+          fi
+          helm registry logout ghcr.io
+      # Public artifacts must be pullable without credentials. New GHCR packages start private:
+      # set them to Public in the package settings, then re-run this job.
+      - name: Require anonymous access to images and chart
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          docker logout ghcr.io
+          anonymous() {
+            token=$(curl -fsS "https://ghcr.io/token?scope=repository:$1:pull" | python3 -c 'import json, sys; print(json.load(sys.stdin)["token"])') &&
+              curl -fsS -o /dev/null -H "Authorization: Bearer $token" \
+                -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+                "https://ghcr.io/v2/$1/manifests/$VERSION"
+          }
+          failed=0
+          for repository in hingst-it/panko-server hingst-it/panko-module-mirror hingst-it/panko-agent hingst-it/charts/panko; do
+            if anonymous "$repository"; then echo "ok anonymous ghcr.io/$repository:$VERSION"; else
+              echo "::error::ghcr.io/$repository:$VERSION is not anonymously pullable; set the package to Public and re-run this job"; failed=1; fi
+          done
+          exit "$failed"
+      - name: Publish archives, chart and checksums
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.verify.outputs.tag }}
+          VERSION: ${{ needs.verify.outputs.version }}
           PRERELEASE: ${{ needs.verify.outputs.prerelease }}
         run: |
-          (cd dist && sha256sum *.tar.gz *.zip > SHA256SUMS && sha256sum --check SHA256SUMS)
-          python3 tools/release_homebrew.py "${RELEASE_TAG#v}" dist/SHA256SUMS > dist/panko.rb
+          tools/release-build.sh checksums dist
+          # Six CLI archives, two panko-server archives and the chart.
+          test "$(wc -l < dist/SHA256SUMS)" -eq 9
+          python3 tools/release_homebrew.py "$VERSION" dist/SHA256SUMS > dist/panko.rb
           flags=()
           if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
+          # A release candidate uses the notes of the release it prepares.
           notes="docs/release-notes/$RELEASE_TAG.md"
+          if [ ! -f "$notes" ]; then notes="docs/release-notes/v${VERSION%%-*}.md"; fi
           if [ -f "$notes" ]; then flags+=(--notes-file "$notes"); else flags+=(--generate-notes); fi
           gh release create "$RELEASE_TAG" --verify-tag \
             --title "$RELEASE_TAG" "${flags[@]}" dist/*

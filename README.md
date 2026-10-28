@@ -31,9 +31,7 @@ That is where **Panko** comes in: a thin wrapper between the people requesting i
 
 The ambition is simple: keep the joy of Terraform coding as infrastructure becomes a shared service. Build on open-source tools, keep the moving parts small, and make the path from a request to a resource easy to follow.
 
-**This branch** (`poc/unified-server-dev-install`) is a proof of concept: one `panko-server` binary for all runtime roles with Metacontroller embedded in the controller role, a Helm chart used by `panko install`, `panko dev up` and GitOps, and a local lab without checkout or background processes. See the [evaluation (Deutsch)](docs/poc-unified-server.de.md), [installation](docs/installation.md) and [GitOps](docs/gitops.md). It is not released.
-
-**Current release:** v0.0.1 is the first public experimental release for local evaluation and personal installations. It provisions PostgreSQL databases with OpenTofu in a k3d cluster and exposes a team-scoped REST API. APIs and configuration may change. Production readiness and large-scale performance have not been established; Terraform CLI execution is not tested or configured. See the [changelog](CHANGELOG.md) and [release notes](docs/release-notes/v0.0.1.md).
+**Current release:** v0.0.2 is an experimental release for local evaluation and personal installations. It provisions PostgreSQL databases with OpenTofu and exposes a team-scoped REST API. New in v0.0.2: one `panko-server` binary for all runtime roles with Metacontroller embedded, a published Helm chart used by `panko install`, `panko dev up`, Helm, Argo CD and Flux, and a local lab without checkout or image builds. APIs and configuration may change. High availability, OIDC, production-grade tenant isolation and Terraform CLI execution are not provided. See the [changelog](CHANGELOG.md), the [release notes](docs/release-notes/v0.0.2.md) and, for v0.0.1 installations, [upgrading](docs/upgrading.md).
 
 ## How it works
 
@@ -63,43 +61,32 @@ flowchart LR
 
 ## Quick start
 
-Follow the [quickstart](docs/quickstart.md) for this proof of concept. For help from an AI
-assistant, use the [agent installation guide](docs/agent-install.md).
-
-The released 0.0.1 CLI (Homebrew, mise, asdf) has no `install` or `dev` command; build
-`panko` and the two images from this branch once (no registry is used):
-
 ```sh
-go build -o panko ./cmd/panko
-docker build -t panko-server:dev -f Dockerfile.server .
-docker build -t panko-module-mirror:dev -f cluster/Dockerfile.module-mirror .
-```
-
-Then, from any directory and without a checkout:
-
-```sh
-./panko dev up --server-image panko-server:dev --module-mirror-image panko-module-mirror:dev
+brew install hingst-it/tap/panko     # or mise use -g github:hingst-it/panko@0.0.2, asdf, or the release archives
+panko dev up                         # dedicated k3d lab, published images, API on http://127.0.0.1:8081
 ```
 
 This needs a running Docker engine on macOS or Linux; a missing k3d is installed privately after
 you agree, with its checksum verified. It creates the dedicated cluster `k3d-panko-dev`, installs
 the chart with PostgreSQL and a local S3 service, and maps the API to `http://127.0.0.1:8081`.
 `~/.kube/config` stays unchanged. `panko dev status` shows the lab; `panko dev down` removes it.
-For an existing cluster use `panko install --kubeconfig ./config --context mein-cluster`; for
-GitOps see [docs/gitops.md](docs/gitops.md).
+Follow the [quickstart](docs/quickstart.md) for the full walk-through, or the
+[agent installation guide](docs/agent-install.md) for help from an AI assistant. For an existing
+cluster use `panko install --kubeconfig ./config --context my-cluster` or Helm
+(`oci://ghcr.io/hingst-it/charts/panko`, [installation](docs/installation.md)); for GitOps see
+[docs/gitops.md](docs/gitops.md).
 
-Contributors can use the pinned tools in [mise.toml](mise.toml) and the same chart from a
-checkout: `make cluster-up build deploy` builds the images, imports them into k3d and runs
-`panko install` with [cluster/lab-values.yaml](cluster/lab-values.yaml) and
-[panko.json](panko.json). That lab has no port mapping; run `make gateway-forward` for
-`http://127.0.0.1:8081`. The optional full test suite additionally requires a Python `.venv`
-with `requirements-dev.txt` installed.
+Contributors use the pinned tools in [mise.toml](mise.toml) and the same chart from a checkout:
+`make cluster-up build deploy` builds the images, imports them into k3d and runs `panko install`
+with [cluster/lab-values.yaml](cluster/lab-values.yaml) and [panko.json](panko.json). That lab
+has no port mapping; run `make gateway-forward` for `http://127.0.0.1:8081`. The optional full
+test suite additionally requires a Python `.venv` with `requirements-dev.txt` installed.
 
 ### Request a database
 
 With `panko dev up`, export the printed `PANKO_URL`, `PANKO_TOKENS_FILE` and `PANKO_KUBECONFIG`
-and drop the `.local/bin/` prefix below. From a checkout lab, start `make gateway-forward` in a
-separate terminal and run the database lifecycle:
+and run `panko` without the `.local/bin/` prefix and without `make build-go`. From a checkout lab,
+start `make gateway-forward` in a separate terminal and run the database lifecycle:
 
 ```sh
 make build-go
@@ -179,18 +166,20 @@ Explore the API at [Swagger UI](http://127.0.0.1:8081/docs) or retrieve the [Ope
 | [docs/local-lab.de.md](docs/local-lab.de.md) | Original German technical guide and implementation/verification notes. |
 | [docs/state-backends.de.md](docs/state-backends.de.md) | Team-defined state backends, safety checks, lab S3 and migration. |
 | [docs/remote-runners.de.md](docs/remote-runners.de.md) | Remote runner pools, agents, tokens, recovery and limits. |
-| [docs/releases.md](docs/releases.md) | Tag releases, required CI checks, binary archives and GHCR images. |
+| [docs/releases.md](docs/releases.md) | Tag releases, required CI checks, archives, GHCR images and the OCI chart; release acceptance test. |
+| [docs/upgrading.md](docs/upgrading.md) / [docs/operations.md](docs/operations.md) | Migration from v0.0.1, upgrades, backup and restore; certificates, troubleshooting, uninstall and cleanup. |
+| [docs/naming.md](docs/naming.md) | CRD naming and versioning conventions and the deferred design decisions. |
 | [docs/self-hosted-ci.md](docs/self-hosted-ci.md) | Flux-managed hosting workers, isolation, job routing and recovery. |
 | [docs/quickstart.md](docs/quickstart.md) / [docs/agent-install.md](docs/agent-install.md) | Installation and instructions for AI-assisted setup. |
 | [docs/installation.md](docs/installation.md) / [docs/gitops.md](docs/gitops.md) | `panko install`, `panko dev`, Helm and CLI responsibilities; `helm template`, Argo CD and Flux. |
-| [docs/poc-unified-server.de.md](docs/poc-unified-server.de.md) | Evaluation of this proof of concept (Deutsch). |
+| [docs/poc-unified-server.de.md](docs/poc-unified-server.de.md) | Evaluation of the proof of concept that led to v0.0.2 (Deutsch); task in [POC.md](POC.md), ideas in [Brainstorm.md](Brainstorm.md). |
 | [docs/brand/](docs/brand/) | Logos, wordmarks, monochrome variants, icons, and social artwork. |
 
 ## Scope and limitations
 
 Gateway, controller (embedded Metacontroller and hook), runner and administrator commands are implemented in Go. Python remains for external E2E tests and optional tooling. The [Go migration guide](docs/go-porting.de.md) records the component transitions and rollback procedure.
 
-The local example demonstrates the full request-to-resource lifecycle for a personal installation. It uses one PostgreSQL instance with a PVC, teams declared in `panko.json`, local development images, and static team tokens. A rehearsed backup and restore (`make backup`, `make restore`) covers Panko's resources and the example PostgreSQL. High availability, PostgreSQL TLS, OIDC authentication, and production-grade tenant isolation are outside the implemented scope; Database is the only resource type.
+The local example demonstrates the full request-to-resource lifecycle for a personal installation. It uses one PostgreSQL instance with a PVC, teams declared in `panko.json` or the chart values, and static team tokens. A rehearsed backup and restore ([upgrading](docs/upgrading.md#backup-and-restore)) covers Panko's resources and the example PostgreSQL. High availability (one controller replica), PostgreSQL TLS, OIDC authentication, and production-grade tenant isolation are outside the implemented scope; Database is the only resource type.
 
 Applies run on spec/generation changes and module revision changes (or, with manual rollouts, on `admin upgrade-module`). Failed applies are not retried automatically: failures carry a code in `status.lastExecution`, and `panko retry NAME` requests another attempt. Drift checks run a read-only plan on request (`panko plan NAME`) or on an optional schedule and never repair. Failed destroys retain the finalizer and persist their outcome after Job TTL expiry. Optional egress rules restrict runner pods to Panko components and declared targets.
 

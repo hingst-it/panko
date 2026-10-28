@@ -33,7 +33,7 @@ def hook_transition(old_image, new_image):
          'metadata': {'name': quota, 'namespace': 'team-a'}, 'spec': {'hard': {'pods': '0'}}})
     try:
         create(name)
-        parent = get('db', name)
+        parent = get('databases.platform.example.com', name)
         child = wait(lambda: next(iter(jobs(parent['metadata']['uid'])), None), 'Python Job scheduled')
         kube('scale', '-n', 'infra-runners', 'deploy/database-hook', '--replicas=0')
         kube('rollout', 'status', '-n', 'infra-runners', 'deploy/database-hook', '--timeout=120s')
@@ -72,7 +72,7 @@ def hook_transition(old_image, new_image):
     finally:
         kube('delete', 'resourcequota', quota, '-n', 'team-a', '--ignore-not-found', check=False)
         hook_image(new_image)
-        kube('delete', 'db', name, '-n', 'team-a', '--ignore-not-found', '--wait=false', check=False)
+        kube('delete', 'databases.platform.example.com', name, '-n', 'team-a', '--ignore-not-found', '--wait=false', check=False)
 
 
 def runner_transition(old_image, new_image):
@@ -84,7 +84,7 @@ def runner_transition(old_image, new_image):
         original = credentials(name)
         for image, limit in ((new_image, 35), (old_image, 36), (new_image, 37)):
             runner_image(image)
-            changed = json.loads(kube('patch', 'db', name, '-n', 'team-a', '--type=merge', '-p',
+            changed = json.loads(kube('patch', 'databases.platform.example.com', name, '-n', 'team-a', '--type=merge', '-p',
                                      json.dumps({'spec': {'connectionLimit': limit}}), '-o', 'json').stdout)
             current = ready(name, generation=changed['metadata']['generation'])
             assert credentials(name) == original, 'Connection identity or password changed across language switch'
@@ -96,7 +96,7 @@ def runner_transition(old_image, new_image):
         print('Runner upgrade/rollback: Python state reused by Go, Python and Go; credentials retained; Go destroy passed', flush=True)
     finally:
         runner_image(new_image)
-        kube('delete', 'db', name, '-n', 'team-a', '--ignore-not-found', '--wait=false', check=False)
+        kube('delete', 'databases.platform.example.com', name, '-n', 'team-a', '--ignore-not-found', '--wait=false', check=False)
 
 
 if __name__ == '__main__':

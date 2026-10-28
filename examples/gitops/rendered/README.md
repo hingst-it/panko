@@ -1,14 +1,14 @@
 # Pre-rendered manifests
 
 For tools that apply plain manifests (an Argo CD directory source, a Flux Kustomization, or
-`kubectl apply`), render the chart once per version and commit the result:
+`kubectl apply`), render the published chart once per version and commit the result:
 
 ```sh
 mkdir -p rendered
-helm show crds charts/panko > rendered/crds.yaml
-helm template panko charts/panko --namespace panko-system \
-  --values examples/gitops/values.yaml > rendered/panko.yaml
-# Without a checkout, the panko CLI renders its embedded chart identically:
+helm show crds oci://ghcr.io/hingst-it/charts/panko --version 0.0.2 > rendered/crds.yaml
+helm template panko oci://ghcr.io/hingst-it/charts/panko --version 0.0.2 \
+  --namespace panko-system --values values.yaml > rendered/panko.yaml
+# Without Helm, the panko CLI of the same release renders its embedded chart identically:
 #   panko chart template --values values.yaml > rendered/panko.yaml
 ```
 

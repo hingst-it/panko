@@ -61,6 +61,26 @@
         "github-actions"
       ],
       "groupName": "github actions"
+    },
+    {
+      "description": "In-cluster Jobs (charts/panko/values.yaml) and the agent image (Dockerfile.agent) run the same OpenTofu; tools/release.py fails on a mismatch.",
+      "matchDepNames": [
+        "ghcr.io/opentofu/opentofu"
+      ],
+      "groupName": "opentofu"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Image references in the chart's values that the helm-values manager does not detect.",
+      "managerFilePatterns": [
+        "/^charts/panko/values\\.yaml$/"
+      ],
+      "matchStrings": [
+        "\\n  (?:engine|gitSync|postgres|s3): (?<depName>[^:\\s]+):(?<currentValue>[^@\\s]+)(?:@(?<currentDigest>sha256:[0-9a-f]{64}))?(?=\\n)"
+      ],
+      "datasourceTemplate": "docker"
     }
   ]
 }

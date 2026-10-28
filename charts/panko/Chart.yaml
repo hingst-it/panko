@@ -1,10 +1,12 @@
 apiVersion: v2
 name: panko
-description: Panko exposes OpenTofu modules as a team-scoped Kubernetes-backed API (proof of concept).
+description: Panko exposes OpenTofu modules as a team-scoped Kubernetes-backed API (experimental).
 type: application
-# The chart version changes with every chart change; appVersion is the default image tag.
-version: 0.1.0-poc.1
-appVersion: 0.1.0-poc.1
+# version, appVersion and the default image tags are the Panko release version without the v
+# prefix. The committed value is the next release's core version; the Release workflow stamps a
+# prerelease suffix from the tag (tools/release.py).
+version: 0.0.2
+appVersion: "0.0.2"
 kubeVersion: ">=1.29.0-0"
 home: https://github.com/hingst-it/panko
 sources:

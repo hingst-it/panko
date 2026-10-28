@@ -16,15 +16,14 @@ installation:
     names: []
 
 images:
-  # Proof of concept: the images are not published. Push your build to a registry the cluster can
-  # pull from and pin the tag (or use a digest-pinned tag of your own); see docs/gitops.md.
+  # Published release images (anonymous pulls from ghcr.io). The tags default to the chart's
+  # appVersion, so pinning the chart version pins the images. To mirror them into your own
+  # registry, set repository and an explicit tag (or a digest-pinned tag).
   server:
-    repository: registry.example.internal/panko/panko-server
-    tag: 0.1.0-poc.1
+    repository: ghcr.io/hingst-it/panko-server
     pullPolicy: IfNotPresent
   moduleMirror:
-    repository: registry.example.internal/panko/panko-module-mirror
-    tag: 0.1.0-poc.1
+    repository: ghcr.io/hingst-it/panko-module-mirror
     pullPolicy: IfNotPresent
   # Pull secret names in infra-runners, infra-gateway, infra-backends and every team namespace,
   # created outside the chart; runner Jobs use them through the teams' tofu-runner accounts.

@@ -5,7 +5,7 @@
 > Aktuelle Betriebs-, Migrations- und Testanleitung: [operations.de.md](operations.de.md).
 > Die Runtime ist inzwischen nach Go portiert; Aufbau und Rückwechsel: [go-porting.de.md](go-porting.de.md).
 > Die folgenden Prüfvermerke dokumentieren frühere Implementierungsläufe; sie sind kein aktueller CI-Status.
-> Auf dem PoC-Branch `poc/unified-server-dev-install` laufen alle Rollen als `panko-server`, der
+> Seit v0.0.2 laufen alle Rollen als `panko-server`, der
 > Metacontroller ist in die Controller-Rolle eingebettet und installiert wird über das Helm-Chart:
 > [Installation](installation.md), [Auswertung](poc-unified-server.de.md).
 

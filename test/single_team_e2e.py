@@ -59,7 +59,7 @@ def main(step):
             print('Single team: upgrade kept the database Ready without another apply', flush=True)
         elif step == 'delete':
             curl('DELETE', f'/v1/teams/{TEAM}/databases/{NAME}', expected=202)
-            wait(lambda: get('db', NAME, TEAM) is None, 'personal database deleted', 300)
+            wait(lambda: get('databases.platform.example.com', NAME, TEAM) is None, 'personal database deleted', 300)
             print('Single team: deletion completed', flush=True)
     finally:
         forward.terminate()

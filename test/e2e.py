@@ -84,11 +84,11 @@ def connect(name, team='team-a'):
 
 
 def delete_and_check(name, team, creds):
-    kube('delete', 'db', name, '-n', team, '--wait=false')
+    kube('delete', 'databases.platform.example.com', name, '-n', team, '--wait=false')
     observed_deleting = False
     def gone():
         nonlocal observed_deleting
-        cr = get('db', name, team)
+        cr = get('databases.platform.example.com', name, team)
         if cr:
             assert cr['metadata'].get('finalizers'), cr
             observed_deleting |= cr.get('status', {}).get('phase') == 'Deleting'
@@ -111,7 +111,7 @@ def main():
     connect(name)
     print('1: CR Ready, owned connection secret, credential login and extension verified', flush=True)
     old_hash = original['status']['lastAppliedHash']
-    changed = json.loads(kube('patch', 'db', name, '-n', 'team-a', '--type=merge',
+    changed = json.loads(kube('patch', 'databases.platform.example.com', name, '-n', 'team-a', '--type=merge',
                             '-p', json.dumps({'spec': {'connectionLimit': 31}}), '-o', 'json').stdout)
     updated = ready(name, generation=changed['metadata']['generation'])
     assert updated['status']['lastAppliedHash'] != old_hash
@@ -131,7 +131,7 @@ def main():
     assert sql(f"SELECT rolconnlimit FROM pg_roles WHERE rolname='{creds['username']}';") == '31'
     print('2: new generation completed in a new job; PostgreSQL database and role limits changed', flush=True)
     for patch, marker in [({'connectionLimit': 0}, 'connectionLimit'), ({'owner': 'other'}, 'immutable')]:
-        response = kube('patch', 'db', name, '-n', 'team-a', '--type=merge', '-p',
+        response = kube('patch', 'databases.platform.example.com', name, '-n', 'team-a', '--type=merge', '-p',
                         json.dumps({'spec': patch}), check=False)
         assert response.returncode and marker in response.stderr, response
     print('3: schema and CEL violations rejected by API server', flush=True)
@@ -170,4 +170,4 @@ if __name__ == '__main__':
     finally:
         # Keep failed Jobs/logs for diagnosis; request normal finalizer cleanup for CRs.
         for resource, namespace in CREATED:
-            kube('delete', 'db', resource, '-n', namespace, '--ignore-not-found', '--wait=false', check=False)
+            kube('delete', 'databases.platform.example.com', resource, '-n', namespace, '--ignore-not-found', '--wait=false', check=False)
