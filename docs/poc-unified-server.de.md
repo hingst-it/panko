@@ -66,14 +66,17 @@ eigenen Wegwerf-Clustern; vorhandene Cluster und Kubeconfigs blieben unveränder
 
 ### Start, Shutdown, Readiness, Logs und Metriken je Rolle
 
+Shutdown geprüft durch Löschen des Pods und Auswertung des letzten Containerzustands aus einem
+Watch: alle Rollen-Deployments mit Exit-Code 0 und Grund `Completed`, also ohne SIGKILL.
+
 | Rolle | Start | Shutdown | Readiness | Logs | Metriken |
 | --- | --- | --- | --- | --- | --- |
-| `controller` | Deployment `database-hook`, SA `panko-controller`; wartet auf `panko-installation` | SIGTERM: Manager stoppt, danach leeren die Hook-Listener laufende Anfragen; Grace 40 s | `/readyz`: Hook-Listener aktiv und Cache-Sync (geprüft: 200); `/healthz` Liveness | Hook-Ereignisse JSON auf stdout (`event`), Metacontroller zap-JSON auf stderr | `:8080/metrics` Hook (E2E Observability), `:9999/metrics` controller-runtime (geprüft) |
-| `gateway` | Deployment, SA `platform-gateway`; wartet auf `gateway-auth` | SIGTERM: geordnetes Herunterfahren (`internal/serve`, Unit-Test) | `/healthz` Readiness und Liveness | JSON-Schreibprotokoll | `/metrics` Discovery-Cache (geprüft) |
-| `endpoint` | Deployment, SA `runner-endpoint`; wartet auf TLS-Secret | wie Gateway, Sweeper endet mit dem Prozess | `/healthz` über HTTPS | JSON | **keine** (bestehende Lücke) |
-| `mirror` | Deployment ohne Token, PVC-Cache | wie Gateway | `/healthz` über HTTPS | Warnungen bei Ausfällen | **keine** (bestehende Lücke) |
-| `runner` | Job je Ausführung, SA `tofu-runner` des Teams | SIGTERM wird an OpenTofu weitergereicht (Lock-Freigabe) | Job-Status und Termination-Message | JSON auf stdout | über die Ausführungsmetriken des Hooks |
-| `agent` | außerhalb des Clusters (Container, systemd, anderer Cluster) | SIGTERM, Grace 90 s in den Beispielen | `agent check` | stdout | keine |
+| `controller` | Deployment `database-hook`, SA `panko-controller`; wartet auf `panko-installation` | SIGTERM: Manager stoppt, danach leeren die Hook-Listener laufende Anfragen; Grace 40 s; geprüft: Exit 0 nach ~1 s | `/readyz`: Hook-Listener aktiv und Cache-Sync (geprüft: 200); `/healthz` Liveness | Hook-Ereignisse JSON auf stdout (`event`), Metacontroller zap-JSON auf stderr | `:8080/metrics` Hook (E2E Observability), `:9999/metrics` controller-runtime (geprüft) |
+| `gateway` | Deployment, SA `platform-gateway`; wartet auf `gateway-auth` | SIGTERM: geordnetes Herunterfahren (`internal/serve`, Unit-Test); geprüft: Exit 0 nach ~1 s | `/healthz` Readiness und Liveness | JSON-Schreibprotokoll | `/metrics` Discovery-Cache (geprüft) |
+| `endpoint` | Deployment, SA `runner-endpoint`; wartet auf TLS-Secret | SIGTERM über `internal/serve`; geprüft: Exit 0 nach ~1 s | `/healthz` über HTTPS | JSON | `/metrics`: `panko_endpoint_requests_total` und Dauer je Protokolloperation (neu, E2E Observability) |
+| `mirror` | Deployment ohne Token, PVC-Cache | SIGTERM über `internal/serve`; geprüft: Exit 0 nach ~1 s | `/healthz` über HTTPS | Warnungen bei Ausfällen | `/metrics`: `panko_mirror_requests_total` je Index/Version/Archiv (neu, E2E Observability) |
+| `runner` | Job je Ausführung, SA `tofu-runner` des Teams | SIGTERM wird an OpenTofu weitergereicht (Lock-Freigabe; Unit-Tests `internal/runner`, E2E-Abbruch `interrupted`) | Job-Status und Termination-Message | JSON auf stdout | über die Ausführungsmetriken des Hooks |
+| `agent` | außerhalb des Clusters (Container, systemd, anderer Cluster) | SIGTERM, Grace 90 s in den Beispielen (Remote-E2E beendet einen Agenten während einer Ausführung) | `agent check` | stdout | keine |
 | `setup` | Job mit Digest-Namen, SA `panko-setup` | SIGTERM bzw. Zeitlimit 5 min | Job `Complete` | `ok <Schritt>`, nie Werte | keine (Job-Status) |
 
 ## Metacontroller-Einbettung und Integrationsgrenzen
@@ -139,10 +142,12 @@ historisch markierte Python-Rückwechsel in `go-porting.de.md`).
 | Migration mit `--take-ownership` | v0.0.1-Lab, siehe [Migration](#migration) |
 | GitOps: reproduzierbares Rendering, keine Secrets, vorgerenderte Manifeste, Reihenfolge CRDs → Rest | `make lint-chart`, Chart-Tests, Lauf mit `kubectl apply --server-side` |
 | `helm uninstall` behält Namespaces, CRDs, StatefulSets, PVCs und Secrets | Lauf gegen echten Cluster |
-| Argo-CD- und Flux-Optionen (`ServerSideApply`, `SkipDryRunOnMissingResource`, `CreateReplace`, Pruning-Annotationen, Self-Heal) | **nicht geprüft**; in `gitops.md` als Erwartung gemäß deren Dokumentation gekennzeichnet |
-| Bilder per `docker save`/`docker load` übertragen | **nicht geprüft** (Standard-Docker-Funktion) |
-| Zertifikatserneuerung (Löschen des TLS-Secrets, Setup erneut, Neustart) | Setup-Teil geprüft (Job läuft erneut), Erneuerung selbst **nicht geprüft** |
-| SSH-Modul über `module.sshSecret` | Chart-Test (Schlüssel nur im Mirror), Lauf **nicht geprüft** |
+| Argo CD: Beispiel-`Application` (nur Repository-URLs ersetzt) mit `ServerSideApply`, `SkipDryRunOnMissingResource`, zwei Quellen, Self-Heal | Argo CD v3.5.6 im Wegwerf-Cluster, Git über SSH: Synced/Healthy, Credentials erzeugt, Egress aktiv, Lebenszyklus, kein Drift nach Hard Refresh, Setup-Job ohne Wiederholung, Self-Heal stellt Replikas wieder her. Gefunden und behoben: dauerhaftes `OutOfSync` des PostgreSQL-StatefulSets |
+| Flux: Beispiel-`GitRepository`/`HelmRelease` | Flux v2.10.0 im Wegwerf-Cluster, Git über SSH: `HelmRelease` Ready nach 55 s, CRDs per `crds: CreateReplace` angelegt, Release-Record in `panko-system`, Setup-Job, Lebenszyklus, geänderter Wert über `valuesFrom` ausgerollt (Gateway 2 Replikas), Tokens unverändert |
+| Pruning-Schutz beim Löschen der Anwendung | Argo CD (`Application` mit `resources-finalizer`) und Flux (`HelmRelease` gelöscht, Release deinstalliert): Namespaces, CRDs, PostgreSQL-StatefulSet, PVCs, Secrets und eine Ready-Database bleiben, nur die zustandslosen Deployments verschwinden. Flux brauchte für die Deinstallation länger als 5 min (Ursache nicht untersucht) |
+| Bilder per `docker save`/`docker load` übertragen | Archiv (23 MB) gespeichert, Images gelöscht, geladen: identische Image-IDs; Argo-CD- und Flux-Cluster liefen mit diesen Images |
+| Zertifikatserneuerung (TLS-Secrets löschen, `make deploy`, Mirror und Endpoint neu starten) | neue CAs, Team-ConfigMaps aktualisiert, folgender Apply lud alle Provider über den Mirror ohne Rückfall |
+| SSH-Modul über `module.sshSecret` | SSH-Git-Server im Lab-Netz: Mirror klont per SSH (sshd-Log), Ressource Ready, Schlüssel nur in `infra-runners`, kein Job-Pod mountet ihn |
 
 ## Bekannte Einschränkungen und offene Entscheidungen
 
@@ -173,12 +178,10 @@ historisch markierte Python-Rückwechsel in `go-porting.de.md`).
 - **Plattformen.** `panko dev` unterstützt macOS und Linux mit Docker; Podman, Windows und
   VM-Verwaltung sind ausgeschlossen. k3d wird bei Bedarf in v5.9.0 installiert; die
   Prüfsummen sind im CLI festgelegt und müssen bei einem k3d-Update angepasst werden.
-- **Argo CD und Flux** sind nur als Beispiele gerendert und geprüft, nicht gegen laufende
-  Controller angewendet.
+- **Argo CD und Flux** wurden je einmal in einem Wegwerf-Cluster mit Git über SSH geprüft, nicht
+  mit dem öffentlichen Repository, einer Registry oder in CI.
 - **Binary-Größe.** `panko` wächst durch das Helm-SDK auf rund 98 MB, `panko-admin` auf
   68 MB, `panko-server` auf 49 MB (Image 58 MB).
-- **Metriken** fehlen weiterhin für `endpoint` und `mirror` (wie vor dem PoC); Readiness und
-  Logs sind für alle Rollen vorhanden.
 - **`test/portability_e2e.py`** (Python/Go-Übergänge mit gesicherten Images) ist nicht Teil der
   Suiten und für den eingebetteten Controller nicht mehr aussagekräftig.
 
@@ -247,7 +250,7 @@ Installationen aus der Zeit vor der State-Isolation (zuerst mit v0.0.1 migrieren
 
 1. Release-Workflow: `panko-server`, `panko-module-mirror` und Agent-Image mit festen Tags,
    Chart als OCI-Artefakt mit passender `appVersion`, CLI-Archive mit eingebettetem Chart.
-2. Argo CD und Flux in CI gegen einen Wegwerf-Cluster anwenden (z. B. kind mit Flux).
+2. Die Argo-CD- und Flux-Prüfungen in CI übernehmen (heute manuelle Skripte).
 3. Entscheidung zum Hook-Prozess (eigener Container) und zur Umbenennung von `database-hook`.
 4. Konfigurierbare Namen vorhandener Secrets oder eine dokumentierte External-Secrets-Vorlage.
 5. Neustart von Mirror und Endpoint nach Zertifikatserneuerung (z. B. Checksum-Annotation
@@ -258,5 +261,4 @@ Installationen aus der Zeit vor der State-Isolation (zuerst mit v0.0.1 migrieren
 8. Migration als ein Befehl (Pause, Entfernen des separaten Metacontrollers, Aufräumen der
    Altobjekte, Resume) und als CI-Test mit einem v0.0.1-Lab.
 9. Leader-Election und mehrere Controller-Replikate im Lab prüfen (vorhanden, nicht getestet).
-10. Prometheus-Metriken für `endpoint` und `mirror`.
-11. Dokumentation der Release-Version aktualisieren (Quickstart verweist für 0.0.1 auf den Tag).
+10. Dokumentation der Release-Version aktualisieren (Quickstart verweist für 0.0.1 auf den Tag).

@@ -2,8 +2,9 @@
 
 > Proof of concept on branch `poc/unified-server-dev-install`. The chart and the examples below
 > are validated by rendering (`helm lint`, `helm template`, the chart's Go tests), by
-> `panko install` / `panko dev up` against k3d, and by applying pre-rendered manifests with `kubectl`. They were **not** applied by a running Argo CD or
-> Flux; see [Validation scope](#validation-scope).
+> `panko install` / `panko dev up` against k3d, by applying pre-rendered manifests with `kubectl`,
+> and by running the Argo CD and Flux examples once each against throwaway k3d clusters (Git over
+> SSH instead of the public repository); see [Validation scope](#validation-scope).
 
 The chart `charts/panko` works without `panko install`. It renders deterministically and never
 contains a credential, so repeated renders cause no drift and no credential rotation. Missing
@@ -65,8 +66,8 @@ and `internal/chart/chart_test.go`):
 1. CRDs from `crds/` (Panko's and Metacontroller's) must be established before the
    CompositeController and the BackendProfiles in `templates/` are applied. Helm handles this
    (tested), and so does applying `crds/` first and waiting for `Established` with plain
-   manifests (tested). Flux (`crds: CreateReplace`) and Argo CD (`SkipDryRunOnMissingResource=true`
-   with retries) are expected to handle it according to their documentation; not tested here.
+   manifests (tested), Flux with `crds: CreateReplace` (tested) and Argo CD with
+   `SkipDryRunOnMissingResource=true` and retries (tested).
 2. Everything else is applied in one step. The setup Job `infra-runners/panko-setup-<digest>`
    creates missing credentials within seconds. Pods that mount them (gateway, endpoint,
    provider mirror, lab PostgreSQL and S3) stay in `ContainerCreating` until then, and the
@@ -79,10 +80,9 @@ and `internal/chart/chart_test.go`):
 ## Upgrades, CRDs, pruning and persistent data
 
 - **CRDs**: Helm never upgrades `crds/`. With plain manifests apply `rendered/crds.yaml` on every
-  chart update (`kubectl apply --server-side`, tested); `panko install` does the same. For Flux,
-  `install.crds`/`upgrade.crds: CreateReplace`, and for Argo CD, which applies `crds/` like other
-  resources, `ServerSideApply=true` for the large Metacontroller CRDs are the documented options
-  of those tools (not tested here).
+  chart update (`kubectl apply --server-side`, tested); `panko install` does the same. Flux uses
+  `install.crds`/`upgrade.crds: CreateReplace` (install tested); Argo CD applies `crds/` like
+  other resources, with `ServerSideApply=true` for the large Metacontroller CRDs (tested).
   CRD changes are additive; existing resources are not converted.
 - **Jobs**: the setup and S3 onboarding Jobs are named by a digest of their inputs (installation
   config, image, arguments; team list). Unchanged values keep the completed Job, so there is no
@@ -95,7 +95,8 @@ and `internal/chart/chart_test.go`):
 - **Persistent data**: PostgreSQL, S3 and provider cache volumes are retained when their
   StatefulSet or the release is deleted (`persistentVolumeClaimRetentionPolicy: Retain`).
 - **Manual changes**: `panko admin pause` scales the controller and gateway to zero; Argo CD
-  self-heal or a Flux drift correction can be expected to revert that (not tested here). Suspend the application for maintenance.
+  self-heal reverts that (tested: back to one replica within seconds). The Flux example does not
+  enable `driftDetection`, so Flux leaves such manual changes until the next upgrade. Suspend the application for maintenance.
   The same applies to `kubectl set env` on the controller.
 - **Module upgrades**: change `module.revision` in Git. With `rollout: manual`, resources stay
   on their revision until `panko admin upgrade-module`.
@@ -145,17 +146,20 @@ the Panko repository and your values from a GitOps repository (`$values`). Relev
 `CreateNamespace=true`, `ServerSideApply=true`, `SkipDryRunOnMissingResource=true`, retries, and
 automated sync with pruning. Argo CD renders with `helm template` and applies `crds/`.
 Helm hooks are not used. Argo CD tracks only rendered objects, so the setup Job's Secrets,
-ConfigMaps and NetworkPolicies should not show up as out of sync. These options follow the Argo CD
-documentation; a sync against a running Argo CD was not tested.
+ConfigMaps and NetworkPolicies do not show up as out of sync. Tested with Argo CD v3.5.6: Synced and
+Healthy, no out-of-sync resources after a hard refresh, the setup Job not re-run, a database
+lifecycle, and self-heal. The `ignoreDifferences` entry for `volumeClaimTemplates` status is
+needed: without it the lab PostgreSQL StatefulSet stays `OutOfSync`.
 
 ## Flux
 
 [`panko.yaml`](../examples/gitops/flux/panko.yaml) defines a `GitRepository` limited to
 `charts/panko` and a `HelmRelease` with `crds: CreateReplace` for install and upgrade, retries
 without rollback (Panko's state lives in its own objects), and values from a ConfigMap
-(`valuesFrom`). The release record is stored in `panko-system`. These options follow the Flux
-documentation; a reconciliation by a running Flux was not tested. Flux's helm-controller uses its
-own Helm SDK version and wait logic, which may differ from `panko install`.
+(`valuesFrom`). The release record is stored in `panko-system`. Tested with Flux v2.10.0: Ready
+after about a minute, CRDs created, a database lifecycle, and a changed value rolled out with the
+tokens unchanged. Flux's helm-controller uses its own Helm SDK version and wait logic, which may
+differ from `panko install`.
 
 ## Pre-rendered manifests
 
@@ -171,8 +175,10 @@ release record, `panko install` later treats the cluster as an existing installa
 | `helm lint --strict`, `helm template` with defaults and `examples/gitops/values.yaml` | yes (`make lint-chart`, CI unit job) |
 | Reproducible render, no Secrets, RBAC equal to the `panko admin` generators | yes (`internal/chart` tests) |
 | Install and upgrade through the Helm SDK (`panko install`, `panko dev up`) on k3d | yes, including the e2e suites |
-| Argo CD `Application` | YAML parsed and reviewed; not applied to an Argo CD instance |
-| Flux `GitRepository`/`HelmRelease` | YAML parsed and reviewed; not applied to a Flux instance |
+| Argo CD `Application` (v3.5.6, repository URLs replaced, Git over SSH) | yes: Synced/Healthy, credentials generated, lifecycle, no drift, self-heal |
+| Flux `GitRepository`/`HelmRelease` (v2.10.0, URL replaced, SSH deploy key) | yes: Ready, CRDs, lifecycle, upgrade through `valuesFrom` |
+| Pulling the chart from the public GitHub repository or an OCI registry | no (the branch is not pushed; no OCI chart exists) |
 | Pre-rendered manifests: `helm show crds` and `helm template` applied with `kubectl apply --server-side`, CRDs first | yes: no Secrets rendered, setup Job and all workloads ready, controller `/readyz`, re-render byte-identical |
 | Switching that installation to a Helm release (`panko install --take-ownership`) | yes, tokens unchanged |
 | `helm uninstall` keeps namespaces, CRDs, StatefulSets, PVCs and Secrets | yes |
+| Deleting the Argo CD `Application` (with `resources-finalizer`) or the Flux `HelmRelease` keeps the same objects and team resources | yes (Flux took over 5 minutes to finish the uninstall) |
