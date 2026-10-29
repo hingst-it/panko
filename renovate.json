@@ -78,7 +78,7 @@
         "/^charts/panko/values\\.yaml$/"
       ],
       "matchStrings": [
-        "\\n  (?:engine|gitSync|postgres|s3): (?<depName>[^:\\s]+):(?<currentValue>[^@\\s]+)(?:@(?<currentDigest>sha256:[0-9a-f]{64}))?(?=\\n)"
+        "\\n  (?:engine|gitSync|postgres|s3): (?<depName>[^:\\s]+):(?<currentValue>[^@\\s]+)(?:@(?<currentDigest>sha256:[0-9a-f]{64}))?"
       ],
       "datasourceTemplate": "docker"
     }
