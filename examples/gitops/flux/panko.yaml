@@ -34,13 +34,18 @@ spec:
     # Helm itself never upgrades crds/; Flux creates and replaces them explicitly.
     crds: CreateReplace
     timeout: 15m
+    # Retry a failed install as it is; never uninstall it as remediation.
+    strategy:
+      name: RetryOnFailure
+      retryInterval: 5m
   upgrade:
     crds: CreateReplace
     timeout: 15m
-    # Panko keeps state in its own objects; retry instead of rolling back.
-    remediation:
-      retries: 3
-      remediateLastFailure: false
+    # Panko keeps state in its own objects and infrastructure may already have changed: retry the
+    # upgrade forward, never roll back to the previous release.
+    strategy:
+      name: RetryOnFailure
+      retryInterval: 5m
   # Values from your own repository, e.g. a ConfigMap generated from examples/gitops/values.yaml.
   valuesFrom:
     - kind: ConfigMap

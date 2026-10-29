@@ -192,6 +192,12 @@ func TestSetupJobFollowsItsInputs(t *testing.T) {
 	if base == setupJob(render(t, values(t, "images: {server: {tag: other}}"))) {
 		t.Fatal("a changed server image keeps the completed setup Job")
 	}
+	// Job templates are immutable, so every Pod template input must change the name.
+	for _, v := range []string{"images: {pullSecrets: [registry]}", "images: {server: {pullPolicy: Always}}"} {
+		if base == setupJob(render(t, values(t, v))) {
+			t.Fatalf("%s keeps the completed setup Job with a different Pod template", v)
+		}
+	}
 	if base != setupJob(render(t, values(t, "gateway: {replicas: 2}"))) {
 		t.Fatal("an unrelated change starts a new setup Job")
 	}

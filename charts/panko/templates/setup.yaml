@@ -27,7 +27,8 @@ changed configuration runs a new Job while an unchanged render keeps the complet
 {{- $teams := .Values.installation.teams }}
 {{- $args := list "setup" (printf "--generate=%t" .Values.secrets.generate) (printf "--provider-mirror=%t" .Values.providerMirror.enabled) (printf "--endpoint=%t" .Values.endpoint.enabled) }}
 {{- with .Values.module.sshSecret }}{{ $args = append $args (printf "--module-secret=%s" .) }}{{ end }}
-{{- $digest := list (include "panko.installation" .) (include "panko.serverImage" .) $args | toJson | sha256sum | trunc 10 }}
+{{- /* A Job's Pod template is immutable: every input of the rendered template is part of the digest. */}}
+{{- $digest := list (include "panko.installation" .) (include "panko.setupPod" (dict "root" . "args" $args)) | toJson | sha256sum | trunc 10 }}
 {{- /* Egress rules resolve Services to pods, so setup reads Services in their namespaces. */}}
 {{- $serviceNamespaces := list "infra-runners" "infra-backends" }}
 {{- range .Values.installation.egressTargets }}{{ with .service }}{{ $serviceNamespaces = append $serviceNamespaces (first (splitList "/" .)) }}{{ end }}{{ end }}

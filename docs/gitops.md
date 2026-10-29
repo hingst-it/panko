@@ -177,8 +177,10 @@ needed: without it the lab PostgreSQL StatefulSet stays `OutOfSync`.
 ## Flux
 
 [`panko.yaml`](../examples/gitops/flux/panko.yaml) defines an `OCIRepository` for the published
-chart (`ref.tag: 0.0.2`) and a `HelmRelease` (`chartRef`) with `crds: CreateReplace` for install and upgrade, retries
-without rollback (Panko's state lives in its own objects), and values from a ConfigMap
+chart (`ref.tag: 0.0.2`) and a `HelmRelease` (`chartRef`) with `crds: CreateReplace` for install and upgrade, the
+`RetryOnFailure` strategy for both (a failed install or upgrade is retried as it is, never
+uninstalled or rolled back: Panko's state lives in its own objects and infrastructure may already
+have changed), and values from a ConfigMap
 (`valuesFrom`). The release record is stored in `panko-system`. The release acceptance test runs it with Flux v2.10.0 from the OCI chart (pending for v0.0.2:
 Ready, CRDs created, a Database Ready, retention after deleting the HelmRelease). Tested during
 the PoC with the chart from Git: a changed value rolled out through `valuesFrom` with
