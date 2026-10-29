@@ -1,0 +1,56 @@
+# Argo CD Application installing Panko from the published OCI chart, with values from your own
+# GitOps repository (multiple sources). Validated against Argo CD v3.5.6 by
+# test/release_acceptance.py (gitops phase); see docs/gitops.md.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: panko
+  namespace: argocd
+  # Deleting the Application removes the stateless workloads; data, CRDs and Databases are kept.
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  sources:
+    # OCI Helm chart; the version also pins the images (their tags default to appVersion).
+    - repoURL: ghcr.io/hingst-it/charts
+      chart: panko
+      targetRevision: 0.0.2
+      helm:
+        releaseName: panko
+        valueFiles:
+          - $values/panko/values.yaml
+    - repoURL: https://git.example.internal/platform/gitops.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    # Holds no workloads; Panko's objects carry their own namespaces.
+    namespace: panko-system
+  syncPolicy:
+    automated:
+      prune: true
+      # Self-heal reverts manual changes such as panko admin pause (which scales the controller
+      # to 0); disable it for maintenance windows.
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # The Metacontroller CRDs are large; server-side apply avoids the annotation size limit.
+      - ServerSideApply=true
+      # The CompositeController and BackendProfiles need their CRDs, applied in the same sync.
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 10
+      backoff: {duration: 10s, factor: 2, maxDuration: 3m}
+  # The setup Job and the s3-onboard Job are named by a digest of their inputs; old ones are pruned.
+  ignoreDifferences:
+    # kubectl rollout restart and panko admin pause/resume change these fields on purpose.
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/template/metadata/annotations/kubectl.kubernetes.io~1restartedAt
+    # The API server stores a status inside volumeClaimTemplates, which no chart can render.
+    - group: apps
+      kind: StatefulSet
+      jqPathExpressions:
+        - .spec.volumeClaimTemplates[]?.status

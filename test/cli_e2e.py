@@ -46,10 +46,10 @@ def main():
         assert uri.startswith('postgresql://'), 'connect did not print a URI'
         login(uri)
         panko('delete', name, '--wait', '--timeout', '5m')
-        assert get('db', name) is None
+        assert get('databases.platform.example.com', name) is None
         print('CLI: doctor, create, wait, get, connect with a working login and delete passed', flush=True)
     finally:
-        kube('delete', 'db', name, '-n', 'team-a', '--ignore-not-found', '--wait=false', check=False)
+        kube('delete', 'databases.platform.example.com', name, '-n', 'team-a', '--ignore-not-found', '--wait=false', check=False)
         forward.terminate()
 
 

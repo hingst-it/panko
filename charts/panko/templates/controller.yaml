@@ -1,0 +1,239 @@
+{{- /* Controller role: embedded Metacontroller and the reconciliation hook in one pod. The
+Deployment keeps the name database-hook, which pause, resume, backups and migrations use. */}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: panko-controller
+  namespace: infra-runners
+  labels:
+    {{- include "panko.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: panko-controller
+  labels:
+    {{- include "panko.labels" . | nindent 4 }}
+rules:
+  # Metacontroller's own API: the controllers it runs and its revision bookkeeping.
+  - apiGroups: [metacontroller.k8s.io]
+    resources: [compositecontrollers, decoratorcontrollers, controllerrevisions, compositecontrollers/status, decoratorcontrollers/status]
+    verbs: [get, list, watch, create, update, patch, delete]
+  # Parents (Databases and other exposed resources) with status and finalizers, Run children,
+  # and the StateBackends and BackendProfiles the hook asks for.
+  - apiGroups: [platform.example.com]
+    resources: ["*"]
+    verbs: [get, list, watch, create, update, patch, delete]
+  # Runner Jobs are the children of in-cluster executions.
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, list, watch, create, update, patch, delete]
+  # Pods explain failed Jobs (related resources); the controller never changes them.
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+  # Metacontroller watches namespaces to resolve namespace selectors of related resources.
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, watch]
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    verbs: [get, list, watch]
+  - apiGroups: ["", events.k8s.io]
+    resources: [events]
+    verbs: [create, patch, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: panko-controller
+  labels:
+    {{- include "panko.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: panko-controller}
+subjects:
+  - {kind: ServiceAccount, name: panko-controller, namespace: infra-runners}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: panko-controller-leader
+  namespace: infra-runners
+  labels:
+    {{- include "panko.labels" . | nindent 4 }}
+rules:
+  - {apiGroups: [coordination.k8s.io], resources: [leases], verbs: [get, list, watch, create, update, patch, delete]}
+  # The record of runner pool definitions that keeps bound pools executable (RetainBoundPools).
+  - {apiGroups: [""], resources: [configmaps], resourceNames: [panko-runner-pools-retained], verbs: [get, update]}
+  - {apiGroups: [""], resources: [configmaps], verbs: [create]}
+  # The controller's own pod, ReplicaSet and Deployment, for its rollout revision and identity.
+  - {apiGroups: [""], resources: [pods], verbs: [get]}
+  - {apiGroups: [apps], resources: [replicasets, deployments], verbs: [get]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: panko-controller-leader
+  namespace: infra-runners
+  labels:
+    {{- include "panko.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: panko-controller-leader}
+subjects:
+  - {kind: ServiceAccount, name: panko-controller, namespace: infra-runners}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: database-hook
+  namespace: infra-runners
+  labels:
+    app: database-hook
+    app.kubernetes.io/component: controller
+    {{- include "panko.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.controller.replicas }}
+  {{- /* Leader election is wired, but failover between replicas is not validated for this release. */}}
+  {{- if ne (int .Values.controller.replicas) 1 }}
+  {{- fail "controller.replicas must be 1: several controller replicas (leader election, failover) are not supported in this release" }}
+  {{- end }}
+  # One active Metacontroller at a time: without leader election the old pod stops before the new
+  # one starts (maxSurge 0, like Recreate, but also valid for Deployments adopted from make deploy).
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: {{ ternary 1 0 .Values.controller.leaderElection }}
+      maxUnavailable: {{ ternary 0 1 .Values.controller.leaderElection }}
+  selector:
+    matchLabels: {app: database-hook}
+  template:
+    metadata:
+      labels:
+        app: database-hook
+        app.kubernetes.io/component: controller
+      annotations:
+        checksum/runner-pools: {{ include "panko.runnerPools" . | sha256sum }}
+    spec:
+      serviceAccountName: panko-controller
+      securityContext:
+        {{- include "panko.podSecurity" . | nindent 8 }}
+      {{- include "panko.pullSecrets" . | nindent 6 }}
+      terminationGracePeriodSeconds: 40
+      containers:
+        - name: controller
+          image: {{ include "panko.serverImage" . }}
+          imagePullPolicy: {{ .Values.images.server.pullPolicy }}
+          args:
+            - controller
+            - --workers={{ .Values.controller.workers }}
+            - --leader-election={{ .Values.controller.leaderElection }}
+          # Literal values: admin migration Jobs copy this configuration from the Deployment.
+          env:
+            - {name: RUNNER_IMAGE, value: {{ include "panko.serverImage" . | quote }}}
+            - {name: RUNNER_COMMAND, value: runner}
+            - {name: RUNNER_IMAGE_PULL_POLICY, value: {{ .Values.images.server.pullPolicy | quote }}}
+            - {name: ENGINE_IMAGE, value: {{ .Values.images.engine | quote }}}
+            - {name: ENGINE_BINARY, value: {{ .Values.images.engineBinary | quote }}}
+            - {name: GIT_SYNC_IMAGE, value: {{ .Values.images.gitSync | quote }}}
+            # Runner Jobs fetch the module from the in-cluster mirror; remote agents cannot reach it and
+            # fetch pools without a module of their own from the repository itself.
+            - {name: MODULE_MIRROR, value: "git://module-mirror.infra-runners.svc:9418/module.git"}
+            - {name: MODULE_REPO, value: {{ .Values.module.repository | quote }}}
+            - {name: MODULE_REVISION, value: {{ .Values.module.revision | quote }}}
+            {{- with .Values.module.path }}
+            - {name: MODULE_PATH, value: {{ . | quote }}}
+            {{- end }}
+            - {name: MODULE_ROLLOUT, value: {{ .Values.module.rollout | quote }}}
+            {{- with .Values.module.driftCheckInterval }}
+            - {name: DRIFT_CHECK_INTERVAL, value: {{ . | quote }}}
+            {{- end }}
+            {{- if .Values.controller.externalStateBackends }}
+            - {name: EXTERNAL_STATE_BACKENDS, value: enabled}
+            {{- end }}
+            {{- if .Values.providerMirror.enabled }}
+            - {name: PROVIDER_MIRROR, value: "https://provider-mirror.infra-runners.svc:8443"}
+            {{- end }}
+            - {name: DELETE_ALERT_SECONDS, value: {{ .Values.controller.deleteAlertSeconds | quote }}}
+            - {name: TARGET_LABEL_SELECTOR, value: {{ .Values.controller.targetLabelSelector | quote }}}
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef: {fieldPath: metadata.namespace}
+            # Orders writes to the retained runner pools by the pod's rollout revision.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef: {fieldPath: metadata.name}
+            # Created once by the setup Job; the pod waits until it exists.
+            - name: INSTALLATION_ID
+              valueFrom:
+                configMapKeyRef: {name: panko-installation, key: id}
+            - name: RUNNER_POOLS
+              valueFrom:
+                configMapKeyRef: {name: panko-runner-pools, key: pools.json, optional: true}
+          ports:
+            - {name: http, containerPort: 8080}
+            - {name: mc-metrics, containerPort: 9999}
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 5
+          securityContext:
+            {{- include "panko.restricted" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
+---
+# Metrics of the hook (port http) and of Metacontroller (mc-metrics); the hooks are loopback-only.
+apiVersion: v1
+kind: Service
+metadata:
+  name: database-hook
+  namespace: infra-runners
+  labels:
+    {{- include "panko.labels" . | nindent 4 }}
+spec:
+  selector: {app: database-hook}
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+    - {name: mc-metrics, port: 9999, targetPort: mc-metrics}
+---
+apiVersion: metacontroller.k8s.io/v1alpha1
+kind: CompositeController
+metadata:
+  name: database-controller
+  labels:
+    platform.example.com/controller: panko
+    {{- include "panko.labels" . | nindent 4 }}
+  # Kept on uninstall: Metacontroller finalizes a deleted CompositeController by removing its
+  # finalizer from every Database. With the controller gone it would hang in Terminating, and a
+  # later reinstall would strip the Databases' destroy finalizers.
+  annotations:
+    {{- include "panko.retain" . | nindent 4 }}
+spec:
+  generateSelector: true
+  resyncPeriodSeconds: 30
+  parentResource:
+    apiVersion: platform.example.com/v1
+    resource: databases
+  childResources:
+    - apiVersion: batch/v1
+      resource: jobs
+      updateStrategy:
+        method: OnDelete
+    # Executions of resources bound to a remote runner pool; the runner endpoint owns their status.
+    - apiVersion: platform.example.com/v1
+      resource: runs
+      updateStrategy:
+        method: OnDelete
+  hooks:
+    # The embedded Metacontroller calls the hook in the same pod over loopback HTTP.
+    customize:
+      webhook:
+        url: http://127.0.0.1:8090/customize
+        timeout: 10s
+    sync:
+      webhook:
+        url: http://127.0.0.1:8090/sync
+        timeout: 10s
+    finalize:
+      webhook:
+        url: http://127.0.0.1:8090/finalize
+        timeout: 10s

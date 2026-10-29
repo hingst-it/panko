@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: panko-config
+  namespace: infra-runners
+  labels:
+    {{- include "panko.labels" . | nindent 4 }}
+data:
+  # Read by the setup Job and by `panko admin --config cluster`.
+  installation.json: |
+    {{- include "panko.installation" . | nindent 4 }}
+---
+# Team namespace to remote runner pool; the controller reads it at start.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: panko-runner-pools
+  namespace: infra-runners
+  labels:
+    {{- include "panko.labels" . | nindent 4 }}
+data:
+  pools.json: {{ include "panko.runnerPools" . | quote }}

@@ -1,0 +1,126 @@
+{{- define "panko.setupPod" -}}
+spec:
+  serviceAccountName: panko-setup
+  restartPolicy: Never
+  securityContext:
+    {{- include "panko.podSecurity" .root | nindent 4 }}
+  {{- include "panko.pullSecrets" .root | nindent 2 }}
+  containers:
+    - name: setup
+      image: {{ include "panko.serverImage" .root }}
+      imagePullPolicy: {{ .root.Values.images.server.pullPolicy }}
+      args: {{ toJson .args }}
+      securityContext:
+        {{- include "panko.restricted" .root | nindent 8 }}
+      resources:
+        requests: {cpu: 20m, memory: 32Mi}
+        limits: {memory: 128Mi}
+      volumeMounts:
+        - {name: config, mountPath: /etc/panko/config, readOnly: true}
+  volumes:
+    - name: config
+      configMap: {name: panko-config}
+{{- end }}
+{{- /* Setup role: creates missing credentials and cluster-derived objects next to the release
+and never replaces an existing credential. The Job name carries a digest of its inputs, so a
+changed configuration runs a new Job while an unchanged render keeps the completed one. */}}
+{{- $teams := .Values.installation.teams }}
+{{- $args := list "setup" (printf "--generate=%t" .Values.secrets.generate) (printf "--provider-mirror=%t" .Values.providerMirror.enabled) (printf "--endpoint=%t" .Values.endpoint.enabled) }}
+{{- with .Values.module.sshSecret }}{{ $args = append $args (printf "--module-secret=%s" .) }}{{ end }}
+{{- /* A Job's Pod template is immutable: every input of the rendered template is part of the digest. */}}
+{{- $digest := list (include "panko.installation" .) (include "panko.setupPod" (dict "root" . "args" $args)) | toJson | sha256sum | trunc 10 }}
+{{- /* Egress rules resolve Services to pods, so setup reads Services in their namespaces. */}}
+{{- $serviceNamespaces := list "infra-runners" "infra-backends" }}
+{{- range .Values.installation.egressTargets }}{{ with .service }}{{ $serviceNamespaces = append $serviceNamespaces (first (splitList "/" .)) }}{{ end }}{{ end }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: panko-setup
+  namespace: infra-runners
+  labels:
+    {{- include "panko.labels" . | nindent 4 }}
+{{- range $namespace := concat (list "infra-backends" "infra-gateway" "infra-runners" "default") $teams ($serviceNamespaces | uniq) | uniq }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: panko-setup
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "panko.labels" $ | nindent 4 }}
+rules:
+  {{- if has $namespace (list "infra-backends" "infra-gateway" "infra-runners") }}
+  - {apiGroups: [""], resources: [secrets], verbs: [get, create, update]}
+  {{- end }}
+  {{- if eq $namespace "infra-runners" }}
+  - {apiGroups: [""], resources: [configmaps], verbs: [get, create]}
+  {{- end }}
+  {{- if has $namespace $teams }}
+  - {apiGroups: [""], resources: [secrets], verbs: [get, create]}
+  - {apiGroups: [""], resources: [configmaps], verbs: [get, create, update]}
+  - {apiGroups: [networking.k8s.io], resources: [networkpolicies], verbs: [get, create, update, delete]}
+  {{- end }}
+  {{- if eq $namespace "default" }}
+  - {apiGroups: [""], resources: [services, endpoints], resourceNames: [kubernetes], verbs: [get]}
+  {{- end }}
+  {{- if has $namespace $serviceNamespaces }}
+  - {apiGroups: [""], resources: [services], verbs: [get]}
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: panko-setup
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "panko.labels" $ | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: panko-setup}
+subjects:
+  - {kind: ServiceAccount, name: panko-setup, namespace: infra-runners}
+{{- end }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: panko-setup-{{ $digest }}
+  namespace: infra-runners
+  labels:
+    app: panko-setup
+    app.kubernetes.io/component: setup
+    {{- include "panko.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 6
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        app: panko-setup
+        app.kubernetes.io/component: setup
+    {{- include "panko.setupPod" (dict "root" . "args" $args) | nindent 4 }}
+---
+# The same setup daily: certificates are renewed 30 days before expiry and CA copies refreshed
+# also when no input changed, which GitOps installations otherwise never rerun.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: panko-setup-scheduled
+  namespace: infra-runners
+  labels:
+    app: panko-setup
+    app.kubernetes.io/component: setup
+    {{- include "panko.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.secrets.renewSchedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      activeDeadlineSeconds: 900
+      template:
+        metadata:
+          labels:
+            app: panko-setup-scheduled
+            app.kubernetes.io/component: setup
+        {{- include "panko.setupPod" (dict "root" . "args" $args) | nindent 8 }}

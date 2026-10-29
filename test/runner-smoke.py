@@ -21,7 +21,7 @@ def main():
         kube('create', '-f', '-', obj={'apiVersion': 'platform.example.com/v1', 'kind': 'Database',
              'metadata': {'name': name, 'namespace': 'team-a'},
              'spec': {'owner': 'team-a', 'extensions': ['pgcrypto'], 'connectionLimit': 20}})
-        parent = get('db', name)
+        parent = get('databases.platform.example.com', name)
         snapshot = {'metadata': {k: parent['metadata'][k] for k in ('name', 'namespace', 'uid', 'generation')},
                     'spec': parent['spec']}
         digest = hashlib.sha256(json.dumps({'spec': snapshot['spec'], 'generation': snapshot['metadata']['generation']},
@@ -47,8 +47,10 @@ def main():
             child = copy.deepcopy(fixture)
             child['metadata'] = {'name': job_name, 'namespace': 'team-a'}
             container = child['spec']['template']['spec']['containers'][0]
-            container['image'] = os.environ.get('RUNNER_IMAGE', 'panko-runner:dev')
-            container['args'] = [action, 'team-a', name]
+            # The shared panko-server image runs the runner role, as the hook's Jobs do.
+            container['image'] = os.environ.get('RUNNER_IMAGE', hook_env.get('RUNNER_IMAGE', 'panko-server:dev'))
+            container['imagePullPolicy'] = hook_env.get('RUNNER_IMAGE_PULL_POLICY', 'Never')
+            container['args'] = hook_env.get('RUNNER_COMMAND', '').split() + [action, 'team-a', name]
             backend = {'type': 'kubernetes', 'config': {'in_cluster_config': True, 'namespace': 'panko-state-team-a',
                                                         'secret_suffix': 'team-a-' + name}}
             values = {'PANKO_RESOURCE': json.dumps(snapshot), 'PANKO_HASH': digest, 'PANKO_JOB': job_name,
@@ -76,13 +78,13 @@ def main():
         assert sql(f"SELECT count(*) FROM pg_roles WHERE rolname='{creds['username']}';") == '0'
         print('External runner smoke: apply, owned connection Secret, destroy, state and lock cleanup passed', flush=True)
     finally:
-        kube('delete', 'db', name, '-n', 'team-a', '--ignore-not-found', '--wait=false', check=False)
+        kube('delete', 'databases.platform.example.com', name, '-n', 'team-a', '--ignore-not-found', '--wait=false', check=False)
         for job_name in job_names:
             kube('delete', 'job', job_name, '-n', 'team-a', '--ignore-not-found', '--wait=false', check=False)
         kube('scale', 'deploy/database-hook', '-n', 'infra-runners', '--replicas=' + str(replicas))
         kube('rollout', 'status', 'deploy/database-hook', '-n', 'infra-runners', '--timeout=120s')
         if replicas:
-            wait(lambda: get('db', name) is None, 'smoke resource finalized')
+            wait(lambda: get('databases.platform.example.com', name) is None, 'smoke resource finalized')
 
 
 if __name__ == '__main__':

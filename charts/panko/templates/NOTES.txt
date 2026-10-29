@@ -1,0 +1,11 @@
+Panko {{ .Chart.AppVersion }} is installed for teams: {{ join ", " .Values.installation.teams }}.
+
+The setup Job infra-runners/panko-setup-* creates missing credentials (secrets.generate={{ .Values.secrets.generate }}).
+Pods that mount them wait until it has completed:
+
+  kubectl -n infra-runners get jobs -l app=panko-setup
+  kubectl -n infra-runners rollout status deploy/database-hook
+  kubectl -n infra-gateway rollout status deploy/platform-gateway
+
+Team tokens are in the Secret infra-gateway/gateway-auth. `panko admin ensure-gateway-auth`
+copies them into a private local file; never paste them into chat or tickets.

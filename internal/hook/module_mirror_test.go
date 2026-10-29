@@ -41,6 +41,11 @@ func TestModuleMirrorJob(t *testing.T) {
 			if args[0] != "--repo="+repo || args[1] != "--ref="+testRevision {
 				t.Fatal(args)
 			}
+			// Only the mirror, which may still be fetching a newly pinned revision, is retried.
+			retried := strings.Contains(string(jsonx.Encode(args)), "--max-failures=18")
+			if retried != (mirror != "") {
+				t.Fatal("unexpected module fetch retries:", args)
+			}
 			for _, items := range []any{pod["volumes"], module["volumeMounts"]} {
 				found := false
 				for _, item := range jsonx.Array(items) {

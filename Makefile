@@ -6,7 +6,7 @@ export KUBECONFIG := $(CURDIR)/.local/kubeconfig
 export PATH := $(CURDIR)/.local/bin:$(PATH)
 export GOCACHE := $(CURDIR)/.local/go-cache
 export GOMODCACHE := $(CURDIR)/.local/go-mod
-.PHONY: cluster-up cluster-down bootstrap build deploy test test-shard clean help
+.PHONY: cluster-up cluster-down build deploy test test-shard clean help
 # Default goal: plain `make` lists the available targets.
 .DEFAULT_GOAL := help
 
@@ -18,15 +18,11 @@ cluster-up:
 cluster-down:
 	mise exec -- k3d cluster delete $(CLUSTER_NAME)
 
-## Build the Go binaries and provision the lab cluster from scratch.
-bootstrap: build-go
-	mise exec -- bash cluster/bootstrap.sh
-
-## Build the runner container image.
+## Build the panko-server and module mirror images and import them into the lab cluster.
 build:
 	mise exec -- bash runner/build.sh
 
-## Build the Go binaries and deploy the platform into the lab cluster.
+## Install or upgrade Panko in the lab cluster with panko install and the chart (cluster/lab-values.yaml).
 deploy: build-go
 	mise exec -- bash cluster/deploy.sh
 
@@ -39,7 +35,7 @@ test-shard:
 	mise exec -- bash test/e2e-shard.sh "$(SHARD)"
 
 .PHONY: test-unit lint migrate-state
-.PHONY: test-go lint-go build-go
+.PHONY: test-go lint-go build-go lint-chart
 
 ## Run the Go unit tests with the race detector.
 test-go:
@@ -50,13 +46,25 @@ lint-go:
 	test -z "$$(mise exec -- gofmt -l cmd internal)"
 	mise exec -- go vet ./...
 
-## Build all binaries under cmd/ (admin, agent, endpoint, gateway, hook, mirror, panko, runner) into .local/bin.
+## Build all binaries under cmd/ (panko, panko-server and the legacy admin wrapper) into .local/bin.
 build-go:
 	mkdir -p .local/bin
 	mise exec -- go build -o .local/bin/ ./cmd/...
 
-## Run all local unit checks (Go tests with the race detector).
-test-unit: test-go
+## Lint and render the Helm chart; the rendering must be reproducible, free of Secrets and match the release's images.
+lint-chart:
+	mise exec -- helm lint --strict charts/panko
+	mise exec -- helm lint --strict charts/panko --values examples/gitops/values.yaml
+	mise exec -- helm template panko charts/panko --namespace panko-system --include-crds --values examples/gitops/values.yaml > .local/rendered-1.yaml
+	mise exec -- helm template panko charts/panko --namespace panko-system --include-crds --values examples/gitops/values.yaml > .local/rendered-2.yaml
+	cmp .local/rendered-1.yaml .local/rendered-2.yaml
+	! grep -q '^kind: Secret$$' .local/rendered-1.yaml
+	# The default rendering references exactly the images a release of this version publishes.
+	mise exec -- helm template panko charts/panko --namespace panko-system --set installation.s3=true > .local/rendered-defaults.yaml
+	python3 tools/release.py check "$$(sed -n 's/^version: //p' charts/panko/Chart.yaml)" .local/rendered-defaults.yaml
+
+## Run all local unit checks (Go tests with the race detector, chart lint and rendering).
+test-unit: test-go lint-chart
 
 ## Lint the Python tooling with ruff.
 lint:
@@ -82,7 +90,7 @@ restore: build-go
 
 .PHONY: gateway-rbac gateway-forward test-gateway
 
-## Apply the gateway RBAC manifests to the cluster.
+## Apply gateway RBAC for every exposed CRD in the cluster, including CRDs added after installation.
 gateway-rbac: build-go
 	.local/bin/admin --kubeconfig "$(KUBECONFIG)" gateway-rbac | kubectl apply -f -
 

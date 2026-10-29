@@ -1,0 +1,19 @@
+apiVersion: v2
+name: panko
+description: Panko exposes OpenTofu modules as a team-scoped Kubernetes-backed API (experimental).
+type: application
+# version, appVersion and the default image tags are the Panko release version without the v
+# prefix. The committed value is the next release's core version; the Release workflow stamps a
+# prerelease suffix from the tag (tools/release.py).
+version: 0.0.2
+appVersion: "0.0.2"
+kubeVersion: ">=1.29.0-0"
+home: https://github.com/hingst-it/panko
+sources:
+  - https://github.com/hingst-it/panko
+icon: https://raw.githubusercontent.com/hingst-it/panko/main/docs/brand/panko-mark-color.png
+keywords: [opentofu, terraform, metacontroller, platform]
+annotations:
+  artifacthub.io/license: Apache-2.0
+  # Embedded in the controller role of panko-server; no separate Metacontroller deployment.
+  panko.hingst.it/metacontroller-version: v4.17.6

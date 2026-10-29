@@ -10,11 +10,11 @@ if [ "$KUBECONFIG" = "$PWD/.local/kubeconfig" ]; then
 fi
 lab=(CLUSTER_NAME="$CLUSTER_NAME" KUBECONFIG="$KUBECONFIG")
 backup="${BACKUP_DIR:-.local/backup-rehearsal-$(date +%s)}"
-make "${lab[@]}" cluster-up bootstrap build deploy
+make "${lab[@]}" cluster-up build deploy
 python3 test/restore_e2e.py prepare
 make "${lab[@]}" backup BACKUP_DIR="$backup"
 mise exec -- k3d cluster delete "$CLUSTER_NAME"
-make "${lab[@]}" cluster-up bootstrap build deploy
+make "${lab[@]}" cluster-up build deploy
 make "${lab[@]}" restore BACKUP_DIR="$backup"
 python3 test/restore_e2e.py verify
 mise exec -- k3d cluster delete "$CLUSTER_NAME"

@@ -34,7 +34,8 @@ spec:
       securityContext: {runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000, seccompProfile: {type: RuntimeDefault}}
       containers:
         - name: agent
-          image: panko-agent:dev
+          # The released agent image; pin the version that matches the installation.
+          image: ghcr.io/hingst-it/panko-agent:0.0.2
           args: [run]
           env:
             - {name: PANKO_ENDPOINT, value: "https://panko.example.com:30443"}

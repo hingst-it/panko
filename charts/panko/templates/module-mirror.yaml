@@ -1,0 +1,85 @@
+{{- /* Serves the pinned module to runner Jobs over git:// without credentials; only this pod
+holds the SSH deploy key of a private repository. */}}
+{{- $repo := .Values.module.repository }}
+{{- if not (or (hasPrefix "https://" $repo) (hasPrefix "git@" $repo) (hasPrefix "ssh://" $repo)) }}
+{{- fail "module.repository must be an HTTPS or SSH URL" }}
+{{- end }}
+{{- if not (regexMatch "^[0-9a-f]{40}$" .Values.module.revision) }}
+{{- fail "module.revision must be a full commit SHA" }}
+{{- end }}
+{{- if and (not (hasPrefix "https://" $repo)) (not .Values.module.sshSecret) }}
+{{- fail "an SSH module.repository needs module.sshSecret" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: module-mirror
+  namespace: infra-runners
+  labels:
+    app: module-mirror
+    app.kubernetes.io/component: module-mirror
+    {{- include "panko.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  # A new pod clones before the old one stops, so runner Jobs always find a ready mirror; a new
+  # module revision restarts the mirror, and the new pod is ready only once its clone contains it.
+  strategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 0, maxSurge: 1}}
+  selector:
+    matchLabels: {app: module-mirror}
+  template:
+    metadata:
+      labels:
+        app: module-mirror
+        app.kubernetes.io/component: module-mirror
+      annotations:
+        checksum/module: {{ list $repo .Values.module.revision | toJson | sha256sum | trunc 16 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "panko.podSecurity" . | nindent 8 }}
+      {{- include "panko.pullSecrets" . | nindent 6 }}
+      containers:
+        - name: mirror
+          image: {{ include "panko.moduleMirrorImage" . }}
+          imagePullPolicy: {{ .Values.images.moduleMirror.pullPolicy }}
+          env:
+            - {name: MODULE_REPO, value: {{ $repo | quote }}}
+            # The pod becomes ready only after its clone contains this commit.
+            - {name: MODULE_REVISION, value: {{ .Values.module.revision | quote }}}
+          ports: [{name: git, containerPort: 9418}]
+          readinessProbe:
+            exec:
+              command: [git, ls-remote, "git://127.0.0.1:9418/module.git", HEAD]
+            periodSeconds: 5
+            timeoutSeconds: 3
+          securityContext:
+            {{- include "panko.restricted" . | nindent 12 }}
+          resources:
+            requests: {cpu: 20m, memory: 32Mi}
+            limits: {memory: 256Mi}
+          volumeMounts:
+            - {name: repository, mountPath: /repositories}
+            - {name: tmp, mountPath: /tmp}
+            {{- if .Values.module.sshSecret }}
+            - {name: git-secret, mountPath: /etc/git-secret, readOnly: true}
+            {{- end }}
+      volumes:
+        - name: repository
+          emptyDir: {sizeLimit: {{ .Values.moduleMirror.storage }}}
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+        {{- with .Values.module.sshSecret }}
+        - name: git-secret
+          secret: {secretName: {{ . }}, defaultMode: 0440}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: module-mirror
+  namespace: infra-runners
+  labels:
+    {{- include "panko.labels" . | nindent 4 }}
+spec:
+  selector: {app: module-mirror}
+  ports: [{name: git, port: 9418, targetPort: git}]

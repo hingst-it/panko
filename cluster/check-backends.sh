@@ -23,4 +23,4 @@ YAML
 kubectl -n infra-backends wait --for=jsonpath='{.status.phase}'=Succeeded pod/postgres-debug --timeout=120s
 kubectl -n infra-backends logs postgres-debug
 kubectl -n infra-backends delete pod postgres-debug --wait=false >/dev/null
-kubectl -n metacontroller get pods
+kubectl -n infra-runners get pods -l app=database-hook

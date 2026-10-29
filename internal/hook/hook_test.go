@@ -215,6 +215,39 @@ func TestJobConfigRequiresPinnedModule(t *testing.T) {
 		t.Fatal("accepted missing engine image")
 	}
 }
+
+// The shared panko-server image runs the runner as a role; without RUNNER_COMMAND the Job keeps
+// the dedicated runner image's arguments and the lab's Never pull policy.
+func TestRunnerCommandAndPullPolicy(t *testing.T) {
+	job, err := CreateJobWith(LoadJobConfig(), parent(), "apply", "hash", strings.Repeat("1", 40), Object{"type": "kubernetes"}, 1, 1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	container := jsonx.Obj(jsonx.Array(jsonx.Obj(jsonx.Obj(jsonx.Obj(job["spec"])["template"])["spec"])["containers"])[0])
+	if args := jsonx.Array(container["args"]); len(args) != 3 || args[0] != "apply" || container["imagePullPolicy"] != "Never" {
+		t.Fatalf("default runner container changed: %v %v", args, container["imagePullPolicy"])
+	}
+	c := JobConfigFrom(func(key string) string {
+		return map[string]string{"RUNNER_IMAGE": "registry/panko-server:1", "RUNNER_COMMAND": "runner", "RUNNER_IMAGE_PULL_POLICY": "IfNotPresent",
+			"ENGINE_IMAGE": "engine", "GIT_SYNC_IMAGE": "git-sync", "MODULE_MIRROR": "git://m/module.git", "MODULE_REVISION": strings.Repeat("1", 40)}[key]
+	})
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	job, err = CreateJobWith(c, parent(), "destroy", "hash", strings.Repeat("1", 40), Object{"type": "kubernetes"}, 1, 1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	container = jsonx.Obj(jsonx.Array(jsonx.Obj(jsonx.Obj(jsonx.Obj(job["spec"])["template"])["spec"])["containers"])[0])
+	args := jsonx.Array(container["args"])
+	if len(args) != 4 || args[0] != "runner" || args[1] != "destroy" || container["image"] != "registry/panko-server:1" || container["imagePullPolicy"] != "IfNotPresent" {
+		t.Fatalf("runner role not selected: %v %v %v", args, container["image"], container["imagePullPolicy"])
+	}
+	c.RunnerPullPolicy = "Sometimes"
+	if c.Validate() == nil {
+		t.Fatal("accepted an invalid pull policy")
+	}
+}
 func catalog() map[string]map[string]Object {
 	return map[string]map[string]Object{
 		statebackend.BackendKey: {"minio": {"metadata": Object{"name": "minio"}, "spec": Object{"profileRef": Object{"name": "lab"}, "credentialsSecretRef": Object{"name": "creds"}}}},

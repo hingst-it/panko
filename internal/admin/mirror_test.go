@@ -18,16 +18,26 @@ import (
 )
 
 func TestMirrorTLSAndDistribution(t *testing.T) {
-	var stored Object
+	var stored, caSecret Object
 	creates := 0
 	m := Migrator{API: fakeAPI(func(_ context.Context, method, path string, b any, _ string) (Object, error) {
 		if method == "POST" {
 			if path != "/api/v1/namespaces/infra-runners/secrets" {
 				t.Fatal(path)
 			}
+			if jsonx.Str(jsonx.Obj(jsonx.Obj(b)["metadata"])["name"]) == "provider-mirror-tls-ca" {
+				caSecret = jsonx.Obj(b)
+				return caSecret, nil
+			}
 			creates++
 			stored = jsonx.Obj(b)
 			return stored, nil
+		}
+		if path == mirrorSecretPath+"-ca" {
+			if caSecret == nil {
+				return nil, &kube.Error{Code: 404}
+			}
+			return caSecret, nil
 		}
 		if path != mirrorSecretPath {
 			t.Fatal(path)

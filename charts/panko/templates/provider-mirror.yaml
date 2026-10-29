@@ -1,0 +1,78 @@
+{{- if .Values.providerMirror.enabled }}
+{{- /* Mirror role: provider network mirror without Kubernetes API access. The cache survives
+restarts, so cached providers stay available during upstream outages. */}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: provider-mirror-cache
+  namespace: infra-runners
+  labels:
+    {{- include "panko.labels" . | nindent 4 }}
+  annotations:
+    {{- include "panko.retain" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: {storage: {{ .Values.providerMirror.cacheSize }}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: provider-mirror
+  namespace: infra-runners
+  labels:
+    app: provider-mirror
+    app.kubernetes.io/component: mirror
+    {{- include "panko.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  # One writer for the ReadWriteOnce cache volume.
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: provider-mirror}
+  template:
+    metadata:
+      labels:
+        app: provider-mirror
+        app.kubernetes.io/component: mirror
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "panko.podSecurity" . | nindent 8 }}
+      {{- include "panko.pullSecrets" . | nindent 6 }}
+      containers:
+        - name: mirror
+          image: {{ include "panko.serverImage" . }}
+          imagePullPolicy: {{ .Values.images.server.pullPolicy }}
+          args: [mirror]
+          env:
+            - {name: TLS_CERT_FILE, value: /tls/tls.crt}
+            - {name: TLS_KEY_FILE, value: /tls/tls.key}
+          ports: [{name: https, containerPort: 8443}]
+          readinessProbe:
+            httpGet: {path: /healthz, port: https, scheme: HTTPS}
+          securityContext:
+            {{- include "panko.restricted" . | nindent 12 }}
+          volumeMounts:
+            - {name: cache, mountPath: /cache}
+            - {name: tls, mountPath: /tls, readOnly: true}
+          resources:
+            requests: {cpu: 20m, memory: 32Mi}
+            limits: {memory: 128Mi}
+      volumes:
+        - name: cache
+          persistentVolumeClaim: {claimName: provider-mirror-cache}
+        - name: tls
+          secret: {secretName: provider-mirror-tls, defaultMode: 0440}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: provider-mirror
+  namespace: infra-runners
+  labels:
+    {{- include "panko.labels" . | nindent 4 }}
+spec:
+  selector: {app: provider-mirror}
+  ports: [{name: https, port: 8443, targetPort: https}]
+{{- end }}

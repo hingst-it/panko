@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/hingst-it/panko/internal/admin"
+	"github.com/hingst-it/panko/internal/install"
 	"github.com/hingst-it/panko/internal/jsonx"
 	"github.com/hingst-it/panko/internal/kube"
 )
@@ -81,8 +82,7 @@ func (a *App) doctor(ctx context.Context, o options) int {
 		}
 		fmt.Fprintf(a.Out, "%s %s: %s\n", state, name, hint)
 	}
-	config, err := admin.LoadConfig(o.config)
-	check("panko.json", err == nil, "check --config, team names and optional s3 setting")
+	config, configErr := admin.LoadConfig(o.config)
 	info, err := os.Stat(o.tokens)
 	private := err == nil && info.Mode().IsRegular() && info.Mode().Perm() == 0600
 	var local map[string]string
@@ -98,6 +98,14 @@ func (a *App) doctor(ctx context.Context, o options) int {
 		reachable = err == nil
 	}
 	check("kubeconfig reachable", reachable, "check --kubeconfig and cluster availability")
+	// Without a local panko.json (an installation from the chart), the cluster's rendered copy counts.
+	if configErr != nil && reachable {
+		if c, err := install.ClusterConfig(ctx, api); err == nil {
+			config, configErr = c, nil
+			admin.Teams = c.Teams
+		}
+	}
+	check("installation configuration", configErr == nil, "check --config (panko.json) or infra-runners/panko-config")
 	get := func(path string) (jsonx.Object, error) {
 		if api == nil {
 			return nil, fmt.Errorf("kubeconfig unavailable")
@@ -121,12 +129,16 @@ func (a *App) doctor(ctx context.Context, o options) int {
 		ok, _ := ready(d[0], "deployments", d[1])
 		check(d[0]+"/"+d[1], ok, "deployment must finish its rollout")
 	}
-	ok, err := ready("metacontroller", "statefulsets", "metacontroller")
-	var ke *kube.Error
-	if errors.As(err, &ke) && ke.Code == 404 {
-		ok, _ = ready("metacontroller", "deployments", "metacontroller")
+	// The controller role embeds Metacontroller; only an installation made with make deploy before
+	// the unified server runs it separately.
+	if _, err := get("/api/v1/namespaces/metacontroller"); err == nil {
+		ok, err := ready("metacontroller", "statefulsets", "metacontroller")
+		var ke *kube.Error
+		if errors.As(err, &ke) && ke.Code == 404 {
+			ok, _ = ready("metacontroller", "deployments", "metacontroller")
+		}
+		check("metacontroller/metacontroller (separate)", ok, "statefulset or deployment must finish its rollout")
 	}
-	check("metacontroller/metacontroller", ok, "statefulset or deployment must finish its rollout")
 	// Public HTTPS mirrors need no key. SSH mirrors keep it only in infra-runners.
 	hookEnv := map[string]string{}
 	if hookDeployment, err := get("/apis/apps/v1/namespaces/infra-runners/deployments/database-hook"); err == nil {
@@ -177,7 +189,7 @@ func (a *App) doctor(ctx context.Context, o options) int {
 	}
 	if config.S3 {
 		ok, _ := ready("infra-backends", "statefulsets", "s3")
-		check("lab S3", ok, "run make bootstrap and check infra-backends/s3")
+		check("lab S3", ok, "check infra-backends/s3 and rerun panko install or panko dev up")
 	}
 	req, err := http.NewRequestWithContext(ctx, "GET", strings.TrimRight(o.url, "/")+"/healthz", nil)
 	healthy := false
@@ -191,7 +203,7 @@ func (a *App) doctor(ctx context.Context, o options) int {
 	if healthy {
 		fmt.Fprintln(a.Out, "ok gateway /healthz: reachable")
 	} else {
-		fmt.Fprintln(a.Out, "warn gateway /healthz: run make gateway-forward and check --url")
+		fmt.Fprintln(a.Out, "warn gateway /healthz: check --url (panko dev up maps it to localhost; otherwise make gateway-forward)")
 	}
 	if failed {
 		return 1

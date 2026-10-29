@@ -1,0 +1,132 @@
+# One execution of a resource on a remote runner pool. The hook creates it as a child instead of a
+# Job; the runner endpoint owns its status. Not exposed through the team gateway.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  # Deleting a CRD deletes every resource of its kind; GitOps tools must never prune it.
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  name: runs.platform.example.com
+spec:
+  group: platform.example.com
+  scope: Namespaced
+  names:
+    plural: runs
+    singular: run
+    kind: Run
+    categories: [panko]
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - {name: Pool, type: string, jsonPath: .spec.pool}
+        - {name: Action, type: string, jsonPath: .spec.action}
+        - {name: Agent, type: string, jsonPath: .status.lease.agentId}
+        - {name: Age, type: date, jsonPath: .metadata.creationTimestamp}
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            apiVersion: {type: string}
+            kind: {type: string}
+            metadata: {type: object}
+            spec:
+              type: object
+              description: Immutable inputs, set once by the hook.
+              required: [pool, action, generation, attempt, hash, module, resource, backend, deadlineSeconds, leaseSeconds, heartbeatSeconds]
+              x-kubernetes-validations:
+                - {rule: "self == oldSelf", message: "spec is immutable"}
+                - {rule: "(self.action == 'migrate') == has(self.targetBackend)", message: "targetBackend is required for migrate and forbidden otherwise"}
+                - {rule: "(self.action == 'migrate') == (has(self.migrationId) && self.migrationId != '')", message: "migrationId is required for migrate and forbidden otherwise"}
+              properties:
+                pool: {type: string, maxLength: 40}
+                action: {type: string, enum: [apply, destroy, plan, migrate]}
+                generation: {type: integer, format: int64, minimum: 1}
+                attempt: {type: integer, format: int64, minimum: 1}
+                retryToken: {type: string, maxLength: 128}
+                hash: {type: string, maxLength: 64}
+                module:
+                  type: object
+                  required: [repository, revision]
+                  properties:
+                    repository: {type: string, maxLength: 2048}
+                    revision: {type: string, pattern: "^[0-9a-f]{40}$"}
+                    path: {type: string, maxLength: 200}
+                resource:
+                  type: object
+                  description: Spec snapshot the module receives.
+                  x-kubernetes-preserve-unknown-fields: true
+                backend:
+                  type: object
+                  description: Non-secret state backend binding; credentials stay at the agent.
+                  x-kubernetes-preserve-unknown-fields: true
+                targetBackend:
+                  type: object
+                  description: Non-secret destination backend for migrate; required only for migrate.
+                  x-kubernetes-preserve-unknown-fields: true
+                migrationId:
+                  type: string
+                  maxLength: 32
+                  pattern: "^[a-z0-9]([-a-z0-9]{0,30}[a-z0-9])?$"
+                owner:
+                  type: object
+                  description: API version and kind of the resource; its artifacts get it as owner.
+                  properties:
+                    apiVersion: {type: string, maxLength: 253}
+                    kind: {type: string, maxLength: 63}
+                deadlineSeconds: {type: integer, format: int64, minimum: 60}
+                leaseSeconds: {type: integer, format: int64, minimum: 2}
+                heartbeatSeconds: {type: integer, format: int64, minimum: 1}
+            status:
+              type: object
+              description: Written only by the runner endpoint.
+              properties:
+                startTime: {type: string, format: date-time}
+                completionTime: {type: string, format: date-time}
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required: [type, status]
+                    properties:
+                      type: {type: string}
+                      status: {type: string}
+                      reason: {type: string}
+                      message: {type: string, maxLength: 300}
+                      lastTransitionTime: {type: string, format: date-time}
+                baseline:
+                  type: object
+                  description: The checkpoint handed out with the claim, so retries and commits compare against the same state.
+                  properties:
+                    lineage: {type: string, maxLength: 128}
+                    serial: {type: integer, format: int64, minimum: 0}
+                    digest: {type: string, maxLength: 64}
+                lease:
+                  type: object
+                  properties:
+                    agentId: {type: string, maxLength: 128}
+                    epoch: {type: integer, format: int64, minimum: 1}
+                    expiresAt: {type: string, format: date-time}
+                commit:
+                  type: object
+                  description: The accepted commit, so an identical retry gets the same answer.
+                  properties:
+                    idempotencyKey: {type: string, maxLength: 128}
+                    digest: {type: string, maxLength: 64}
+                    stage: {type: string, enum: [Committing, Committed]}
+                report:
+                  type: object
+                  properties:
+                    code: {type: string, maxLength: 64}
+                    message: {type: string, maxLength: 300}
+                    changes:
+                      type: object
+                      properties:
+                        add: {type: integer, format: int64, minimum: 0}
+                        change: {type: integer, format: int64, minimum: 0}
+                        remove: {type: integer, format: int64, minimum: 0}

@@ -29,12 +29,12 @@ def database(name):
 
 def failed(name, code):
     def check():
-        status = get('db', name).get('status', {})
+        status = get('databases.platform.example.com', name).get('status', {})
         execution = status.get('lastExecution', {})
         return status.get('phase') == 'Failed' and execution.get('result') == 'Failed' and execution
     execution = wait(check, f'{name} failed', 300)
     assert execution['code'] == code, execution
-    message = get('db', name)['status']['message']
+    message = get('databases.platform.example.com', name)['status']['message']
     assert f'({code})' in message and 'retry action' in message, message
     return execution
 
@@ -42,7 +42,7 @@ def failed(name, code):
 def ready_with(name, revision):
     """Wait until the hook reports the given module revision as Ready; earlier failures may still show."""
     def check():
-        status = get('db', name).get('status', {})
+        status = get('databases.platform.example.com', name).get('status', {})
         if status.get('observedRevision') != revision:
             return False
         assert status.get('phase') != 'Failed', status.get('message')
@@ -53,7 +53,7 @@ def ready_with(name, revision):
 def ready_after(name, attempt):
     """Wait for a newer attempt than the failed one to finish Ready; the old failure may still show."""
     def check():
-        status = get('db', name).get('status', {})
+        status = get('databases.platform.example.com', name).get('status', {})
         execution = status.get('lastExecution', {})
         if execution.get('attempt', 0) <= attempt:
             return False
@@ -86,7 +86,7 @@ def main():
         first = failed(provider, 'provider')
         kube('delete', 'job', first['job'], '-n', 'team-a', '--wait=true')
         time.sleep(6)
-        assert get('db', provider)['status']['lastExecution']['code'] == 'provider', 'execution record lost with the Job'
+        assert get('databases.platform.example.com', provider)['status']['lastExecution']['code'] == 'provider', 'execution record lost with the Job'
         kube('patch', 'secret', 'postgres-admin', '-n', 'infra-backends', '--type=merge', '-p', json.dumps({'data': {'password': admin['data']['password']}}))
         curl('POST', f'/v1/teams/team-a/databases/{provider}/retry', 202)
         execution = ready_after(provider, first['attempt'])
@@ -117,9 +117,9 @@ def main():
         kube('patch', 'secret', 'postgres-admin', '-n', 'infra-backends', '--type=merge', '-p', json.dumps({'data': {'password': admin['data']['password']}}), check=False)
         hook_env(MODULE_REVISION=original['MODULE_REVISION'], ENGINE_BINARY=original['ENGINE_BINARY'])
         for name in names:
-            kube('delete', 'db', name, '-n', 'team-a', '--ignore-not-found', '--wait=false', check=False)
+            kube('delete', 'databases.platform.example.com', name, '-n', 'team-a', '--ignore-not-found', '--wait=false', check=False)
         for name in names:
-            wait(lambda name=name: get('db', name) is None, f'{name} cleanup', 300)
+            wait(lambda name=name: get('databases.platform.example.com', name) is None, f'{name} cleanup', 300)
         forward.terminate()
 
 

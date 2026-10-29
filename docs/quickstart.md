@@ -1,144 +1,111 @@
-# Quickstart: Panko 0.0.1
+# Quickstart
 
-Panko turns an OpenTofu module into a small, team-scoped infrastructure API.
-This first experimental release provisions PostgreSQL databases in a local
-Kubernetes lab. Expect API and configuration changes before a stable release.
+Panko turns an OpenTofu module into a small, team-scoped infrastructure API. v0.0.2 provisions
+PostgreSQL databases in a Kubernetes cluster. It is an experimental release for local evaluation
+and personal installations: APIs and configuration may change, and production readiness has not
+been established.
 
-There are two parts: the `panko` CLI on your machine and the services in a
-Kubernetes cluster. Installing the CLI alone does not deploy those services.
+There are two parts: the `panko` CLI on your machine and the services in a Kubernetes cluster.
+`panko dev up` creates a dedicated local cluster and installs the services; `panko install`
+installs them into an existing cluster. Both use the Helm chart embedded in the CLI and the
+published images. No repository checkout, Go, `make` or image build is needed.
 
-## Install the CLI
-
-Choose one method. All three install `panko` and `panko-admin` from the same
-release. No Apple developer certificate or paid signing service is needed for
-the documented Homebrew and mise installation paths.
-
-### Homebrew (macOS or Linux)
+## 1. Get the CLI
 
 ```sh
-brew install hingst-it/tap/panko
-panko --version
+brew install hingst-it/tap/panko          # or: mise use -g github:hingst-it/panko@0.0.2
+panko --version                           # panko v0.0.2
 ```
 
-### mise (macOS, Linux, or Windows)
+Archives with checksums for macOS, Linux and Windows are on the
+[release page](https://github.com/hingst-it/panko/releases/tag/v0.0.2); see
+[installation](installation.md#get-the-cli) for asdf and manual downloads.
+
+## 2. Start a local lab
+
+Requirements: macOS or Linux, a running Docker engine, and internet access for images, the
+module and providers. k3d 5.6 or newer is used if installed; otherwise `panko dev up` offers to
+install k3d v5.9.0 privately and verifies its checksum (`--install-k3d` agrees in advance).
 
 ```sh
-mise use -g github:hingst-it/panko@0.0.1
-mise exec github:hingst-it/panko@0.0.1 -- panko --version
+panko dev up
 ```
 
-If mise is activated in your shell, `panko` is also directly on `PATH`. Use
-`mise use github:hingst-it/panko@0.0.1` without `-g` to pin a project instead.
+This creates the k3d cluster `k3d-panko-dev`, installs Panko with PostgreSQL and a local
+S3-compatible service for `team-a` and `team-b`, and maps the API to <http://127.0.0.1:8081>. No
+port-forward or other background process is needed. The example module is public and fetched
+over HTTPS: **no GitHub account, deploy key, cloud account or cloud credentials are required**.
+Your `~/.kube/config` and its current context stay unchanged; the lab's kubeconfig and team tokens
+are written with private permissions to `~/.local/state/panko/dev/panko-dev/`.
 
-### asdf (macOS or Linux)
+## 3. Request a database
+
+`dev up` prints the environment to use the lab from any directory:
 
 ```sh
-asdf plugin add panko https://github.com/hingst-it/asdf-panko.git
-asdf install panko 0.0.1
-asdf set -u panko 0.0.1
-panko --version
+export PANKO_URL=http://127.0.0.1:8081
+export PANKO_TOKENS_FILE=~/.local/state/panko/dev/panko-dev/team-tokens.json
+export PANKO_KUBECONFIG=~/.local/state/panko/dev/panko-dev/kubeconfig
+panko --team team-a doctor
+panko --team team-a create orders --extensions pgcrypto --connection-limit 20
+panko --team team-a wait orders --timeout 5m
+panko --team team-a get orders
 ```
 
-The plugin verifies the release archive against its published SHA-256 checksum.
-It needs `git`, `curl`, `tar`, and either `sha256sum` or `shasum`.
-
-### Manual download
-
-Download the archive for your OS and architecture and `SHA256SUMS` from
-[v0.0.1](https://github.com/hingst-it/panko/releases/tag/v0.0.1). Verify the archive
-with `sha256sum --ignore-missing --check SHA256SUMS` on Linux, or compare
-`shasum -a 256 ARCHIVE` with its exact entry on macOS. Extract the archive and put
-`panko` and `panko-admin` on `PATH`. On Windows the executables end in `.exe`.
-The executables are not signed with Apple Developer ID or Windows Authenticode;
-browser downloads may require operating-system approval. The checksums detect
-changed bytes but are not a publisher signature.
-
-## Deploy a local lab
-
-The supported cluster setup uses macOS or Linux, a running Docker engine,
-`git`, `make`, and [mise](https://mise.jdx.dev/). On Windows use a Linux environment
-with Docker access for the lab; the Windows CLI can talk to an existing gateway.
-The repository supplies pinned tools and builds the service images locally.
-Internet access is needed for tools, images, modules, and provider downloads.
-
-Use a fresh directory so that an existing installation's configuration and token
-files are kept separate:
-
-```sh
-git clone --branch v0.0.1 --depth 1 https://github.com/hingst-it/panko.git panko-0.0.1
-cd panko-0.0.1
-mise trust
-mise install
-export CLUSTER_NAME=panko-quickstart
-make cluster-up bootstrap build deploy
-```
-
-The example module is public and fetched over HTTPS: **no GitHub account, deploy
-key, cloud account, or cloud credentials are required**. The default configuration
-creates `team-a`, `team-b`, PostgreSQL, and a local S3-compatible service.
-`panko.json` controls teams, optional S3, and optional egress restrictions.
-
-The kubeconfig is written to `.local/kubeconfig`; existing default Kubernetes
-contexts are not modified. Team bearer tokens are created in
-`.local/team-tokens.json` with private permissions. Run the following commands
-from this checkout, where the CLI can find those files.
-
-In a second terminal, from the same checkout, leave the gateway forward running:
-
-```sh
-make gateway-forward
-```
-
-Back in the first terminal, use the installed CLI or the source-built one:
-
-```sh
-.local/bin/panko --team team-a doctor
-.local/bin/panko --team team-a create orders --extensions pgcrypto --connection-limit 20
-.local/bin/panko --team team-a wait orders --timeout 5m
-.local/bin/panko --team team-a get orders
-```
-
-Open <http://127.0.0.1:8081/ui> for the inspector, or
-<http://127.0.0.1:8081/docs> for API documentation. To sign in to the inspector,
-read the `team-a` token locally from `.local/team-tokens.json`; do not paste it
-into issue reports or an AI chat.
+Open <http://127.0.0.1:8081/ui> for the inspector, or <http://127.0.0.1:8081/docs> for API
+documentation. To sign in to the inspector, read the `team-a` token locally from the token file;
+do not paste it into issue reports or an AI chat.
 
 An explicit command reveals the connection URI, including the database password:
 
 ```sh
-.local/bin/panko --team team-a connect orders
+panko --team team-a connect orders
 ```
 
-The database host in that URI is internal to the cluster. For a local SQL client,
-run `mise exec -- kubectl --kubeconfig .local/kubeconfig -n infra-backends
-port-forward service/postgres 15432:5432` in another terminal (as one command),
-then use `127.0.0.1:15432` with the database, username, and password from the URI.
+The database host in that URI is internal to the cluster. For a local SQL client, run
+`kubectl --kubeconfig "$PANKO_KUBECONFIG" -n infra-backends port-forward service/postgres 15432:5432`
+in another terminal, then use `127.0.0.1:15432` with the database, username and password from the
+URI.
 
-Delete the example database through its normal destroy lifecycle:
+If an apply fails, `get` shows the phase `Failed` and an error code in `status.lastExecution`.
+Fix the cause, then request another attempt explicitly: `panko --team team-a retry orders --wait`.
+
+Delete the database through its destroy lifecycle:
 
 ```sh
-.local/bin/panko --team team-a delete orders --wait --timeout 5m
+panko --team team-a delete orders --wait --timeout 5m
 ```
 
-To remove the entire quickstart lab and all its data, explicitly name it:
+## 4. Clean up
+
+`panko dev status` shows the lab without printing secrets. `panko dev down` removes the lab and
+all its data after you type the lab name; only the cluster created for this lab is deleted.
+
+## Install into an existing cluster
+
+Use a dedicated cluster where you have cluster-administrator rights:
 
 ```sh
-make CLUSTER_NAME=panko-quickstart cluster-down
+panko install --kubeconfig ./config --context my-cluster --tokens-file ./team-tokens.json
 ```
+
+The command names the target cluster and context, checks permissions and conflicts, asks for
+confirmation, installs or upgrades the Helm release, and verifies readiness. The gateway is a
+ClusterIP Service; reach it with
+`kubectl --kubeconfig ./config --context my-cluster -n infra-gateway port-forward service/platform-gateway 8081:8080`. See
+[installation](installation.md) for values, Helm and private registries, [GitOps](gitops.md) for
+Argo CD, Flux and rendered manifests, and [upgrading](upgrading.md) to move a v0.0.1 installation.
 
 ## Troubleshooting and next steps
 
 - Check `docker info` if cluster creation cannot reach Docker.
-- Keep `make gateway-forward` running when using the CLI. Its default URL is
-  `http://127.0.0.1:8081`; override with `--url` or `PANKO_URL`.
-- Run `.local/bin/panko --team team-a doctor` for configuration and service checks.
-- If a resource fails, inspect its status and error code with `get`; fix the
-  cause, then use `retry NAME --wait`. Do not remove its finalizer to force deletion.
-- Full verification is optional for a quickstart: create `.venv`, install
-  `requirements-dev.txt`, then run `make test`. It creates additional temporary
-  resources and can take about 20 minutes.
+- `panko dev status` shows which component is not ready; `panko --team team-a doctor` checks
+  configuration and services. Failed installations name their cause and are resumed by rerunning
+  the same command ([troubleshooting](operations.md#troubleshooting)).
+- If a resource fails, fix the cause and use `retry NAME --wait`. Do not remove its finalizer to
+  force deletion.
 
-See [operations](operations.de.md), [state backends](state-backends.de.md), and
-[AI-assisted installation](agent-install.md). This release has one resource type,
-static team tokens, and shared PostgreSQL administrator credentials. It is for
-local evaluation and personal installations, not production tenant isolation.
+See [operations](operations.md), [state backends](state-backends.de.md),
+[remote runners](remote-runners.de.md) and [AI-assisted installation](agent-install.md). Panko has
+one resource type, static team tokens and shared PostgreSQL administrator credentials; it is not
+production tenant isolation. Contributors: see [building from source](installation.md#building-from-source-contributors).

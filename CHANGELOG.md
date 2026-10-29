@@ -1,11 +1,50 @@
 # Changelog
 
-## Unreleased
+## 0.0.2 — 2026-10-29
+
+Experimental release: one server binary, a published Helm chart and installation without a
+checkout. See the [release notes](docs/release-notes/v0.0.2.md) and, for v0.0.1 installations,
+[upgrading](docs/upgrading.md).
 
 ### Added
 
-- Optional per-pool `leaseSeconds` and `heartbeatSeconds` for remote runner pools;
-  the defaults stay 60 and 15 seconds.
+- `panko-server`: one binary and one image for the roles `gateway`, `controller`, `endpoint`,
+  `mirror`, `runner`, `agent` and `setup`, each in its own pod or Job with its own
+  ServiceAccount. The controller role embeds Metacontroller v4.17.6; there is no separate
+  Metacontroller deployment.
+- Helm chart `oci://ghcr.io/hingst-it/charts/panko` with CRDs, explicit RBAC per role, a setup
+  Job and daily CronJob for credentials and certificates, optional lab PostgreSQL and S3, and
+  GitOps examples for Argo CD, Flux and rendered manifests pinned to the release.
+- `panko install` (existing cluster), `panko dev up|status|down` (dedicated k3d lab),
+  `panko chart export|template` and `panko admin`; the CLI embeds the chart of its release.
+- Release artifacts: `panko-server` archives for Linux, images `panko-server`,
+  `panko-module-mirror` and `panko-agent` for Linux AMD64/ARM64, the chart as OCI artifact and
+  archive, and checksums for all archives. Release-artifact acceptance test
+  (`test/release_acceptance.py`).
+- Stable CAs with daily certificate renewal and reload without restart; Prometheus metrics for
+  the endpoint and mirror roles.
+- Optional per-pool `leaseSeconds` and `heartbeatSeconds` for remote runner pools; the defaults
+  stay 60 and 15 seconds.
+- Failed installs list pods that cannot start, with image and a hint.
+- Documentation: [upgrading](docs/upgrading.md), [operations](docs/operations.md),
+  [naming](docs/naming.md).
+
+### Changed
+
+- Images are tagged without the `v` prefix (`0.0.2`); chart version and `appVersion` equal the
+  release version. Five per-component images of 0.0.1 are replaced by three.
+- Panko's CRDs have the category `panko` and no short names: `kubectl get db` becomes
+  `kubectl get databases.platform.example.com`. `panko install` removes the old short name.
+- In-cluster runner Jobs and the agent image both use OpenTofu 1.11.7.
+- The module mirror serves a newly pinned revision only once its clone contains it, and runner
+  Jobs retry fetching from the mirror for up to 90 seconds, so module upgrades no longer cause
+  `module_fetch` failures.
+- `make deploy` installs through `panko install`; `make bootstrap` is removed.
+
+### Removed
+
+- Several controller replicas: `controller.replicas` must be 1 (leader election is not validated).
+- The per-role commands under `cmd/`; `panko-admin` remains as a compatibility wrapper.
 
 ### Fixed
 

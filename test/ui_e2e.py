@@ -62,8 +62,8 @@ def main():
         finally:
             try:
                 if created:
-                    kube('delete', 'db', name, '-n', 'team-a', '--ignore-not-found', '--wait=false', check=False)
-                    wait(lambda: get('db', name) is None, 'UI database cleanup', 300)
+                    kube('delete', 'databases.platform.example.com', name, '-n', 'team-a', '--ignore-not-found', '--wait=false', check=False)
+                    wait(lambda: get('databases.platform.example.com', name) is None, 'UI database cleanup', 300)
             finally:
                 forward.terminate()
                 forward.wait(timeout=10)

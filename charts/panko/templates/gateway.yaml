@@ -1,0 +1,126 @@
+{{- /* Gateway role: team API and inspector. It reads CRDs and team resources, never Secrets;
+its only credential input is the mounted token Secret. */}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: platform-gateway
+  namespace: infra-gateway
+  labels:
+    {{- include "panko.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: platform-gateway-discovery
+  labels:
+    {{- include "panko.labels" . | nindent 4 }}
+rules:
+  - {apiGroups: [apiextensions.k8s.io], resources: [customresourcedefinitions], verbs: [get, list]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: platform-gateway-discovery
+  labels:
+    {{- include "panko.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: platform-gateway-discovery}
+subjects:
+  - {kind: ServiceAccount, name: platform-gateway, namespace: infra-gateway}
+{{- range .Values.installation.teams }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: platform-gateway
+  namespace: {{ . }}
+  labels:
+    {{- include "panko.labels" $ | nindent 4 }}
+rules:
+  - {apiGroups: [""], resources: [configmaps], verbs: [get]}
+  {{- range $.Values.gateway.exposedResources }}
+  - apiGroups: [{{ .group }}]
+    resources: [{{ join ", " (sortAlpha .resources) }}]
+    verbs: [get, list, create, patch, delete]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: platform-gateway
+  namespace: {{ . }}
+  labels:
+    {{- include "panko.labels" $ | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: platform-gateway}
+subjects:
+  - {kind: ServiceAccount, name: platform-gateway, namespace: infra-gateway}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-gateway
+  namespace: infra-gateway
+  labels:
+    app: platform-gateway
+    app.kubernetes.io/component: gateway
+    {{- include "panko.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.gateway.replicas }}
+  selector:
+    matchLabels: {app: platform-gateway}
+  template:
+    metadata:
+      labels:
+        app: platform-gateway
+        app.kubernetes.io/component: gateway
+    spec:
+      serviceAccountName: platform-gateway
+      securityContext:
+        {{- include "panko.podSecurity" . | nindent 8 }}
+      {{- include "panko.pullSecrets" . | nindent 6 }}
+      containers:
+        - name: gateway
+          image: {{ include "panko.serverImage" . }}
+          imagePullPolicy: {{ .Values.images.server.pullPolicy }}
+          args: [gateway]
+          ports: [{name: http, containerPort: 8080}]
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 20
+          securityContext:
+            {{- include "panko.restricted" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.gateway.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tokens, mountPath: /etc/panko, readOnly: true}
+      volumes:
+        # Created by the setup Job (or provided, secrets.generate=false); the pod waits for it.
+        - name: tokens
+          secret: {secretName: gateway-auth}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: platform-gateway
+  namespace: infra-gateway
+  labels:
+    {{- include "panko.labels" . | nindent 4 }}
+spec:
+  selector: {app: platform-gateway}
+  ports: [{name: http, port: 8080, targetPort: http}]
+{{- with .Values.gateway.labNodePort }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: platform-gateway-lab
+  namespace: infra-gateway
+  labels:
+    {{- include "panko.labels" $ | nindent 4 }}
+spec:
+  type: NodePort
+  selector: {app: platform-gateway}
+  ports: [{name: http, port: 8080, targetPort: http, nodePort: {{ . }}}]
+{{- end }}

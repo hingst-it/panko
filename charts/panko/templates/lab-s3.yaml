@@ -1,0 +1,161 @@
+{{- define "panko.s3OnboardPod" -}}
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  securityContext:
+    {{- include "panko.podSecurity" . | nindent 8 }}
+  containers:
+    - name: onboard
+      image: {{ .Values.images.s3 }}
+      command: [/bin/sh, -c]
+      args:
+        - |
+          set -eu
+          admin() { versitygw admin --endpoint-url http://s3.infra-backends.svc.cluster.local:7070 "$@"; }
+          tries=0
+          until admin list-users >/dev/null 2>&1; do
+            tries=$((tries + 1)); [ "$tries" -lt 60 ] || { echo 'S3 gateway not reachable' >&2; exit 1; }
+            sleep 5
+          done
+          for file in /teams/*; do
+            team=$(basename "$file")
+            users=$(admin list-users)
+            if ! printf '%s\n' "$users" | tr -s ' \t' '\n\n' | grep -qx "panko-$team"; then
+              admin create-user --access "panko-$team" --secret "$(cat "$file")" --role user
+            fi
+            buckets=$(admin list-buckets)
+            if ! printf '%s\n' "$buckets" | tr -s ' \t' '\n\n' | grep -qx "panko-state-$team"; then
+              admin create-bucket --bucket "panko-state-$team" --owner "panko-$team"
+            fi
+          done
+          admin list-buckets
+      env:
+        - name: ADMIN_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef: {name: s3-admin, key: access_key_id}
+        - name: ADMIN_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef: {name: s3-admin, key: secret_access_key}
+      securityContext:
+        {{- include "panko.restricted" . | nindent 12 }}
+      volumeMounts:
+        - {name: teams, mountPath: /teams, readOnly: true}
+  volumes:
+    - name: teams
+      secret: {secretName: s3-teams, defaultMode: 0440}
+{{- end }}
+{{- if .Values.installation.s3 }}
+{{- /* Lab S3 gateway (VersityGW, posix backend). Each team gets its own user and bucket; the root
+key only onboards teams. Both keys come from the setup Job. */}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: s3
+  namespace: infra-backends
+  labels:
+    {{- include "panko.labels" . | nindent 4 }}
+spec:
+  selector: {app: s3}
+  ports:
+    - {name: s3, port: 7070, targetPort: 7070}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: s3
+  namespace: infra-backends
+  labels:
+    app: s3
+    {{- include "panko.labels" . | nindent 4 }}
+  annotations:
+    {{- include "panko.retain" . | nindent 4 }}
+spec:
+  serviceName: s3
+  replicas: 1
+  persistentVolumeClaimRetentionPolicy: {whenDeleted: Retain, whenScaled: Retain}
+  selector:
+    matchLabels: {app: s3}
+  template:
+    metadata:
+      labels: {app: s3}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "panko.podSecurity" . | nindent 8 }}
+      containers:
+        - name: s3
+          image: {{ .Values.images.s3 }}
+          command: [/bin/sh, -c]
+          args:
+            - mkdir -p /data/iam /data/buckets && exec versitygw --port :7070 --iam-dir /data/iam --health /health posix /data/buckets
+          env:
+            - name: ROOT_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef: {name: s3-admin, key: access_key_id}
+            - name: ROOT_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: {name: s3-admin, key: secret_access_key}
+          ports: [{name: s3, containerPort: 7070}]
+          readinessProbe:
+            httpGet: {path: /health, port: 7070}
+            initialDelaySeconds: 2
+          securityContext:
+            {{- include "panko.restricted" . | nindent 12 }}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 256Mi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+  # Written out as the API server stores it, so GitOps diffs stay empty.
+  volumeClaimTemplates:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        volumeMode: Filesystem
+        resources:
+          requests: {storage: 1Gi}
+---
+# Creates one S3 user and one owned bucket per team; users with role "user" reach only their bucket.
+# The name digests the team list and the rendered, immutable Pod template (image, script), so any
+# change runs a new Job instead of an invalid update. It waits for the gateway and the keys from setup.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: s3-onboard-{{ list .Values.installation.teams (include "panko.s3OnboardPod" .) | toJson | sha256sum | trunc 10 }}
+  namespace: infra-backends
+  labels:
+    app: s3-onboard
+    {{- include "panko.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 6
+  activeDeadlineSeconds: 900
+  template:
+    {{- include "panko.s3OnboardPod" . | nindent 4 }}
+{{- range .Values.installation.teams }}
+---
+# The team's approved destination: its own bucket, reachable only with its own key.
+apiVersion: platform.example.com/v1
+kind: BackendProfile
+metadata:
+  name: lab-s3
+  namespace: {{ . }}
+  labels:
+    {{- include "panko.labels" $ | nindent 4 }}
+  # Bound resources keep resolving their state destination after the team is removed.
+  annotations:
+    {{- include "panko.retain" $ | nindent 4 }}
+spec:
+  type: s3
+  s3:
+    bucket: panko-state-{{ . }}
+    region: us-east-1
+    keyPrefix: panko
+    endpoint: http://s3.infra-backends.svc.cluster.local:7070
+    usePathStyle: true
+{{- end }}
+{{- end }}

@@ -58,7 +58,7 @@ func (m *Migrator) Preflight(ctx context.Context) error {
 	}
 	states, auth := findSources(items)
 	if len(states) > 0 {
-		return fmt.Errorf("legacy state exists; follow docs/operations.de.md and run make migrate-state first")
+		return fmt.Errorf("legacy state exists; follow docs/operations.de.md and run panko admin migrate-state (make migrate-state in a checkout) first")
 	}
 	if auth != nil {
 		return m.CopySecret(ctx, auth, "infra-gateway")

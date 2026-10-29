@@ -33,10 +33,17 @@ type Client struct {
 }
 
 func New(kubeconfig string, timeout time.Duration) (*Client, error) {
+	return NewContext(kubeconfig, "", timeout)
+}
+
+// NewContext uses one context of an explicit kubeconfig; an empty context is its current one.
+// The kubeconfig file itself is never modified.
+func NewContext(kubeconfig, contextName string, timeout time.Duration) (*Client, error) {
 	var cfg *rest.Config
 	var err error
 	if kubeconfig != "" {
-		cfg, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
+		rules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfig}
+		cfg, err = clientcmd.NewNonInteractiveDeferredLoadingClientConfig(rules, &clientcmd.ConfigOverrides{CurrentContext: contextName}).ClientConfig()
 	} else {
 		cfg, err = rest.InClusterConfig()
 	}

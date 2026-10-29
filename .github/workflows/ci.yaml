@@ -18,10 +18,20 @@ concurrency:
 jobs:
   unit:
     runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-latest' || vars.PANKO_CI_RUNNER || 'ubuntu-latest' }}
-    timeout-minutes: 10
+    # A cold cache (new dependencies) compiles everything with the race detector.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
+      # The Helm SDK, controller-runtime and the embedded Metacontroller make a cold race build take
+      # most of ten minutes; the Makefile keeps Go's module and build caches under .local.
+      - uses: actions/cache@v6
+        with:
+          path: |
+            .local/go-mod
+            .local/go-cache
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum', 'mise.toml') }}
+          restore-keys: go-${{ runner.os }}-${{ runner.arch }}-
       - name: Install test dependencies
         run: |
           python3 -m venv .venv
@@ -54,6 +64,15 @@ jobs:
           df -h /
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
+      # The Helm SDK, controller-runtime and the embedded Metacontroller make a cold race build take
+      # most of ten minutes; the Makefile keeps Go's module and build caches under .local.
+      - uses: actions/cache@v6
+        with:
+          path: |
+            .local/go-mod
+            .local/go-cache
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum', 'mise.toml') }}
+          restore-keys: go-${{ runner.os }}-${{ runner.arch }}-
       - name: Install test dependencies
         run: |
           python3 -m venv .venv
@@ -63,7 +82,7 @@ jobs:
           CLUSTER_NAME: panko-shard-${{ matrix.shard }}
         run: |
           mkdir -p .local
-          make cluster-up bootstrap build deploy
+          make cluster-up build deploy
           # All images are built and imported; release the Go build layers.
           docker builder prune --all --force
           df -h /
@@ -79,7 +98,9 @@ jobs:
           kubectl describe nodes > .local/diagnostics/nodes.txt 2>&1 || true
           kubectl get pods,jobs,databases -A -o wide > .local/diagnostics/resources.txt 2>&1 || true
           kubectl get events -A --sort-by=.lastTimestamp > .local/diagnostics/events.txt 2>&1 || true
+          kubectl -n infra-runners logs --all-containers --prefix -l app=panko-setup > .local/diagnostics/setup.log 2>&1 || true
           for ns in infra-runners infra-gateway team-a team-b; do
+            # The controller role: embedded Metacontroller and the hook in one pod.
             kubectl -n "$ns" logs --all-containers --prefix -l app=database-hook > ".local/diagnostics/$ns-hook.log" 2>&1 || true
             kubectl -n "$ns" logs --all-containers --prefix -l app=platform-gateway > ".local/diagnostics/$ns-gateway.log" 2>&1 || true
           done

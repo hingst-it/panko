@@ -42,8 +42,8 @@ def main():
         print('All egress end-to-end tests passed', flush=True)
     finally:
         kube('delete', 'pod', PROBE, '-n', 'team-a', '--ignore-not-found', '--wait=false', check=False)
-        kube('delete', 'db', name, '-n', 'team-a', '--ignore-not-found', '--wait=false', check=False)
-        wait(lambda: get('db', name) is None, f'{name} cleanup', 300)
+        kube('delete', 'databases.platform.example.com', name, '-n', 'team-a', '--ignore-not-found', '--wait=false', check=False)
+        wait(lambda: get('databases.platform.example.com', name) is None, f'{name} cleanup', 300)
         for team in subprocess.run(['.local/bin/admin', 'teams'], capture_output=True, text=True).stdout.split():
             kube('delete', 'networkpolicy', 'panko-runner-egress', '-n', team, '--ignore-not-found', check=False)
 

@@ -1,0 +1,67 @@
+{{- if .Values.lab.postgres.enabled }}
+{{- /* Lab PostgreSQL for the example module; its admin password comes from the setup Job. */}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: infra-backends
+  labels:
+    {{- include "panko.labels" . | nindent 4 }}
+spec:
+  selector: {app: postgres}
+  ports:
+    - {name: postgres, port: 5432, targetPort: 5432}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: infra-backends
+  labels:
+    app: postgres
+    {{- include "panko.labels" . | nindent 4 }}
+  annotations:
+    {{- include "panko.retain" . | nindent 4 }}
+spec:
+  serviceName: postgres
+  replicas: 1
+  # Deleting the StatefulSet keeps the data volume.
+  persistentVolumeClaimRetentionPolicy: {whenDeleted: Retain, whenScaled: Retain}
+  selector:
+    matchLabels: {app: postgres}
+  template:
+    metadata:
+      labels: {app: postgres}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: postgres
+          image: {{ .Values.images.postgres }}
+          env:
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: postgres-admin, key: password}
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports: [{name: postgres, containerPort: 5432}]
+          readinessProbe:
+            exec: {command: [pg_isready, -U, postgres]}
+            initialDelaySeconds: 3
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {memory: 512Mi}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+  # Written out as the API server stores it, so GitOps diffs stay empty.
+  volumeClaimTemplates:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        volumeMode: Filesystem
+        resources:
+          requests: {storage: {{ .Values.lab.postgres.storage }}}
+{{- end }}

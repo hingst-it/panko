@@ -1,0 +1,260 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  # Deleting a CRD deletes every resource of its kind; GitOps tools must never prune it.
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  name: databases.platform.example.com
+  labels:
+    platform.example.com/expose: "true"
+spec:
+  group: platform.example.com
+  scope: Namespaced
+  names:
+    plural: databases
+    singular: database
+    kind: Database
+    categories: [panko]
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - {name: Phase, type: string, jsonPath: .status.phase}
+        - {name: Age, type: date, jsonPath: .metadata.creationTimestamp}
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: A PostgreSQL database with an isolated login role and connection secret.
+          required: [spec]
+          properties:
+            apiVersion:
+              type: string
+              description: Kubernetes API group and version.
+            kind:
+              type: string
+              description: Kubernetes resource kind.
+            metadata:
+              type: object
+            spec:
+              type: object
+              description: Desired database configuration, read directly by OpenTofu.
+              required: [owner]
+              x-kubernetes-validations:
+                - rule: self.owner == oldSelf.owner
+                  message: owner is immutable
+                - rule: has(self.stateBackendRef) == has(oldSelf.stateBackendRef) && (!has(self.stateBackendRef) || self.stateBackendRef.name == oldSelf.stateBackendRef.name)
+                  message: stateBackendRef is immutable; moving state requires an administrator migration
+              properties:
+                owner:
+                  type: string
+                  minLength: 1
+                  maxLength: 63
+                  pattern: '^[a-z][a-z0-9]*(-[a-z0-9]+)*$'
+                  description: Owning team. Used in the login role name; immutable after creation.
+                extensions:
+                  type: array
+                  default: []
+                  maxItems: 3
+                  x-kubernetes-list-type: set
+                  description: PostgreSQL extensions installed into the database.
+                  items:
+                    type: string
+                    enum: [pgcrypto, uuid-ossp, citext]
+                    description: An extension available in the local PostgreSQL image.
+                connectionLimit:
+                  type: integer
+                  default: 20
+                  minimum: 1
+                  maximum: 100
+                  description: Maximum concurrent connections for both the database and its login role.
+                stateBackendRef:
+                  type: object
+                  description: StateBackend in this namespace that stores the OpenTofu state. Without it, the namespace's "default" StateBackend or the built-in Kubernetes backend is used. Bound once at creation.
+                  required: [name]
+                  properties:
+                    name:
+                      type: string
+                      minLength: 1
+                      maxLength: 63
+                      pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                      description: Name of the StateBackend.
+            status:
+              type: object
+              description: Last observed reconciliation result.
+              properties:
+                phase:
+                  type: string
+                  enum: [Pending, Applying, Ready, Failed, Deleting, Maintenance]
+                  description: Current lifecycle phase.
+                observedGeneration:
+                  type: integer
+                  format: int64
+                  minimum: 0
+                  description: Generation of the configuration currently reported by this status.
+                lastAppliedHash:
+                  type: string
+                  description: SHA-256 of spec and generation last successfully applied.
+                lastAppliedRevision:
+                  type: string
+                  description: Module commit last successfully applied; teardown uses this revision.
+                observedRevision:
+                  type: string
+                  description: Module commit the current phase refers to.
+                stateBackend:
+                  type: object
+                  description: State backend bound before the first job; only an administrator migration changes it.
+                  required: [type, config]
+                  properties:
+                    type:
+                      type: string
+                      enum: [kubernetes, s3]
+                      description: OpenTofu backend type.
+                    config:
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                      description: Non-secret backend settings, including the state location derived by Panko.
+                    stateBackend:
+                      type: string
+                      description: Selected StateBackend, if any.
+                    profile:
+                      type: string
+                      description: BackendProfile that approved the destination.
+                    credentialsSecret:
+                      type: string
+                      description: Secret in this namespace with the backend credentials.
+                stateBackendError:
+                  type: string
+                  description: Why no state backend could be bound yet.
+                identity:
+                  type: string
+                  description: Stable identity for names, state keys and checkpoints; the original UID after a restore.
+                modulePath:
+                  type: string
+                  maxLength: 200
+                  description: Module directory inside the repository, bound before the first job; empty means the repository root.
+                runnerPool:
+                  type: string
+                  maxLength: 40
+                  description: Remote runner pool bound before the first execution; empty means in-cluster Jobs.
+                moduleRepository:
+                  type: string
+                  maxLength: 2048
+                  description: Module repository a remote runner pool fetches from, bound with the pool.
+                planRequest:
+                  type: string
+                  description: Last explicit drift check request token that was started.
+                rolloutRevision:
+                  type: string
+                  description: Module commit a manual rollout moved this resource to, kept until the next explicit upgrade.
+                lastPlan:
+                  type: object
+                  description: Outcome of the most recent read-only drift check.
+                  properties:
+                    job: {type: string, description: Name of the plan Job.}
+                    token: {type: string, description: Request or schedule token that started the check.}
+                    moduleRevision: {type: string, description: Module commit the check used.}
+                    finishedAt: {type: string, description: Completion time.}
+                    result:
+                      type: string
+                      enum: [Succeeded, Failed]
+                      description: Whether the check itself ran.
+                    drift: {type: boolean, description: "True if OpenTofu would add, change or remove something."}
+                    code: {type: string, description: Failure code if the check failed.}
+                    message: {type: string, maxLength: 300, description: Safe failure description.}
+                    changes:
+                      type: object
+                      description: Changes OpenTofu would make.
+                      properties:
+                        add: {type: integer, format: int64}
+                        change: {type: integer, format: int64}
+                        remove: {type: integer, format: int64}
+                lastExecution:
+                  type: object
+                  description: Outcome of the most recent finished Job; kept after the Job expires.
+                  properties:
+                    action: {type: string, description: apply or destroy.}
+                    job: {type: string, description: Name of the Job.}
+                    attempt: {type: integer, format: int64, description: Attempt number for this generation.}
+                    generation: {type: integer, format: int64, description: Generation the Job applied.}
+                    moduleRevision: {type: string, description: Module commit the Job used.}
+                    retryToken: {type: string, description: "Retry token that started this attempt, if any."}
+                    startedAt: {type: string, description: Job start time.}
+                    finishedAt: {type: string, description: Job completion or failure time.}
+                    result:
+                      type: string
+                      enum: [Succeeded, Failed]
+                      description: Outcome of the Job.
+                    code: {type: string, description: "Stable failure code, e.g. provider, checkpoint or module_fetch."}
+                    message: {type: string, maxLength: 300, description: Safe failure description without secrets.}
+                    changes:
+                      type: object
+                      description: Resource changes OpenTofu reported.
+                      properties:
+                        add: {type: integer, format: int64}
+                        change: {type: integer, format: int64}
+                        remove: {type: integer, format: int64}
+                message:
+                  type: string
+                  description: Human-readable reconciliation result or failure.
+                destroy:
+                  type: object
+                  description: Durable teardown attempt; changing the retry-destroy annotation permits a new attempt after failure.
+                  required: [attempt, retryToken, jobName, result]
+                  properties:
+                    attempt:
+                      type: integer
+                      minimum: 1
+                      description: Monotonically increasing teardown attempt number.
+                    retryToken:
+                      type: string
+                      description: Retry annotation value consumed by this attempt.
+                    jobName:
+                      type: string
+                      description: Job executing this teardown attempt.
+                    result:
+                      type: string
+                      enum: [Pending, Running, Succeeded, Failed]
+                      description: Last observed teardown outcome, retained after Job TTL expiry.
+                connectionSecretRef:
+                  type: object
+                  description: Connection credentials in the resource namespace.
+                  required: [name]
+                  properties:
+                    name:
+                      type: string
+                      description: Name of the Kubernetes connection secret.
+                conditions:
+                  type: array
+                  description: Kubernetes-style lifecycle conditions.
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [type]
+                  items:
+                    type: object
+                    description: An observed condition with its last transition time.
+                    required: [type, status, reason, message, lastTransitionTime, observedGeneration]
+                    properties:
+                      type:
+                        type: string
+                        description: Condition type, for example Ready.
+                      status:
+                        type: string
+                        enum: ["True", "False", Unknown]
+                        description: Whether the condition is satisfied.
+                      reason:
+                        type: string
+                        description: Machine-readable reason for this condition.
+                      message:
+                        type: string
+                        description: Human-readable detail.
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                        description: Time at which the condition last changed.
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                        description: Generation evaluated for this condition.

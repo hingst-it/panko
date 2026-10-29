@@ -61,15 +61,17 @@ könnte so das Infrastruktur-Administratorpasswort erhalten.
 
 ## Lab-S3 (VersityGW)
 
-`make bootstrap` startet [VersityGW](https://github.com/versity/versitygw) als S3-Gateway
-in `infra-backends`. Das Lab nutzt VersityGW, weil es bedingte Schreibvorgänge
+Mit `installation.s3` (`"s3": true` in `panko.json`, Standard in `panko dev up`) startet das
+Chart [VersityGW](https://github.com/versity/versitygw) als S3-Gateway in `infra-backends`. Das Lab nutzt VersityGW, weil es bedingte Schreibvorgänge
 (`If-None-Match`) korrekt umsetzt; ohne diese wäre `use_lockfile` wirkungslos.
-`make deploy` legt je Team einen eigenen S3-Benutzer mit Rolle `user` und einen eigenen
-Bucket `panko-state-<team>` an. Das Secret `panko-state-s3` im Team-Namespace enthält
+Der Setup-Job erzeugt je Team die Schlüssel, der Job `s3-onboard-<digest>` legt je Team einen
+eigenen S3-Benutzer mit Rolle `user` und einen eigenen Bucket `panko-state-<team>` an, und das
+Chart rendert das BackendProfile `lab-s3` je Team. Das Secret `panko-state-s3` im Team-Namespace enthält
 dessen Schlüssel. Andere Teams erhalten auf den Bucket keinen Lese-, Listen- oder
 Schreibzugriff. Der Root-Schlüssel (`infra-backends/s3-admin`) dient nur dem Onboarding.
 
-Ein bestehendes Lab braucht einmalig erneut `make bootstrap deploy`.
+Ein bestehendes Lab erhält den S3-Gateway beim nächsten `make deploy` bzw. `panko install` mit
+aktiviertem `s3`.
 
 Ein Team wählt sein Lab-Ziel so:
 
