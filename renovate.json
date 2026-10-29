@@ -75,10 +75,10 @@
       "customType": "regex",
       "description": "Image references in the chart's values that the helm-values manager does not detect.",
       "managerFilePatterns": [
-        "/^charts/panko/values\\.yaml$/"
+        "/^charts\\/panko/values\\.yaml$/"
       ],
       "matchStrings": [
-        "\\n  (?:engine|gitSync|postgres|s3): (?<depName>[^:\\s]+):(?<currentValue>[^@\\s]+)(?:@(?<currentDigest>sha256:[0-9a-f]{64}))?(?=\\n)"
+        "(?m)^[ \\t]{2}(?:engine|gitSync|postgres|s3): (?<depName>[^:\\s]+):(?<currentValue>[^@\\s]+)(?:@(?<currentDigest>sha256:[0-9a-f]{64}))?"
       ],
       "datasourceTemplate": "docker"
     }
