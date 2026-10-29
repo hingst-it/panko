@@ -105,9 +105,10 @@ runs:
 # 1. Destroy every resource through Panko (finalizers run OpenTofu destroy and clean up state).
 kubectl delete databases.platform.example.com --all -A --wait --timeout=15m
 kubectl get panko -A                      # nothing left in any team namespace
-# 2. Remove the release, then the retained objects.
+# 2. Still while Panko runs: its embedded Metacontroller finalizes the CompositeController.
+kubectl delete compositecontroller database-controller --timeout=5m
+# 3. Remove the release, then the retained objects.
 helm uninstall panko -n panko-system --wait
-kubectl delete compositecontroller database-controller
 kubectl delete clusterrole,clusterrolebinding -l app.kubernetes.io/part-of=panko
 kubectl delete namespace infra-runners infra-gateway infra-backends panko-system \
   team-a panko-state-team-a team-b panko-state-team-b   # your teams
@@ -118,6 +119,9 @@ kubectl delete crd compositecontrollers.metacontroller.k8s.io \
   controllerrevisions.metacontroller.k8s.io decoratorcontrollers.metacontroller.k8s.io
 ```
 
+The order matters. A CompositeController deleted after the release is gone stays `Terminating`
+with the finalizer `metacontroller.io/parent-finalizer-cleanup`, because no controller runs to
+finalize it; reinstall the release (it resumes with the retained objects) and delete it then.
 Deleting the CompositeController or the CRDs while Databases exist removes their finalizers or the
 resources themselves without destroying the infrastructure, which then has no state anywhere.
 Deleted namespaces take their state and connection Secrets with them. The acceptance test runs

@@ -557,14 +557,15 @@ def ca_rollover(release, cluster, install):
 def full_cleanup(cluster, teams):
     """docs/operations.md#uninstalling-and-cleaning-up-retained-objects, on an installation without resources."""
     assert not json.loads(cluster.kubectl('get', 'databases.platform.example.com', '-A', '-o', 'json').stdout)['items']
+    # While the embedded Metacontroller still runs, so that it finalizes the CompositeController.
+    cluster.kubectl('delete', 'compositecontroller', 'database-controller', '--timeout=300s')
     run([tool('helm'), '--kubeconfig', cluster.kubeconfig, 'uninstall', 'panko', '--namespace', 'panko-system', '--wait'], quiet=True)
-    cluster.kubectl('delete', 'compositecontroller', 'database-controller')
     cluster.kubectl('delete', 'clusterrole,clusterrolebinding', '-l', 'app.kubernetes.io/part-of=panko')
     namespaces = ['infra-runners', 'infra-gateway', 'infra-backends', 'panko-system'] + [n for t in teams for n in (t, 'panko-state-' + t)]
     cluster.kubectl('delete', 'namespace', *namespaces, '--wait=true', '--timeout=600s')
     cluster.kubectl('delete', 'crd', 'databases.platform.example.com', 'runs.platform.example.com', 'statebackends.platform.example.com',
                     'backendprofiles.platform.example.com', 'compositecontrollers.metacontroller.k8s.io',
-                    'controllerrevisions.metacontroller.k8s.io', 'decoratorcontrollers.metacontroller.k8s.io')
+                    'controllerrevisions.metacontroller.k8s.io', 'decoratorcontrollers.metacontroller.k8s.io', '--timeout=300s')
     left = cluster.kubectl('get', 'all,clusterrole,clusterrolebinding,crd,namespace,pvc,pv', '-A', '-o', 'name', '-l', 'app.kubernetes.io/part-of=panko').stdout
     leftover = [line for line in left.splitlines() if line.strip()]
     crds = [line for line in cluster.kubectl('get', 'crd', '-o', 'name').stdout.splitlines() if 'platform.example.com' in line or 'metacontroller' in line]
