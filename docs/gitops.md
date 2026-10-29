@@ -168,8 +168,8 @@ from a GitOps repository (`$values`). Relevant options:
 `CreateNamespace=true`, `ServerSideApply=true`, `SkipDryRunOnMissingResource=true`, retries, and
 automated sync with pruning. Argo CD renders with `helm template` and applies `crds/`.
 Helm hooks are not used. Argo CD tracks only rendered objects, so the setup Job's Secrets,
-ConfigMaps and NetworkPolicies do not show up as out of sync. The release acceptance test runs it with Argo CD v3.5.6 from the OCI chart (pending for
-v0.0.2: Synced and Healthy, a Database Ready, retention after deleting the Application). Tested
+ConfigMaps and NetworkPolicies do not show up as out of sync. The release acceptance test runs it with Argo CD v3.5.6 from the OCI chart (passed for
+v0.0.2-rc.1: Synced and Healthy, a Database Ready, retention after deleting the Application). Tested
 during the PoC with the chart from Git: no out-of-sync resources after a hard refresh, the setup
 Job not re-run, and self-heal. The `ignoreDifferences` entry for `volumeClaimTemplates` status is
 needed: without it the lab PostgreSQL StatefulSet stays `OutOfSync`.
@@ -181,7 +181,7 @@ chart (`ref.tag: 0.0.2`) and a `HelmRelease` (`chartRef`) with `crds: CreateRepl
 `RetryOnFailure` strategy for both (a failed install or upgrade is retried as it is, never
 uninstalled or rolled back: Panko's state lives in its own objects and infrastructure may already
 have changed), and values from a ConfigMap
-(`valuesFrom`). The release record is stored in `panko-system`. The release acceptance test runs it with Flux v2.10.0 from the OCI chart (pending for v0.0.2:
+(`valuesFrom`). The release record is stored in `panko-system`. The release acceptance test runs it with Flux v2.10.0 from the OCI chart (passed for v0.0.2-rc.1:
 Ready, CRDs created, a Database Ready, retention after deleting the HelmRelease). Tested during
 the PoC with the chart from Git: a changed value rolled out through `valuesFrom` with
 the tokens unchanged. Flux's helm-controller uses its own Helm SDK version and wait logic, which may
@@ -210,10 +210,10 @@ field managers. Plain manifests have no release record; a later `panko install` 
 |---|---|
 | `helm lint --strict`, `helm template` with defaults and `examples/gitops/values.yaml` | yes (`make lint-chart`, CI unit job) |
 | Reproducible render, no Secrets, RBAC equal to the `panko admin` generators, image references equal to the published images | yes (`internal/chart` tests, `tools/release.py check`) |
-| Install and upgrade through `panko install` and `panko dev up` on k3d | yes, in the e2e suites; release acceptance test pending |
-| `helm install` / `helm uninstall` of the packaged chart, private registry with pull secrets | pending: release acceptance test |
-| Argo CD `Application` (v3.5.6) from the published OCI chart | pending: release acceptance test (Synced/Healthy, Database Ready, retention after deleting the Application) |
-| Flux `OCIRepository`/`HelmRelease` (v2.10.0) from the published OCI chart | pending: release acceptance test (Ready, Database Ready, retention after deleting the HelmRelease) |
+| Install and upgrade through `panko install` and `panko dev up` on k3d | yes, in the e2e suites and the release acceptance test |
+| `helm install` / `helm uninstall` of the packaged chart, private registry with pull secrets | yes, release acceptance test |
+| Argo CD `Application` (v3.5.6) from the published OCI chart | yes, release acceptance test (Synced/Healthy, Database Ready, retention after deleting the Application) |
+| Flux `OCIRepository`/`HelmRelease` (v2.10.0) from the published OCI chart | yes, release acceptance test (Ready, Database Ready, retention after deleting the HelmRelease) |
 | Argo CD self-heal, hard refresh without drift; Flux `valuesFrom` upgrade | during the PoC only (chart from Git over SSH) |
 | Pre-rendered manifests applied with `kubectl apply --server-side`, CRDs first; switching to Helm with `--take-ownership` | during the PoC |
 | Moving a live installation between `panko install`, Argo CD and Flux | no |
