@@ -163,7 +163,9 @@ class Cluster:
         return json.loads(result.stdout) if result.returncode == 0 else None
 
     def delete(self):
-        run([self.k3d, 'cluster', 'delete', self.name], quiet=True, check=False)
+        # k3d removes a deleted cluster from $KUBECONFIG; point it at this cluster's own file so that
+        # ~/.kube/config is never rewritten.
+        run([self.k3d, 'cluster', 'delete', self.name], env={**os.environ, 'KUBECONFIG': str(self.kubeconfig)}, quiet=True, check=False)
 
 
 def import_candidate_images(release, cluster):
@@ -311,8 +313,9 @@ def postgres_password(kubectl):
 
 
 def kubeconfig_fingerprint():
+    """Content and modification time of ~/.kube/config: it must not even be rewritten."""
     path = Path.home() / '.kube' / 'config'
-    return digest(path.read_bytes()) if path.exists() else None
+    return (digest(path.read_bytes()), path.stat().st_mtime_ns) if path.exists() else None
 
 
 # --- mirror -----------------------------------------------------------------------------------
@@ -809,7 +812,7 @@ def phase_migrate(release):
             gateway.close()
         log('ok after the migration an update and a complete destroy succeeded')
     finally:
-        run([tool('k3d'), 'cluster', 'delete', name], check=False, quiet=True)
+        run([tool('k3d'), 'cluster', 'delete', name], env={**os.environ, 'KUBECONFIG': str(source / '.local/kubeconfig')}, check=False, quiet=True)
         run(['git', '-C', ROOT, 'worktree', 'remove', '--force', source], check=False, quiet=True)
 
 
