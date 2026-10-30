@@ -136,4 +136,4 @@ require (
 	zgo.at/zcache/v2 v2.4.1 // indirect
 )
 
-replace metacontroller => github.com/metacontroller/metacontroller v1.5.21-0.20261015191212-be3f3f973ddc
+replace metacontroller => github.com/metacontroller/metacontroller v1.5.21-0.20261019211232-8083a001969b
