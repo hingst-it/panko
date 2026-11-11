@@ -74,7 +74,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           # Keep aligned with mise.toml and Dockerfile.server.
-          go-version: '1.27.3'
+          go-version: '1.27.4'
       # The CLI embeds the chart, so it is stamped with the release version before the build.
       - name: Build release archives
         env:
